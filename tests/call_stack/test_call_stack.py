@@ -14,6 +14,11 @@ def test_basic_caller():
         assert caller.function == "test_basic_caller", (
             f"Expected 'test_basic_caller', got '{caller.function}'"
         )
+        # Validate function reference
+        assert caller.func is not None, "Function reference should not be None"
+        assert caller.func is test_basic_caller, (
+            "Function reference should match test_basic_caller"
+        )
         return caller
 
     caller = test_function()
@@ -39,11 +44,15 @@ def test_nested_caller():
     assert caller is not None, "Caller should not be None"
     # The caller is 'middle' (who called inner())
     assert caller.function == "middle", f"Expected 'middle', got '{caller.function}'"
+    # These are module-level nested functions (defined in test function scope),
+    # so they should have stable references within the test scope
+    assert caller.func is not None, "Function reference should not be None"
+    assert caller.func is middle, "Function reference should match middle"
 
 
 def test_call_stack_omits_autopsy():
     """Test that call_stack() omits its own frames."""
-    
+
     def test_func():
         cs = call_stack()
         caller = cs.caller
@@ -63,10 +72,42 @@ def test_call_stack_omits_autopsy():
 
     caller = test_func()
     assert caller.filename.endswith("test_call_stack.py")
+    # Validate function reference
+    assert caller.func is not None, "Function reference should not be None"
+    assert caller.func is test_call_stack_omits_autopsy, (
+        "Function reference should match test_call_stack_omits_autopsy"
+    )
 
 
-if __name__ == "__main__":
-    test_basic_caller()
-    test_nested_caller()
-    test_call_stack_omits_autopsy()
-    print("All call stack tests passed!")
+def test_class_method_reference():
+    """Test that different instances of the same class have the same method reference."""
+
+    class TestClass:
+        def method(self):
+            cs = call_stack()
+            return cs.current
+
+    instance1 = TestClass()
+    instance2 = TestClass()
+
+    current1 = instance1.method()
+    current2 = instance2.method()
+
+    assert current1 is not None, "Current1 should not be None"
+    assert current2 is not None, "Current2 should not be None"
+    assert current1.function == "method", (
+        f"Expected 'method', got '{current1.function}'"
+    )
+    assert current2.function == "method", (
+        f"Expected 'method', got '{current2.function}'"
+    )
+
+    # Validate that both instances have the same method reference
+    assert current1.func is not None, "Function reference should not be None"
+    assert current2.func is not None, "Function reference should not be None"
+    assert current1.func is current2.func, (
+        "Different instances should have the same method reference"
+    )
+    assert current1.func is TestClass.method, (
+        "Method reference should match TestClass.method"
+    )

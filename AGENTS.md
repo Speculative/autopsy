@@ -19,6 +19,6 @@ simple getters that are used to generate human-readable output reports (to the
 console as well as to formatted output files).
 
 # Tooling
- - `uv` for dependencies
+ - `uv` for dependencies and running scripts. Always use `uv run python -m <module>` when running scripts.
  - `ruff` for formatting and linting
  - `pytest` for tests

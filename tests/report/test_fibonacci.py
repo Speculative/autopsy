@@ -47,10 +47,6 @@ def test_fibonacci_iterative():
     total_logs = sum(len(values) for values in logs.values())
     assert total_logs > 0, "Should have logged values"
 
-    print(
-        f"✓ Iterative fibonacci logged {total_logs} values across {len(call_sites)} call sites"
-    )
-
 
 def test_fibonacci_recursive():
     """Test recursive fibonacci with call stack tracking."""
@@ -79,10 +75,3 @@ def test_fibonacci_recursive():
                     pass
 
     assert found_caller_info, "Should have captured caller information in logs"
-    print("✓ Recursive fibonacci captured call stack information")
-
-
-if __name__ == "__main__":
-    test_fibonacci_iterative()
-    test_fibonacci_recursive()
-    print("\nAll fibonacci tests passed!")
