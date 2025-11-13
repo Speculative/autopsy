@@ -1,4 +1,5 @@
 """Pytest configuration and fixtures."""
+
 import pytest
 from autopsy import report
 
@@ -9,4 +10,3 @@ def reset_report():
     report.init()
     yield
     # Cleanup after test if needed
-

@@ -5,5 +5,4 @@ from autopsy.call_stack import call_stack
 report = get_report()
 
 # Export call_stack
-__all__ = ['report', 'call_stack']
-
+__all__ = ["report", "call_stack"]
