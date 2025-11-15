@@ -1,17 +1,103 @@
 import inspect
 import os
-from typing import List, Optional, NamedTuple, Callable
+from typing import Any, Callable, Dict, List, Optional
 
 
-class Caller(NamedTuple):
+class Variable:
+    """Result type for variable lookups that distinguishes missing variables from None values."""
+
+    def __init__(self, exists: bool, value: Any = None):
+        """
+        Initialize a Variable result.
+
+        Args:
+            exists: Whether the variable exists in the frame
+            value: The variable's value (only meaningful if exists is True)
+        """
+        self.exists = exists
+        self.value = value
+
+    def __repr__(self) -> str:
+        if self.exists:
+            return f"Variable({self.value!r})"
+        return "UndefinedVariable"
+
+
+class Caller:
     """Information about a caller in the call stack."""
 
-    module: str
-    class_name: Optional[str]
-    function: str
-    func: Optional[Callable]
-    filename: str
-    lineno: int
+    def __init__(self, frame_info: inspect.FrameInfo):
+        """
+        Initialize a Caller with a FrameInfo.
+
+        Args:
+            frame_info: The FrameInfo object for this frame
+        """
+        self.frame_info = frame_info
+
+        # Extract picklable data from FrameInfo for serialization
+        # These are computed eagerly so Caller can be pickled
+        frame = frame_info.frame
+        self.module = frame.f_globals.get("__name__", "<unknown>")
+        self.filename = frame_info.filename
+        self.lineno = frame_info.lineno
+        self.function = frame_info.function
+
+        # Extract class_name if this is a method
+        self.class_name = None
+        if "self" in frame.f_locals:
+            self_obj = frame.f_locals["self"]
+            self.class_name = type(self_obj).__name__
+
+    @property
+    def func(self) -> Optional[Callable]:
+        """Get the function reference if available."""
+        # If frame_info is None (e.g., after unpickling), we can't get the function reference
+        if self.frame_info is None:
+            return None
+
+        frame = self.frame_info.frame
+
+        # Check if it's a method by looking for 'self' in locals
+        if "self" in frame.f_locals:
+            self_obj = frame.f_locals["self"]
+            # Get the unbound method from the class
+            try:
+                return getattr(type(self_obj), self.function)
+            except AttributeError:
+                pass
+        else:
+            # Try to get function reference from globals first (module-level functions)
+            try:
+                func_ref = frame.f_globals.get(self.function)
+                # Verify it's actually a function and not something else with the same name
+                if func_ref is not None and callable(func_ref):
+                    return func_ref
+            except (KeyError, TypeError):
+                pass
+
+            # If not found in globals, try locals (for nested functions)
+            # Check current frame's locals first
+            try:
+                func_ref = frame.f_locals.get(self.function)
+                # Verify it's actually a function and not something else with the same name
+                if func_ref is not None and callable(func_ref):
+                    return func_ref
+            except (KeyError, TypeError):
+                pass
+
+            # If still not found, check parent frame's locals (nested functions are defined there)
+            if frame.f_back is not None:
+                try:
+                    parent_frame = frame.f_back
+                    func_ref = parent_frame.f_locals.get(self.function)
+                    # Verify it's actually a function and not something else with the same name
+                    if func_ref is not None and callable(func_ref):
+                        return func_ref
+                except (KeyError, TypeError, AttributeError):
+                    pass
+
+        return None
 
     @property
     def fully_qualified_name(self) -> str:
@@ -21,6 +107,65 @@ class Caller(NamedTuple):
         if self.class_name:
             return f"{self.module}.{self.class_name}.{self.function}"
         return f"{self.module}.{self.function}"
+
+    @property
+    def variables(self) -> Dict[str, Any]:
+        """
+        Get the variables from this frame, retrieved from FrameInfo when accessed.
+
+        Returns:
+            Dictionary mapping variable names to their values
+        """
+        if self.frame_info is None:
+            # After unpickling, return the snapshot
+            return getattr(self, "_variables_snapshot", {})
+        frame = self.frame_info.frame
+        return dict(frame.f_locals) if frame.f_locals else {}
+
+    def variable(self, name: str) -> Variable:
+        """
+        Get a specific variable's value from this frame.
+
+        Args:
+            name: The name of the variable to retrieve
+
+        Returns:
+            Variable object indicating whether the variable exists and its value.
+            Use Variable.exists to check if the variable exists, and Variable.value
+            to get its value (which may be None if the variable exists but is None).
+        """
+        vars_dict = self.variables
+        if name in vars_dict:
+            return Variable(exists=True, value=vars_dict[name])
+        return Variable(exists=False)
+
+    def __getstate__(self):
+        """
+        Return state for pickling. Excludes FrameInfo which contains unpicklable frame objects.
+        Variables are captured at pickling time since FrameInfo cannot be restored.
+        """
+        return {
+            "module": self.module,
+            "class_name": self.class_name,
+            "function": self.function,
+            "filename": self.filename,
+            "lineno": self.lineno,
+            "variables": self.variables,  # Capture variables at pickling time
+        }
+
+    def __setstate__(self, state):
+        """
+        Restore state from pickling. FrameInfo is not restored since it can't be pickled.
+        Variables are stored as a snapshot since FrameInfo cannot be restored.
+        """
+        self.module = state["module"]
+        self.class_name = state["class_name"]
+        self.function = state["function"]
+        self.filename = state["filename"]
+        self.lineno = state["lineno"]
+        self.frame_info = None  # FrameInfo cannot be restored after unpickling
+        # Store variables as a snapshot since we can't access FrameInfo after unpickling
+        self._variables_snapshot = state["variables"]
 
 
 class CallStack:
@@ -32,72 +177,11 @@ class CallStack:
         """
         Initialize with a list of filtered frames.
 
-        TODO: FrameInfo contains a live reference to the frame object (not a snapshot).
-        The frame object provides mutable access to execution state, which can change
-        after the function returns. We should extract all needed state from frames at
-        initialization time to ensure immutability, rather than accessing frame objects
-        lazily through properties.
+        Variables are captured when Caller objects are created, ensuring immutability
+        as FrameInfo contains live references to frame objects that can change after
+        functions return.
         """
         self._frames = frames
-
-    def _extract_caller_info(self, frame_info: inspect.FrameInfo) -> Caller:
-        """Extract caller information from a frame info object."""
-        frame = frame_info.frame
-
-        # Get module name from frame globals
-        module = frame.f_globals.get("__name__", "<unknown>")
-
-        # Check if it's a method by looking for 'self' in locals
-        class_name = None
-        func_ref = None
-        if "self" in frame.f_locals:
-            self_obj = frame.f_locals["self"]
-            class_name = type(self_obj).__name__
-            # Get the unbound method from the class
-            try:
-                func_ref = getattr(type(self_obj), frame_info.function)
-            except AttributeError:
-                pass
-        else:
-            # Try to get function reference from globals first (module-level functions)
-            try:
-                func_ref = frame.f_globals.get(frame_info.function)
-                # Verify it's actually a function and not something else with the same name
-                if func_ref is not None and not callable(func_ref):
-                    func_ref = None
-            except (KeyError, TypeError):
-                pass
-
-            # If not found in globals, try locals (for nested functions)
-            # Check current frame's locals first
-            if func_ref is None:
-                try:
-                    func_ref = frame.f_locals.get(frame_info.function)
-                    # Verify it's actually a function and not something else with the same name
-                    if func_ref is not None and not callable(func_ref):
-                        func_ref = None
-                except (KeyError, TypeError):
-                    pass
-
-            # If still not found, check parent frame's locals (nested functions are defined there)
-            if func_ref is None and frame.f_back is not None:
-                try:
-                    parent_frame = frame.f_back
-                    func_ref = parent_frame.f_locals.get(frame_info.function)
-                    # Verify it's actually a function and not something else with the same name
-                    if func_ref is not None and not callable(func_ref):
-                        func_ref = None
-                except (KeyError, TypeError, AttributeError):
-                    pass
-
-        return Caller(
-            module=module,
-            class_name=class_name,
-            function=frame_info.function,
-            func=func_ref,
-            filename=frame_info.filename,
-            lineno=frame_info.lineno,
-        )
 
     @property
     def current(self) -> Optional[Caller]:
@@ -112,7 +196,7 @@ class CallStack:
             return None
 
         # _frames[0] is the function that called call_stack()
-        return self._extract_caller_info(self._frames[0])
+        return Caller(self._frames[0])
 
     @property
     def caller(self) -> Optional[Caller]:
@@ -130,7 +214,22 @@ class CallStack:
         # After filtering out autopsy frames:
         # _frames[0] is the function that called call_stack()
         # _frames[1] is the caller of that function (what we want)
-        return self._extract_caller_info(self._frames[1])
+        return Caller(self._frames[1])
+
+    def frame(self, frame_index: int) -> Optional[Caller]:
+        """
+        Get information about a specific frame in the call stack.
+
+        Args:
+            frame_index: Index of the frame (0 = current, 1 = caller, 2 = caller's caller, etc.)
+
+        Returns:
+            Caller object with module, class name (if method), function name, file path, and line number,
+            or None if the frame index is out of range
+        """
+        if frame_index < 0 or frame_index >= len(self._frames):
+            return None
+        return Caller(self._frames[frame_index])
 
 
 def call_stack() -> CallStack:
