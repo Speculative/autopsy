@@ -23,12 +23,12 @@ class Variable:
         return "UndefinedVariable"
 
 
-class Caller:
-    """Information about a caller in the call stack."""
+class Frame:
+    """Information about a frame in the call stack."""
 
     def __init__(self, frame_info: inspect.FrameInfo):
         """
-        Initialize a Caller with a FrameInfo.
+        Initialize a Frame with a FrameInfo.
 
         Args:
             frame_info: The FrameInfo object for this frame
@@ -36,7 +36,7 @@ class Caller:
         self.frame_info = frame_info
 
         # Extract picklable data from FrameInfo for serialization
-        # These are computed eagerly so Caller can be pickled
+        # These are computed eagerly so Frame can be pickled
         frame = frame_info.frame
         self.module = frame.f_globals.get("__name__", "<unknown>")
         self.filename = frame_info.filename
@@ -177,34 +177,34 @@ class CallStack:
         """
         Initialize with a list of filtered frames.
 
-        Variables are captured when Caller objects are created, ensuring immutability
+        Variables are captured when Frame objects are created, ensuring immutability
         as FrameInfo contains live references to frame objects that can change after
         functions return.
         """
         self._frames = frames
 
     @property
-    def current(self) -> Optional[Caller]:
+    def current(self) -> Optional[Frame]:
         """
         Get information about the function that called call_stack().
 
         Returns:
-            Caller object with module, class name (if method), function name, file path, and line number,
+            Frame object with module, class name (if method), function name, file path, and line number,
             or None if no frames are available
         """
         if len(self._frames) < 1:
             return None
 
         # _frames[0] is the function that called call_stack()
-        return Caller(self._frames[0])
+        return Frame(self._frames[0])
 
     @property
-    def caller(self) -> Optional[Caller]:
+    def caller(self) -> Optional[Frame]:
         """
         Get information about the immediate caller from the user function's perspective.
 
         Returns:
-            Caller object with module, class name (if method), function name, file path, and line number,
+            Frame object with module, class name (if method), function name, file path, and line number,
             or None if no caller is available
         """
         if len(self._frames) < 2:
@@ -214,9 +214,9 @@ class CallStack:
         # After filtering out autopsy frames:
         # _frames[0] is the function that called call_stack()
         # _frames[1] is the caller of that function (what we want)
-        return Caller(self._frames[1])
+        return Frame(self._frames[1])
 
-    def frame(self, frame_index: int) -> Optional[Caller]:
+    def frame(self, frame_index: int) -> Optional[Frame]:
         """
         Get information about a specific frame in the call stack.
 
@@ -224,12 +224,12 @@ class CallStack:
             frame_index: Index of the frame (0 = current, 1 = caller, 2 = caller's caller, etc.)
 
         Returns:
-            Caller object with module, class name (if method), function name, file path, and line number,
+            Frame object with module, class name (if method), function name, file path, and line number,
             or None if the frame index is out of range
         """
         if frame_index < 0 or frame_index >= len(self._frames):
             return None
-        return Caller(self._frames[frame_index])
+        return Frame(self._frames[frame_index])
 
 
 def call_stack() -> CallStack:
