@@ -73,7 +73,7 @@ def test_fibonacci_recursive():
                     if hasattr(value, "function") and hasattr(value, "filename"):
                         found_caller_info = True
                         break
-                except:
+                except Exception:
                     pass
 
     assert found_caller_info, "Should have captured caller information in logs"

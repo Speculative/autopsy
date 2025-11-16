@@ -56,5 +56,5 @@ console as well as to formatted output files).
 # Tooling
 
 - `uv` for dependencies and running scripts. Always use `uv run python -m <module>` when running scripts.
-- `ruff` for formatting and linting
-- `pytest` for tests
+- `uvx ruff` for formatting and linting. Always run `uvx ruff format` and `uvx ruff check` after completing work.
+- `pytest` for tests. Always run tests when you think a change is complete.

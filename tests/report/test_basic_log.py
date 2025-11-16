@@ -25,7 +25,7 @@ def test_basic_logging():
         assert len(pickled_values) > 0, f"Call site {call_site} has no values"
         for pickled in pickled_values:
             if isinstance(pickled, bytes):
-                unpickled = pickle.loads(pickled)
+                _ = pickle.loads(pickled)
 
 
 def test_multiple_calls_same_site():

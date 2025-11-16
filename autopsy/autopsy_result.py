@@ -1,7 +1,7 @@
 import inspect
 import os
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar, Union, cast
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 T = TypeVar("T")
 U = TypeVar("U")

@@ -111,7 +111,7 @@ def test_caller_variables():
     """Test retrieving variables from the caller's frame."""
 
     def test_function(x, y):
-        z = x + y
+        _ = x + y
         cs = call_stack()
         caller_vars = cs.caller.value.variables
         return caller_vars
@@ -131,7 +131,7 @@ def test_current_variables():
 
     def test_function(x, y):
         z = x + y
-        w = z * 2
+        w = z * 2  # noqa: F841
         cs = call_stack()
         current_vars = cs.current.value.variables
         return current_vars
@@ -152,7 +152,7 @@ def test_variables_further_up_stack():
     """Test retrieving variables from frames further up the call stack."""
 
     def inner(value):
-        inner_var = value * 2
+        inner_var = value * 2  # noqa: F841
         cs = call_stack()
         # Get variables from different frames
         current = cs.current.value
@@ -243,7 +243,7 @@ def test_variable_exists():
     """Test retrieving an existing variable using variable()."""
 
     def test_function(x, y):
-        z = x + y
+        z = x + y  # noqa: F841
         cs = call_stack()
         return cs.current.value
 
@@ -262,7 +262,7 @@ def test_variable_none_value():
     """Test that variable() distinguishes between None values and missing variables."""
 
     def test_function(x):
-        y = None
+        y = None  # noqa: F841
         cs = call_stack()
         return cs.current.value
 
@@ -379,7 +379,7 @@ def test_error_propagation_on_failed_query():
 
         # Accessing .value should raise ValueError
         try:
-            value = query.value
+            _ = query.value
             assert False, "Accessing .value should raise ValueError"
         except ValueError as e:
             assert (
@@ -443,15 +443,15 @@ def test_caller_chaining_with_multiple_levels():
         return var_result_1.value, var_result_2.value, var_result_3.value
 
     def level3():
-        var3 = 3
+        var3 = 3  # noqa: F841
         return level4()
 
     def level2():
-        var2 = 2
+        var2 = 2  # noqa: F841
         return level3()
 
     def level1():
-        var1 = 1
+        var1 = 1  # noqa: F841
         return level2()
 
     v1, v2, v3 = level1()

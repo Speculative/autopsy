@@ -1,6 +1,5 @@
 """Test nested function calls to validate per-call-site tracking."""
 
-import pickle
 from autopsy import report
 
 
@@ -69,11 +68,11 @@ def test_recursive_function():
     call_sites = report.get_call_sites()
     logs = report.get_logs()
 
-    # Find the factorial call site (line 59 where report.log is called)
+    # Find the factorial call site (line 58 where report.log is called)
     factorial_site = None
     for site in call_sites:
         filename, lineno = site
-        if lineno == 59:  # Line where report.log is called inside factorial
+        if lineno == 58:  # Line where report.log is called inside factorial
             factorial_site = site
             break
 

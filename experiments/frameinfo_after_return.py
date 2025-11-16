@@ -31,7 +31,7 @@ def test_frameinfo_after_return():
         frame = captured_frame_info.frame
         captured_variables = dict(frame.f_locals) if frame.f_locals else {}
 
-        print(f"Inside test_function:")
+        print("Inside test_function:")
         print(f"  x = {x}, y = {y}, z = {z}, w = {w}")
         print(f"  Captured variables: {captured_variables}")
         print(f"  FrameInfo: {captured_frame_info}")

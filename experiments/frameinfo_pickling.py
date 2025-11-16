@@ -14,7 +14,7 @@ def test_frameinfo_pickling():
     """Test whether FrameInfo objects can be pickled and if pickling preserves frame data."""
 
     def test_function(x, y):
-        z = x + y
+        _ = x + y
         # Capture the current stack
         stack = inspect.stack()
         # Get the frame info for the current function
@@ -37,7 +37,7 @@ def test_frameinfo_pickling():
     try:
         pickled_frame_info = pickle.dumps(current_frame_info)
         print("  ✓ FrameInfo can be pickled")
-        unpickled_frame_info = pickle.loads(pickled_frame_info)
+        _ = pickle.loads(pickled_frame_info)
         print("  ✓ FrameInfo can be unpickled")
         print(f"  FrameInfo attributes: {current_frame_info._fields}")
         print(f"    filename: {current_frame_info.filename}")
