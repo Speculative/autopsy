@@ -8,9 +8,7 @@ def test_basic_caller():
 
     def test_function():
         cs = call_stack()
-        caller_result = cs.caller
-        assert caller_result.is_ok(), "Caller should be ok"
-        caller = caller_result.value
+        caller = cs.caller.value
         # The caller is test_basic_caller (who called test_function)
         assert (
             caller.function == "test_basic_caller"
@@ -41,9 +39,7 @@ def test_nested_caller():
     def outer():
         return middle()
 
-    caller_result = outer()
-    assert caller_result.is_ok(), "Caller should be ok"
-    caller = caller_result.value
+    caller = outer().value
     # The caller is 'middle' (who called inner())
     assert caller.function == "middle", f"Expected 'middle', got '{caller.function}'"
     # These are module-level nested functions (defined in test function scope),
@@ -57,11 +53,9 @@ def test_call_stack_omits_autopsy():
 
     def test_func():
         cs = call_stack()
-        caller_result = cs.caller
+        caller = cs.caller.value
         # The caller is test_call_stack_omits_autopsy (who called test_func)
         # Important: it should NOT be from autopsy package
-        assert caller_result.is_ok(), "Caller should be ok"
-        caller = caller_result.value
         # Verify the caller is not from autopsy code using fully qualified name
         fully_qualified = caller.fully_qualified_name
         assert not fully_qualified.startswith(
@@ -93,13 +87,8 @@ def test_class_method_reference():
     instance1 = TestClass()
     instance2 = TestClass()
 
-    current1_result = instance1.method()
-    current2_result = instance2.method()
-
-    assert current1_result.is_ok(), "Current1 should be ok"
-    assert current2_result.is_ok(), "Current2 should be ok"
-    current1 = current1_result.value
-    current2 = current2_result.value
+    current1 = instance1.method().value
+    current2 = instance2.method().value
     assert (
         current1.function == "method"
     ), f"Expected 'method', got '{current1.function}'"
@@ -124,10 +113,7 @@ def test_caller_variables():
     def test_function(x, y):
         z = x + y
         cs = call_stack()
-        caller_result = cs.caller
-        assert caller_result.is_ok(), "Caller should be ok"
-        caller = caller_result.value
-        caller_vars = caller.variables
+        caller_vars = cs.caller.value.variables
         return caller_vars
 
     a = 10
@@ -147,10 +133,7 @@ def test_current_variables():
         z = x + y
         w = z * 2
         cs = call_stack()
-        current_result = cs.current
-        assert current_result.is_ok(), "Current should be ok"
-        current = current_result.value
-        current_vars = current.variables
+        current_vars = cs.current.value.variables
         return current_vars
 
     current_vars = test_function(5, 3)
@@ -172,15 +155,9 @@ def test_variables_further_up_stack():
         inner_var = value * 2
         cs = call_stack()
         # Get variables from different frames
-        current_result = cs.current
-        assert current_result.is_ok(), "Current should be ok"
-        current = current_result.value
-        caller_result = cs.caller
-        assert caller_result.is_ok(), "Caller should be ok"
-        caller = caller_result.value
-        caller_caller_frame_result = cs.frame(2)
-        assert caller_caller_frame_result.is_ok(), "Caller's caller frame should be ok"
-        caller_caller_frame = caller_caller_frame_result.value
+        current = cs.current.value
+        caller = cs.caller.value
+        caller_caller_frame = cs.frame(2).value
         return current.variables, caller.variables, caller_caller_frame.variables
 
     def middle(x):
@@ -248,10 +225,7 @@ def test_variables_immutability():
     def test_function(x):
         cs = call_stack()
         # Access current to create Caller and capture variables before modification
-        current_result = cs.current
-        assert current_result.is_ok(), "Current should be ok"
-        current = current_result.value
-        vars_before_modification = current.variables
+        vars_before_modification = cs.current.value.variables
         # Modify the variable after Caller is created
         x = x + 100
         # The snapshot should still have the original value
@@ -271,24 +245,16 @@ def test_variable_exists():
     def test_function(x, y):
         z = x + y
         cs = call_stack()
-        current_result = cs.current
-        assert current_result.is_ok(), "Current should be ok"
-        return current_result.value
+        return cs.current.value
 
     current = test_function(10, 20)
-    var_x_result = current.variable("x")
-    assert var_x_result.is_ok(), "Variable 'x' should exist"
-    var_x = var_x_result.value
+    var_x = current.variable("x").value
     assert var_x.value == 10, f"Expected x=10, got x={var_x.value}"
 
-    var_y_result = current.variable("y")
-    assert var_y_result.is_ok(), "Variable 'y' should exist"
-    var_y = var_y_result.value
+    var_y = current.variable("y").value
     assert var_y.value == 20, f"Expected y=20, got y={var_y.value}"
 
-    var_z_result = current.variable("z")
-    assert var_z_result.is_ok(), "Variable 'z' should exist"
-    var_z = var_z_result.value
+    var_z = current.variable("z").value
     assert var_z.value == 30, f"Expected z=30, got z={var_z.value}"
 
 
@@ -298,21 +264,13 @@ def test_variable_none_value():
     def test_function(x):
         y = None
         cs = call_stack()
-        current_result = cs.current
-        assert current_result.is_ok(), "Current should be ok"
-        return current_result.value
+        return cs.current.value
 
     current = test_function(42)
-    var_x_result = current.variable("x")
-    assert var_x_result.is_ok(), "Variable 'x' should exist"
-    var_x = var_x_result.value
+    var_x = current.variable("x").value
     assert var_x.value == 42, f"Expected x=42, got x={var_x.value}"
 
-    var_y_result = current.variable("y")
-    assert (
-        var_y_result.is_ok()
-    ), "Variable 'y' should exist even though its value is None"
-    var_y = var_y_result.value
+    var_y = current.variable("y").value
     assert var_y.value is None, "Variable 'y' should have value None"
 
     var_missing_result = current.variable("nonexistent")
@@ -324,26 +282,179 @@ def test_variable_from_caller():
 
     def inner(value):
         cs = call_stack()
-        caller_result = cs.caller
-        assert caller_result.is_ok(), "Caller should be ok"
-        return caller_result.value
+        return cs.caller.value
 
     def outer(x):
         y = x * 2
         return inner(y)
 
     caller = outer(5)
-    var_x_result = caller.variable("x")
-    assert var_x_result.is_ok(), "Variable 'x' should exist in caller frame"
-    var_x = var_x_result.value
+    var_x = caller.variable("x").value
     assert var_x.value == 5, f"Expected x=5, got x={var_x.value}"
 
-    var_y_result = caller.variable("y")
-    assert var_y_result.is_ok(), "Variable 'y' should exist in caller frame"
-    var_y = var_y_result.value
+    var_y = caller.variable("y").value
     assert var_y.value == 10, f"Expected y=10, got y={var_y.value}"
 
     var_value_result = caller.variable("value")
     assert (
         var_value_result.is_err()
     ), "Variable 'value' should not exist in caller frame"
+
+
+def test_caller_caller_chaining():
+    """Test that caller.caller pattern works without creating intermediate Frame objects."""
+
+    def inner(value):
+        cs = call_stack()
+        # Test caller.caller pattern - basic property access
+        caller_caller = cs.caller.caller
+        assert (
+            caller_caller.function == "outer"
+        ), f"Expected 'outer', got '{caller_caller.function}'"
+        assert caller_caller.filename.endswith(
+            "test_call_stack.py"
+        ), f"Expected test file, got {caller_caller.filename}"
+
+        # Test variable access from caller.caller
+        var_x = cs.caller.caller.variable("x").value
+        assert var_x.value == 42, f"Expected x=42, got x={var_x.value}"
+        return var_x.value
+
+    def middle(y):
+        middle_var = y + 10
+        return inner(middle_var)
+
+    def outer():
+        x = 42
+        return middle(x)
+
+    result = outer()
+    assert result == 42, f"Expected 42, got {result}"
+
+
+def test_caller_chaining_beyond_available_frames():
+    """Test error propagation when chaining caller beyond available frames."""
+
+    def inner():
+        cs = call_stack()
+        # Test caller chaining - chain enough times to exceed available frames
+        frame_count = len(cs._frames)
+        # We need to chain (frame_count + 1) times to go beyond available frames
+        caller_query = cs.caller
+        for _ in range(frame_count):
+            caller_query = caller_query.caller
+
+        assert caller_query.is_err(), "Chained caller query should fail"
+        error = caller_query.error
+        assert (
+            error.message == "Frame index out of range"
+        ), f"Expected 'Frame index out of range', got '{error.message}'"
+        assert (
+            "frame_index" in error.context
+        ), "Error context should include frame_index"
+        expected_frame_index = frame_count + 1
+        assert (
+            error.context["frame_index"] == expected_frame_index
+        ), f"Expected frame_index={expected_frame_index}, got {error.context['frame_index']}"
+        return caller_query
+
+    def middle():
+        return inner()
+
+    def outer():
+        return middle()
+
+    outer()
+
+
+def test_error_propagation_on_failed_query():
+    """Test that accessing properties and variables on a failed query propagates errors correctly."""
+
+    def inner():
+        cs = call_stack()
+        # Create a query that will definitely fail by using frame() with out-of-range index
+        frame_count = len(cs._frames)
+        query = cs.frame(frame_count + 10)
+        assert query.is_err(), "Query should fail"
+
+        # Accessing .value should raise ValueError
+        try:
+            value = query.value
+            assert False, "Accessing .value should raise ValueError"
+        except ValueError as e:
+            assert (
+                "error result" in str(e).lower()
+            ), f"Expected ValueError about error result, got: {e}"
+            assert "Frame index out of range" in str(
+                e
+            ), f"Error message should mention frame index, got: {e}"
+
+        # Accessing properties returns a proxy that defers error propagation
+        func_proxy = query.function
+        assert func_proxy is not None, "Property access should return a proxy"
+
+        # Accessing variable should return an error AutopsyResult
+        var_result = query.variable("x")
+        assert var_result.is_err(), "variable() should return error"
+        assert (
+            var_result.error.message == "Frame index out of range"
+        ), f"Expected 'Frame index out of range', got '{var_result.error.message}'"
+
+        return query, var_result
+
+    def middle():
+        return inner()
+
+    def outer():
+        return middle()
+
+    outer()
+
+
+def test_caller_chaining_with_multiple_levels():
+    """Test caller chaining at multiple levels accessing different frames."""
+
+    def level4():
+        cs = call_stack()
+        # Access different levels
+        caller = cs.caller
+        caller_caller = cs.caller.caller
+        caller_caller_caller = cs.caller.caller.caller
+
+        assert (
+            caller.function == "level3"
+        ), f"Expected 'level3', got '{caller.function}'"
+        assert (
+            caller_caller.function == "level2"
+        ), f"Expected 'level2', got '{caller_caller.function}'"
+        assert (
+            caller_caller_caller.function == "level1"
+        ), f"Expected 'level1', got '{caller_caller_caller.function}'"
+
+        # Access variables from different levels
+        var_result_3 = caller.variable("var3").value
+        var_result_2 = caller_caller.variable("var2").value
+        var_result_1 = caller_caller_caller.variable("var1").value
+
+        assert var_result_3.value == 3, "var3 should be 3"
+        assert var_result_2.value == 2, "var2 should be 2"
+        assert var_result_1.value == 1, "var1 should be 1"
+
+        return var_result_1.value, var_result_2.value, var_result_3.value
+
+    def level3():
+        var3 = 3
+        return level4()
+
+    def level2():
+        var2 = 2
+        return level3()
+
+    def level1():
+        var1 = 1
+        return level2()
+
+    v1, v2, v3 = level1()
+    assert v1 == 1, f"Expected v1=1, got {v1}"
+    assert v2 == 2, f"Expected v2=2, got {v2}"
+    assert v3 == 3, f"Expected v3=3, got {v3}"

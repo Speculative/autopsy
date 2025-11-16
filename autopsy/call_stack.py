@@ -2,7 +2,13 @@ import inspect
 import os
 from typing import Any, Callable, Dict, List, Optional
 
-from .autopsy_result import AutopsyResult, ErrorInfo, Location, _capture_error_location
+from .autopsy_result import (
+    AutopsyResult,
+    ErrorInfo,
+    Location,
+    _AttributeProxy,
+    _capture_error_location,
+)
 
 
 class Variable:
@@ -201,6 +207,73 @@ class Frame:
         self._variables_snapshot = state["variables"]
 
 
+class FrameQuery:
+    """
+    Query builder for navigating the call stack.
+
+    Defers Frame creation until data is actually accessed, enabling efficient
+    chaining like caller.caller without creating intermediate Frame objects.
+    """
+
+    def __init__(self, call_stack: "CallStack", frame_offset: int):
+        """
+        Initialize a FrameQuery.
+
+        Args:
+            call_stack: The CallStack instance this query belongs to
+            frame_offset: Offset from current frame (0 = current, 1 = caller, etc.)
+        """
+        self._call_stack = call_stack
+        self._frame_offset = frame_offset
+
+    def _resolve(self) -> AutopsyResult[Frame]:
+        """Resolve this query to an actual Frame."""
+        return self._call_stack.frame(self._frame_offset)
+
+    @property
+    def caller(self) -> "FrameQuery":
+        """Navigate to the caller frame - no Frame object created."""
+        return FrameQuery(self._call_stack, self._frame_offset + 1)
+
+    def is_ok(self) -> bool:
+        """Check if this query can be resolved successfully."""
+        return self._resolve().is_ok()
+
+    def is_err(self) -> bool:
+        """Check if this query would fail to resolve."""
+        return self._resolve().is_err()
+
+    @property
+    def value(self) -> Frame:
+        """Get the resolved Frame value, raising if resolution fails."""
+        return self._resolve().value
+
+    @property
+    def error(self) -> ErrorInfo:
+        """Get error information if resolution failed."""
+        return self._resolve().error
+
+    def variable(self, name: str) -> AutopsyResult[Variable]:
+        """Get a variable from the resolved frame."""
+        frame_result = self._resolve()
+        if frame_result.is_err():
+            # Propagate the error, but with the correct return type
+            return AutopsyResult.err(frame_result.error)
+        return frame_result.value.variable(name)
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Forward attribute access to the resolved Frame.
+
+        This enables direct property access like query.function, query.filename, etc.
+        """
+        frame_result = self._resolve()
+        if frame_result.is_err():
+            # Return a proxy that propagates the error
+            return _AttributeProxy(frame_result, name)
+        return getattr(frame_result.value, name)
+
+
 class CallStack:
     """Call stack introspection API."""
 
@@ -223,56 +296,24 @@ class CallStack:
         self._autopsy_module_path = autopsy_module_path
 
     @property
-    def current(self) -> AutopsyResult[Frame]:
+    def current(self) -> FrameQuery:
         """
         Get information about the function that called call_stack().
 
         Returns:
-            AutopsyResult containing Frame object with module, class name (if method),
-            function name, file path, and line number, or an error if no frames are available
+            FrameQuery for the current frame (offset 0)
         """
-        if len(self._frames) < 1:
-            location = _capture_error_location(
-                self._autopsy_module_path, inspect.stack()
-            )
-            error = ErrorInfo(
-                message="No current frame available",
-                context={"available_frames": len(self._frames)},
-                location=location,
-            )
-            return AutopsyResult.err(error)
-
-        # _frames[0] is the function that called call_stack()
-        return AutopsyResult.ok(Frame(self._frames[0]))
+        return FrameQuery(self, 0)
 
     @property
-    def caller(self) -> AutopsyResult[Frame]:
+    def caller(self) -> FrameQuery:
         """
         Get information about the immediate caller from the user function's perspective.
 
         Returns:
-            AutopsyResult containing Frame object with module, class name (if method),
-            function name, file path, and line number, or an error if no caller is available
+            FrameQuery for the caller frame (offset 1)
         """
-        if len(self._frames) < 2:
-            # Need at least 2 frames: the function that called call_stack(), and its caller
-            location = _capture_error_location(
-                self._autopsy_module_path, inspect.stack()
-            )
-            error = ErrorInfo(
-                message="No caller frame available",
-                context={
-                    "available_frames": len(self._frames),
-                    "required_frames": 2,
-                },
-                location=location,
-            )
-            return AutopsyResult.err(error)
-
-        # After filtering out autopsy frames:
-        # _frames[0] is the function that called call_stack()
-        # _frames[1] is the caller of that function (what we want)
-        return AutopsyResult.ok(Frame(self._frames[1]))
+        return FrameQuery(self, 1)
 
     def frame(self, frame_index: int) -> AutopsyResult[Frame]:
         """
