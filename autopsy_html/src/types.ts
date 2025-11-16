@@ -9,6 +9,7 @@ export interface CallSite {
 }
 
 export interface AutopsyData {
+  generated_at: string
   call_sites: CallSite[]
 }
 

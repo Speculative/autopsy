@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AutopsyData, CallSite } from './types'
 
-  let data: AutopsyData = { call_sites: [] }
+  let data: AutopsyData = { generated_at: '', call_sites: [] }
 
   // Load data from the injection point
   function loadData(): void {
@@ -10,11 +10,12 @@
       try {
         const parsed = JSON.parse(dataElement.textContent) as Partial<AutopsyData>
         data = {
+          generated_at: parsed.generated_at ?? '',
           call_sites: parsed.call_sites ?? []
         }
       } catch (e) {
         console.error('Failed to parse autopsy data:', e)
-        data = { call_sites: [] }
+        data = { generated_at: '', call_sites: [] }
       }
     }
   }
@@ -43,7 +44,12 @@
 </script>
 
 <main>
-  <h1>Autopsy Report</h1>
+  <div class="header">
+    <h1>Autopsy Report</h1>
+    {#if data.generated_at}
+      <div class="timestamp">Generated: {new Date(data.generated_at).toLocaleString()}</div>
+    {/if}
+  </div>
 
   {#if data.call_sites.length === 0}
     <p class="empty">No report data available.</p>
@@ -78,9 +84,18 @@
     font-family: system-ui, -apple-system, sans-serif;
   }
 
-  h1 {
+  .header {
     margin-bottom: 2rem;
+  }
+
+  h1 {
+    margin: 0 0 0.5rem 0;
     color: #333;
+  }
+
+  .timestamp {
+    color: #666;
+    font-size: 0.9rem;
   }
 
   .empty {

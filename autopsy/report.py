@@ -3,6 +3,7 @@ import json
 import os
 import pickle
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -74,13 +75,13 @@ class Report:
         """
         return list(self._logs.keys())
 
-    def to_json(self) -> Dict[str, List[Dict[str, Any]]]:
+    def to_json(self) -> Dict[str, Any]:
         """
         Convert report data to JSON-serializable format.
 
         Returns:
-            Dictionary with 'call_sites' key containing list of call site data.
-            Each call site has 'filename', 'line', and 'values' keys.
+            Dictionary with 'generated_at' timestamp and 'call_sites' key containing
+            list of call site data. Each call site has 'filename', 'line', and 'values' keys.
         """
         call_sites = []
 
@@ -116,7 +117,10 @@ class Report:
                 }
             )
 
-        return {"call_sites": call_sites}
+        return {
+            "generated_at": datetime.now().isoformat(),
+            "call_sites": call_sites,
+        }
 
     def _to_json_serializable(self, value: Any) -> Any:
         """

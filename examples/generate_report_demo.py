@@ -17,7 +17,7 @@ def main():
 
     # Generate HTML report
     print("Generating HTML report...")
-    output_file = "autopsy_report_demo.html"
+    output_file = "report.html"
     html = generate_html(report, output_file)
 
     print(f"✓ HTML report generated: {output_file}")

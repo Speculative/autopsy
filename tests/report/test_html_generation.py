@@ -33,8 +33,12 @@ def test_generate_html_with_data():
     assert match is not None, "Could not find autopsy-data script tag"
 
     json_data = json.loads(match.group(1))
+    assert "generated_at" in json_data
     assert "call_sites" in json_data
     assert len(json_data["call_sites"]) > 0
+    # Verify timestamp is a valid ISO format string
+    assert isinstance(json_data["generated_at"], str)
+    assert "T" in json_data["generated_at"]
 
     # Verify call site structure
     call_site = json_data["call_sites"][0]
@@ -84,7 +88,9 @@ def test_generate_html_empty_report():
     assert match is not None
 
     json_data = json.loads(match.group(1))
-    assert json_data == {"call_sites": []}
+    assert "generated_at" in json_data
+    assert json_data["call_sites"] == []
+    assert isinstance(json_data["generated_at"], str)
 
 
 def test_generate_html_multiple_call_sites():
