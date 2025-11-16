@@ -2,10 +2,21 @@
  * Type definitions for autopsy report data structure
  */
 
+export interface ValueWithName {
+  name?: string  // Variable name if available
+  value: unknown
+}
+
+export interface ValueGroup {
+  values: ValueWithName[]  // Values with their variable names
+  function_name: string  // Name of the function containing this log call
+}
+
 export interface CallSite {
   filename: string
   line: number
-  value_groups: unknown[][]  // Each group contains values from one log() call
+  function_name: string  // Name of the enclosing function
+  value_groups: ValueGroup[]  // Each group contains values from one log() call
 }
 
 export interface AutopsyData {

@@ -48,15 +48,24 @@
             <span class="filename">{getFilename(callSite)}</span>
             <span class="line">Line {callSite.line}</span>
           </div>
+          <div class="function-name">Function: <code>{callSite.function_name}</code></div>
           <div class="file-path">{callSite.filename}</div>
           <div class="value-groups">
             {#each callSite.value_groups as valueGroup, groupIndex}
               <div class="value-group">
-                <div class="value-group-header">Call {groupIndex + 1}</div>
+                <div class="value-group-header">
+                  Call {groupIndex + 1}
+                  {#if valueGroup.function_name !== callSite.function_name}
+                    <span class="function-name-inline">in {valueGroup.function_name}</span>
+                  {/if}
+                </div>
                 <div class="values">
-                  {#each valueGroup as value, valueIndex}
+                  {#each valueGroup.values as valueWithName, valueIndex}
                     <div class="value-item">
-                      <TreeView value={value} />
+                      {#if valueWithName.name}
+                        <div class="value-label">{valueWithName.name}:</div>
+                      {/if}
+                      <TreeView value={valueWithName.value} />
                     </div>
                   {/each}
                 </div>
@@ -128,6 +137,21 @@
     font-size: 0.9rem;
   }
 
+  .function-name {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+
+  .function-name code {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+    color: #2563eb;
+  }
+
   .file-path {
     color: #888;
     font-size: 0.85rem;
@@ -153,6 +177,16 @@
     margin-bottom: 0.5rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .function-name-inline {
+    font-size: 0.75rem;
+    text-transform: none;
+    font-weight: 400;
+    color: #666;
   }
 
   .values {
@@ -172,6 +206,16 @@
     border-radius: 4px;
     overflow-x: auto;
     max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .value-label {
+    font-weight: 600;
+    color: #881391;
+    font-size: 0.85rem;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
   }
 
   @media (max-width: 768px) {

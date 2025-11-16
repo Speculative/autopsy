@@ -46,7 +46,9 @@ def test_fibonacci_iterative():
     assert len(call_sites) > 0, "Should have at least one call site"
 
     logs = report.get_logs()
-    total_logs = sum(sum(len(group) for group in groups) for groups in logs.values())
+    total_logs = sum(
+        sum(len(group["values"]) for group in groups) for groups in logs.values()
+    )
     assert total_logs > 0, "Should have logged values"
 
 
@@ -66,7 +68,7 @@ def test_fibonacci_recursive():
     found_caller_info = False
     for value_groups in logs.values():
         for group in value_groups:
-            for pickled in group:
+            for pickled in group["values"]:
                 if isinstance(pickled, bytes):
                     try:
                         value = pickle.loads(pickled)

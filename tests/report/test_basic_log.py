@@ -24,8 +24,9 @@ def test_basic_logging():
     for call_site, value_groups in logs.items():
         assert len(value_groups) > 0, f"Call site {call_site} has no value groups"
         for group in value_groups:
-            assert len(group) > 0, f"Call site {call_site} has empty value group"
-            for pickled in group:
+            assert "values" in group, f"Call site {call_site} group missing 'values' key"
+            assert len(group["values"]) > 0, f"Call site {call_site} has empty value group"
+            for pickled in group["values"]:
                 if isinstance(pickled, bytes):
                     _ = pickle.loads(pickled)
 
@@ -48,5 +49,5 @@ def test_multiple_calls_same_site():
     assert len(value_groups) == 5, f"Expected 5 value groups, got {len(value_groups)}"
 
     # Verify values - each group should have one value
-    values = [pickle.loads(group[0]) for group in value_groups]
+    values = [pickle.loads(group["values"][0]) for group in value_groups]
     assert values == [0, 1, 2, 3, 4], f"Expected [0,1,2,3,4], got {values}"

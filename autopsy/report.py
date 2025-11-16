@@ -1,3 +1,4 @@
+import ast
 import inspect
 import json
 import pickle
@@ -12,10 +13,194 @@ class Report:
 
     def __init__(self):
         """Initialize a fresh report with empty storage."""
-        # Store groups of values, where each group represents one log() call
-        # Format: Dict[call_site, List[List[pickled_values]]]
-        # Each inner list contains values from a single log() call
-        self._logs: Dict[Tuple[str, int], List[List[Any]]] = {}
+        # Store groups of values with metadata, where each group represents one log() call
+        # Format: Dict[call_site, List[LogGroup]]
+        # LogGroup contains: values (list of pickled values), function_name, arg_names
+        self._logs: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+
+    def _ast_node_to_expression(self, node: ast.expr) -> Optional[str]:
+        """
+        Convert an AST expression node to its source code representation.
+
+        Args:
+            node: AST expression node
+
+        Returns:
+            String representation of the expression, or None if not extractable
+        """
+        try:
+            # Use ast.unparse if available (Python 3.9+)
+            if hasattr(ast, "unparse"):
+                return ast.unparse(node)
+        except Exception:
+            pass
+
+        # Fallback: manually reconstruct common patterns
+        if isinstance(node, ast.Name):
+            return node.id
+        elif isinstance(node, ast.Attribute):
+            # Handle attribute access like obj.attr or obj.attr.subattr
+            parts: List[str] = []
+            current: ast.expr = node
+            while isinstance(current, ast.Attribute):
+                parts.insert(0, current.attr)
+                current = current.value
+            if isinstance(current, ast.Name):
+                parts.insert(0, current.id)
+                return ".".join(parts)
+            return None
+        elif isinstance(node, ast.Call):
+            # Handle function/method calls
+            func_str = self._ast_node_to_expression(node.func)
+            if func_str:
+                args_str = ", ".join(
+                    self._ast_node_to_expression(arg) or "" for arg in node.args
+                )
+                return f"{func_str}({args_str})"
+            return None
+        elif isinstance(node, ast.Constant):
+            # Literal values - return None to indicate no expression name
+            return None
+        elif isinstance(node, ast.BinOp):
+            # Binary operations like x + y, a * b, etc.
+            left = self._ast_node_to_expression(node.left)
+            right = self._ast_node_to_expression(node.right)
+            op_str = self._binop_to_str(node.op)
+            if left and right and op_str:
+                return f"{left} {op_str} {right}"
+            return None
+        elif isinstance(node, ast.UnaryOp):
+            # Unary operations like -x, not y, etc.
+            operand = self._ast_node_to_expression(node.operand)
+            op_str = self._unaryop_to_str(node.op)
+            if operand and op_str:
+                return f"{op_str}{operand}"
+            return None
+        elif isinstance(node, ast.Compare):
+            # Comparisons like x < y, a == b, etc.
+            left = self._ast_node_to_expression(node.left)
+            if not left:
+                return None
+            parts = [left]
+            for op, comparator in zip(node.ops, node.comparators):
+                comp_str = self._ast_node_to_expression(comparator)
+                op_str = self._cmpop_to_str(op)
+                if comp_str and op_str:
+                    parts.append(f"{op_str} {comp_str}")
+                else:
+                    return None
+            return " ".join(parts)
+        else:
+            # For other expression types, return None
+            return None
+
+    def _binop_to_str(self, op: ast.operator) -> Optional[str]:
+        """Convert binary operator to string."""
+        op_map = {
+            ast.Add: "+",
+            ast.Sub: "-",
+            ast.Mult: "*",
+            ast.Div: "/",
+            ast.FloorDiv: "//",
+            ast.Mod: "%",
+            ast.Pow: "**",
+            ast.LShift: "<<",
+            ast.RShift: ">>",
+            ast.BitOr: "|",
+            ast.BitXor: "^",
+            ast.BitAnd: "&",
+        }
+        return op_map.get(type(op))
+
+    def _unaryop_to_str(self, op: ast.unaryop) -> Optional[str]:
+        """Convert unary operator to string."""
+        op_map = {
+            ast.UAdd: "+",
+            ast.USub: "-",
+            ast.Not: "not ",
+            ast.Invert: "~",
+        }
+        return op_map.get(type(op))
+
+    def _cmpop_to_str(self, op: ast.cmpop) -> Optional[str]:
+        """Convert comparison operator to string."""
+        op_map = {
+            ast.Eq: "==",
+            ast.NotEq: "!=",
+            ast.Lt: "<",
+            ast.LtE: "<=",
+            ast.Gt: ">",
+            ast.GtE: ">=",
+            ast.Is: "is",
+            ast.IsNot: "is not",
+            ast.In: "in",
+            ast.NotIn: "not in",
+        }
+        return op_map.get(type(op))
+
+    def _extract_arg_names(
+        self, filename: str, line_number: int
+    ) -> List[Optional[str]]:
+        """
+        Extract argument names from a report.log() call using AST parsing.
+
+        Args:
+            filename: Path to the source file
+            line_number: Line number of the log() call
+
+        Returns:
+            List of argument names (or None if extraction fails)
+        """
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                source_code = f.read()
+
+            # Parse the entire file with AST
+            tree = ast.parse(source_code, filename=filename)
+
+            # Walk the AST to find the call site
+            class LogCallFinder(ast.NodeVisitor):
+                def __init__(self, target_line: int):
+                    self.target_line = target_line
+                    self.found_call: Optional[ast.Call] = None
+
+                def visit_Call(self, node: ast.Call):
+                    # Check if this is a report.log() call on the target line
+                    if (
+                        node.lineno == self.target_line
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "log"
+                    ):
+                        # Check if the base is "report" or "_report"
+                        if isinstance(node.func.value, ast.Name):
+                            if node.func.value.id in ("report", "_report"):
+                                self.found_call = node
+                        elif isinstance(node.func.value, ast.Attribute):
+                            # Handle cases like module.report.log
+                            if isinstance(
+                                node.func.value.value, ast.Name
+                            ) and node.func.value.value.id in ("report", "_report"):
+                                self.found_call = node
+                    # Continue visiting
+                    self.generic_visit(node)
+
+            finder = LogCallFinder(line_number)
+            finder.visit(tree)
+
+            if finder.found_call is None:
+                return []
+
+            # Extract argument expressions from the AST nodes
+            arg_names: List[Optional[str]] = []
+            for arg in finder.found_call.args:
+                expr = self._ast_node_to_expression(arg)
+                arg_names.append(expr)
+
+            return arg_names
+
+        except Exception:
+            # If AST parsing fails, return empty list
+            return []
 
     def log(self, *args):
         """
@@ -39,6 +224,17 @@ class Report:
 
         call_site = (caller_frame.filename, caller_frame.lineno)
 
+        # Get function name
+        function_name = caller_frame.function
+
+        # Extract argument names from source code
+        arg_names = self._extract_arg_names(caller_frame.filename, caller_frame.lineno)
+        # Pad or truncate to match actual number of arguments
+        if len(arg_names) < len(args):
+            arg_names.extend([None] * (len(args) - len(arg_names)))
+        elif len(arg_names) > len(args):
+            arg_names = arg_names[: len(args)]
+
         # Serialize and store the values as a group
         serialized_values = []
         for value in args:
@@ -50,22 +246,29 @@ class Report:
                 # Store error info if pickling fails
                 serialized_values.append(f"<PickleError: {str(e)}>")
 
+        # Store the group with metadata
+        log_group = {
+            "values": serialized_values,
+            "function_name": function_name,
+            "arg_names": arg_names,
+        }
+
         # Append the group to the list for this call site
         if call_site not in self._logs:
             self._logs[call_site] = []
-        self._logs[call_site].append(serialized_values)
+        self._logs[call_site].append(log_group)
 
     def init(self):
         """Reset/initialize the report with fresh storage."""
         self._logs.clear()
 
-    def get_logs(self) -> Dict[Tuple[str, int], List[List[Any]]]:
+    def get_logs(self) -> Dict[Tuple[str, int], List[Dict[str, Any]]]:
         """
         Get all captured logs.
 
         Returns:
-            Dictionary mapping call sites to lists of value groups.
-            Each group is a list of pickled values from one log() call.
+            Dictionary mapping call sites to lists of log groups.
+            Each group is a dict with 'values', 'function_name', and 'arg_names'.
         """
         return self._logs.copy()
 
@@ -89,37 +292,59 @@ class Report:
         """
         call_sites = []
 
-        for call_site, value_groups in self._logs.items():
+        for call_site, log_groups in self._logs.items():
             filename, line_number = call_site
 
             # Process each group of values from a single log() call
             json_value_groups = []
-            for pickled_group in value_groups:
+            for log_group in log_groups:
                 json_group = []
-                for pickled_value in pickled_group:
+                pickled_values = log_group["values"]
+                arg_names = log_group.get("arg_names", [])
+
+                for idx, pickled_value in enumerate(pickled_values):
+                    value_data = {}
+
+                    # Add argument name if available
+                    if idx < len(arg_names) and arg_names[idx] is not None:
+                        value_data["name"] = arg_names[idx]
+
+                    # Unpickle and convert value
                     if isinstance(pickled_value, str) and pickled_value.startswith(
                         "<PickleError"
                     ):
-                        # Already an error string, include as-is
-                        json_group.append(pickled_value)
+                        value_data["value"] = pickled_value
                     elif isinstance(pickled_value, bytes):
                         try:
                             # Unpickle the value
                             unpickled = pickle.loads(pickled_value)
                             # Try to convert to JSON-serializable format
-                            json_group.append(self._to_json_serializable(unpickled))
+                            value_data["value"] = self._to_json_serializable(unpickled)
                         except Exception as e:
                             # If unpickling fails, store error info
-                            json_group.append(f"<UnpickleError: {str(e)}>")
+                            value_data["value"] = f"<UnpickleError: {str(e)}>"
                     else:
                         # Not bytes, try to serialize directly
-                        json_group.append(self._to_json_serializable(pickled_value))
-                json_value_groups.append(json_group)
+                        value_data["value"] = self._to_json_serializable(pickled_value)
+
+                    json_group.append(value_data)
+
+                json_value_groups.append(
+                    {
+                        "values": json_group,
+                        "function_name": log_group.get("function_name", "<unknown>"),
+                    }
+                )
 
             call_sites.append(
                 {
                     "filename": filename,
                     "line": line_number,
+                    "function_name": (
+                        log_groups[0].get("function_name", "<unknown>")
+                        if log_groups
+                        else "<unknown>"
+                    ),
                     "value_groups": json_value_groups,
                 }
             )
