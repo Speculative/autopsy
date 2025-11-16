@@ -22,7 +22,9 @@ def fibonacci_iterative(n):
 def fibonacci_recursive(n):
     """Compute fibonacci recursively."""
     cs = call_stack()
-    caller_info = cs.caller
+    caller_result = cs.caller
+    # For recursive calls, caller might not exist on first call
+    caller_info = caller_result.value if caller_result.is_ok() else None
 
     report.log(n, caller_info, f"fibonacci_recursive({n})")
 
