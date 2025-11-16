@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AutopsyData, CallSite } from './types'
+  import TreeView from './TreeView.svelte'
 
   let data: AutopsyData = { generated_at: '', call_sites: [] }
 
@@ -22,20 +23,6 @@
 
   // Load data on mount
   loadData()
-
-  function formatValue(value: unknown): string {
-    if (value === null) return 'null'
-    if (value === undefined) return 'undefined'
-    if (typeof value === 'string') return `"${value}"`
-    if (typeof value === 'object') {
-      try {
-        return JSON.stringify(value, null, 2)
-      } catch {
-        return String(value)
-      }
-    }
-    return String(value)
-  }
 
   function getFilename(callSite: CallSite): string {
     const parts = callSite.filename.split('/')
@@ -68,9 +55,8 @@
                 <div class="value-group-header">Call {groupIndex + 1}</div>
                 <div class="values">
                   {#each valueGroup as value, valueIndex}
-                    <div class="value">
-                      <span class="value-index">[{valueIndex}]</span>
-                      <pre class="value-content">{formatValue(value)}</pre>
+                    <div class="value-item">
+                      <TreeView value={value} />
                     </div>
                   {/each}
                 </div>
@@ -171,35 +157,30 @@
 
   .values {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .value {
-    display: flex;
-    gap: 0.5rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 1rem;
     align-items: flex-start;
   }
 
-  .value-index {
-    color: #666;
-    font-weight: 500;
-    min-width: 3ch;
-  }
-
-  .value-content {
-    flex: 1;
-    margin: 0;
-    padding: 0.5rem;
+  .value-item {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 0.75rem;
     background: white;
     border: 1px solid #e5e5e5;
     border-radius: 4px;
-    font-size: 0.9rem;
     overflow-x: auto;
+    max-width: 100%;
   }
 
-  pre.value-content {
-    white-space: pre-wrap;
-    word-wrap: break-word;
+  @media (max-width: 768px) {
+    .values {
+      flex-direction: column;
+    }
+
+    .value-item {
+      width: 100%;
+    }
   }
 </style>
