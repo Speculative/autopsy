@@ -20,10 +20,31 @@ CallStack and its related classes never invoke side effects and never directly
 read environment or platform-specific information. Instead, it should be passed
 in to them as necessary by the functions implementing the top-level APIs.
 
-CallStack's fluent API should allow chaining calls even if a queried value
-isn't present, e.g. `call_stack.caller().variables()` should not raise an
-exception and instead collect a message representing where the missing value was
-so that this can be surfaced to the user in the report.
+### AutopsyResult Pattern
+
+CallStack's fluent API uses the `AutopsyResult` Result Monad pattern to enable
+chaining calls even if a queried value isn't present. All querying methods
+(e.g., `current`, `caller`, `frame()`) return `AutopsyResult[T]` instead of
+`Optional[T]`. This allows chaining like `call_stack.caller.variable("x")`
+without raising exceptions when intermediate steps fail.
+
+`AutopsyResult` provides:
+
+- `is_ok()` and `is_err()` methods to check success/failure
+- `.value` property to access the wrapped value (raises if error)
+- `.error` property to access error information (raises if success)
+- Fluent chaining via `__getattr__` that propagates errors through the chain
+- Structured error information via `ErrorInfo` containing message, context, and code location
+
+When a query fails (e.g., no caller available), an `ErrorInfo` object is
+created with:
+
+- A human-readable error message
+- Contextual information (e.g., available frames, required frames, frame index)
+- Code location where the error occurred (filename, line number, function, module)
+
+This pattern will be used for all future CallStack querying classes to ensure
+consistent error handling and fluent chaining throughout the API.
 
 ## Report
 

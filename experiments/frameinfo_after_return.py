@@ -1,4 +1,10 @@
-"""Test script to validate FrameInfo behavior after function return."""
+# Purpose: Determine whether FrameInfo objects remain accessible after a function
+# returns, and what variable values they contain (initial values, final values, or
+# something else).
+#
+# Conclusion: FrameInfo.frame remains accessible after function return and contains
+# the final variable values from when the function exited, not the values from when
+# FrameInfo was captured.
 
 import inspect
 
@@ -140,9 +146,13 @@ def test_frameinfo_after_return():
 
             # Check if current values are the "last values" (after modifications)
             if "x" in current_locals and current_locals.get("x") == 110:  # 10 + 100
-                print("\n  → Current values appear to be LAST values (after modifications)")
+                print(
+                    "\n  → Current values appear to be LAST values (after modifications)"
+                )
             elif "x" in current_locals and current_locals.get("x") == 10:
-                print("\n  → Current values appear to be INITIAL values (before modifications)")
+                print(
+                    "\n  → Current values appear to be INITIAL values (before modifications)"
+                )
 
     except Exception as e:
         print(f"ERROR comparing variables: {e}")
@@ -156,4 +166,3 @@ def test_frameinfo_after_return():
 
 if __name__ == "__main__":
     test_frameinfo_after_return()
-

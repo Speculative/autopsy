@@ -1,4 +1,10 @@
-"""Test script to check if FrameInfo objects can be pickled."""
+# Purpose: Determine whether FrameInfo objects can be pickled to create immutable
+# snapshots of frame information, and whether frame objects or f_locals can be
+# pickled separately.
+#
+# Conclusion: FrameInfo objects cannot be pickled because they contain frame
+# objects, which are not picklable. To create immutable snapshots, we must extract
+# and pickle only the picklable data (like f_locals as a dict copy).
 
 import inspect
 import pickle

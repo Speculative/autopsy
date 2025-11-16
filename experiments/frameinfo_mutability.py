@@ -1,4 +1,9 @@
-"""Test script to validate FrameInfo immutability."""
+# Purpose: Determine whether FrameInfo captures variable state at inspection time
+# or provides a live reference that reflects changes made after inspection.
+#
+# Conclusion: FrameInfo.frame is a live reference to the execution frame, not a
+# snapshot. Variable values accessed through frame.f_locals reflect the current
+# state, which may change after the FrameInfo was captured.
 
 from autopsy import call_stack
 
