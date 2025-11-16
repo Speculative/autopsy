@@ -5,7 +5,7 @@
 export interface CallSite {
   filename: string
   line: number
-  values: unknown[]
+  value_groups: unknown[][]  // Each group contains values from one log() call
 }
 
 export interface AutopsyData {

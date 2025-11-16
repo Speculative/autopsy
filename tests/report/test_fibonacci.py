@@ -46,7 +46,7 @@ def test_fibonacci_iterative():
     assert len(call_sites) > 0, "Should have at least one call site"
 
     logs = report.get_logs()
-    total_logs = sum(len(values) for values in logs.values())
+    total_logs = sum(sum(len(group) for group in groups) for groups in logs.values())
     assert total_logs > 0, "Should have logged values"
 
 
@@ -64,16 +64,21 @@ def test_fibonacci_recursive():
     logs = report.get_logs()
     # Check that we captured caller info
     found_caller_info = False
-    for pickled_values in logs.values():
-        for pickled in pickled_values:
-            if isinstance(pickled, bytes):
-                try:
-                    value = pickle.loads(pickled)
-                    # Check if we have a Caller object
-                    if hasattr(value, "function") and hasattr(value, "filename"):
-                        found_caller_info = True
-                        break
-                except Exception:
-                    pass
+    for value_groups in logs.values():
+        for group in value_groups:
+            for pickled in group:
+                if isinstance(pickled, bytes):
+                    try:
+                        value = pickle.loads(pickled)
+                        # Check if we have a Caller object
+                        if hasattr(value, "function") and hasattr(value, "filename"):
+                            found_caller_info = True
+                            break
+                    except Exception:
+                        pass
+                if found_caller_info:
+                    break
+            if found_caller_info:
+                break
 
     assert found_caller_info, "Should have captured caller information in logs"

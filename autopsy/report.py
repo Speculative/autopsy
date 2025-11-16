@@ -1,6 +1,5 @@
 import inspect
 import json
-import os
 import pickle
 import re
 from datetime import datetime
@@ -13,7 +12,10 @@ class Report:
 
     def __init__(self):
         """Initialize a fresh report with empty storage."""
-        self._logs: Dict[Tuple[str, int], List[Any]] = {}
+        # Store groups of values, where each group represents one log() call
+        # Format: Dict[call_site, List[List[pickled_values]]]
+        # Each inner list contains values from a single log() call
+        self._logs: Dict[Tuple[str, int], List[List[Any]]] = {}
 
     def log(self, *args):
         """
@@ -37,7 +39,7 @@ class Report:
 
         call_site = (caller_frame.filename, caller_frame.lineno)
 
-        # Serialize and store the values
+        # Serialize and store the values as a group
         serialized_values = []
         for value in args:
             try:
@@ -48,21 +50,22 @@ class Report:
                 # Store error info if pickling fails
                 serialized_values.append(f"<PickleError: {str(e)}>")
 
-        # Append to the list for this call site
+        # Append the group to the list for this call site
         if call_site not in self._logs:
             self._logs[call_site] = []
-        self._logs[call_site].extend(serialized_values)
+        self._logs[call_site].append(serialized_values)
 
     def init(self):
         """Reset/initialize the report with fresh storage."""
         self._logs.clear()
 
-    def get_logs(self) -> Dict[Tuple[str, int], List[Any]]:
+    def get_logs(self) -> Dict[Tuple[str, int], List[List[Any]]]:
         """
         Get all captured logs.
 
         Returns:
-            Dictionary mapping call sites to lists of pickled values
+            Dictionary mapping call sites to lists of value groups.
+            Each group is a list of pickled values from one log() call.
         """
         return self._logs.copy()
 
@@ -81,39 +84,43 @@ class Report:
 
         Returns:
             Dictionary with 'generated_at' timestamp and 'call_sites' key containing
-            list of call site data. Each call site has 'filename', 'line', and 'values' keys.
+            list of call site data. Each call site has 'filename', 'line', and 'value_groups' keys.
+            Each value_group is a list of values from one log() call.
         """
         call_sites = []
 
-        for call_site, pickled_values in self._logs.items():
+        for call_site, value_groups in self._logs.items():
             filename, line_number = call_site
 
-            # Unpickle and convert values to JSON-serializable format
-            json_values = []
-            for pickled_value in pickled_values:
-                if isinstance(pickled_value, str) and pickled_value.startswith(
-                    "<PickleError"
-                ):
-                    # Already an error string, include as-is
-                    json_values.append(pickled_value)
-                elif isinstance(pickled_value, bytes):
-                    try:
-                        # Unpickle the value
-                        unpickled = pickle.loads(pickled_value)
-                        # Try to convert to JSON-serializable format
-                        json_values.append(self._to_json_serializable(unpickled))
-                    except Exception as e:
-                        # If unpickling fails, store error info
-                        json_values.append(f"<UnpickleError: {str(e)}>")
-                else:
-                    # Not bytes, try to serialize directly
-                    json_values.append(self._to_json_serializable(pickled_value))
+            # Process each group of values from a single log() call
+            json_value_groups = []
+            for pickled_group in value_groups:
+                json_group = []
+                for pickled_value in pickled_group:
+                    if isinstance(pickled_value, str) and pickled_value.startswith(
+                        "<PickleError"
+                    ):
+                        # Already an error string, include as-is
+                        json_group.append(pickled_value)
+                    elif isinstance(pickled_value, bytes):
+                        try:
+                            # Unpickle the value
+                            unpickled = pickle.loads(pickled_value)
+                            # Try to convert to JSON-serializable format
+                            json_group.append(self._to_json_serializable(unpickled))
+                        except Exception as e:
+                            # If unpickling fails, store error info
+                            json_group.append(f"<UnpickleError: {str(e)}>")
+                    else:
+                        # Not bytes, try to serialize directly
+                        json_group.append(self._to_json_serializable(pickled_value))
+                json_value_groups.append(json_group)
 
             call_sites.append(
                 {
                     "filename": filename,
                     "line": line_number,
-                    "values": json_values,
+                    "value_groups": json_value_groups,
                 }
             )
 

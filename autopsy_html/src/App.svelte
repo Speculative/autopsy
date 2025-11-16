@@ -62,11 +62,18 @@
             <span class="line">Line {callSite.line}</span>
           </div>
           <div class="file-path">{callSite.filename}</div>
-          <div class="values">
-            {#each callSite.values as value, index}
-              <div class="value">
-                <span class="value-index">[{index}]</span>
-                <pre class="value-content">{formatValue(value)}</pre>
+          <div class="value-groups">
+            {#each callSite.value_groups as valueGroup, groupIndex}
+              <div class="value-group">
+                <div class="value-group-header">Call {groupIndex + 1}</div>
+                <div class="values">
+                  {#each valueGroup as value, valueIndex}
+                    <div class="value">
+                      <span class="value-index">[{valueIndex}]</span>
+                      <pre class="value-content">{formatValue(value)}</pre>
+                    </div>
+                  {/each}
+                </div>
               </div>
             {/each}
           </div>
@@ -142,10 +149,30 @@
     font-family: monospace;
   }
 
+  .value-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .value-group {
+    border-left: 3px solid #2563eb;
+    padding-left: 0.75rem;
+  }
+
+  .value-group-header {
+    font-weight: 600;
+    color: #2563eb;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
   .values {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
 
   .value {

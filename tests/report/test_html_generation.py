@@ -44,9 +44,12 @@ def test_generate_html_with_data():
     call_site = json_data["call_sites"][0]
     assert "filename" in call_site
     assert "line" in call_site
-    assert "values" in call_site
-    assert isinstance(call_site["values"], list)
-    assert len(call_site["values"]) > 0
+    assert "value_groups" in call_site
+    assert isinstance(call_site["value_groups"], list)
+    assert len(call_site["value_groups"]) > 0
+    # Each group should be a list of values
+    assert isinstance(call_site["value_groups"][0], list)
+    assert len(call_site["value_groups"][0]) > 0
 
 
 def test_generate_html_to_file():
@@ -121,8 +124,8 @@ def test_generate_html_multiple_call_sites():
     for call_site in call_sites:
         assert "filename" in call_site
         assert "line" in call_site
-        assert "values" in call_site
-        assert isinstance(call_site["values"], list)
+        assert "value_groups" in call_site
+        assert isinstance(call_site["value_groups"], list)
 
 
 def test_generate_html_complex_data():
@@ -150,13 +153,15 @@ def test_generate_html_complex_data():
     call_sites = json_data["call_sites"]
     assert len(call_sites) > 0
 
-    values = call_sites[0]["values"]
-    assert len(values) > 0
+    value_groups = call_sites[0]["value_groups"]
+    assert len(value_groups) > 0
 
     # Verify the complex data structure is preserved
+    # First group should have one value (the complex_data dict)
+    values = value_groups[0]
+    assert len(values) > 0
     logged_data = values[0]
     assert isinstance(logged_data, dict)
     assert "list" in logged_data
     assert "dict" in logged_data
     assert "mixed" in logged_data
-
