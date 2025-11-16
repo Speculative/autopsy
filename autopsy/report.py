@@ -1,6 +1,10 @@
 import inspect
+import json
+import os
 import pickle
-from typing import Dict, List, Tuple, Any
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class Report:
@@ -70,6 +74,79 @@ class Report:
         """
         return list(self._logs.keys())
 
+    def to_json(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Convert report data to JSON-serializable format.
+
+        Returns:
+            Dictionary with 'call_sites' key containing list of call site data.
+            Each call site has 'filename', 'line', and 'values' keys.
+        """
+        call_sites = []
+
+        for call_site, pickled_values in self._logs.items():
+            filename, line_number = call_site
+
+            # Unpickle and convert values to JSON-serializable format
+            json_values = []
+            for pickled_value in pickled_values:
+                if isinstance(pickled_value, str) and pickled_value.startswith(
+                    "<PickleError"
+                ):
+                    # Already an error string, include as-is
+                    json_values.append(pickled_value)
+                elif isinstance(pickled_value, bytes):
+                    try:
+                        # Unpickle the value
+                        unpickled = pickle.loads(pickled_value)
+                        # Try to convert to JSON-serializable format
+                        json_values.append(self._to_json_serializable(unpickled))
+                    except Exception as e:
+                        # If unpickling fails, store error info
+                        json_values.append(f"<UnpickleError: {str(e)}>")
+                else:
+                    # Not bytes, try to serialize directly
+                    json_values.append(self._to_json_serializable(pickled_value))
+
+            call_sites.append(
+                {
+                    "filename": filename,
+                    "line": line_number,
+                    "values": json_values,
+                }
+            )
+
+        return {"call_sites": call_sites}
+
+    def _to_json_serializable(self, value: Any) -> Any:
+        """
+        Convert a value to JSON-serializable format.
+
+        Args:
+            value: Value to convert
+
+        Returns:
+            JSON-serializable representation of the value
+        """
+        # Try to serialize directly with json.dumps to test if it's already serializable
+        try:
+            json.dumps(value)
+            return value
+        except (TypeError, ValueError):
+            # Not directly serializable, try to convert
+            if isinstance(value, (int, float, str, bool, type(None))):
+                return value
+            elif isinstance(value, (list, tuple)):
+                return [self._to_json_serializable(item) for item in value]
+            elif isinstance(value, dict):
+                return {str(k): self._to_json_serializable(v) for k, v in value.items()}
+            else:
+                # For other types, try to get a string representation
+                try:
+                    return f"<{type(value).__name__}: {repr(value)}>"
+                except Exception:
+                    return f"<{type(value).__name__}: (unable to represent)>"
+
 
 # Global singleton instance
 _report_instance = Report()
@@ -84,3 +161,48 @@ def init():
     """Initialize/reset the global report instance."""
     global _report_instance
     _report_instance = Report()
+
+
+def generate_html(
+    report: Optional[Report] = None, output_path: Optional[str] = None
+) -> str:
+    """
+    Generate HTML report from Report data.
+
+    Args:
+        report: Report instance to generate HTML from. If None, uses the global report instance.
+        output_path: Optional path to write the HTML file to. If None, returns the HTML as a string.
+
+    Returns:
+        The generated HTML as a string.
+    """
+    if report is None:
+        report = get_report()
+
+    # Load the template file
+    template_path = Path(__file__).parent / "template.html"
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"Template file not found at {template_path}. "
+            "Make sure template.html exists in the autopsy package directory."
+        )
+
+    template_content = template_path.read_text(encoding="utf-8")
+
+    # Get JSON data from report
+    report_data = report.to_json()
+    json_str = json.dumps(report_data, indent=2)
+
+    # Inject JSON into the template
+    # Find and replace the content of the <script id="autopsy-data"> tag
+    pattern = r'(<script id="autopsy-data" type="application/json">)(.*?)(</script>)'
+    replacement = r"\1" + json_str + r"\3"
+    html_content = re.sub(pattern, replacement, template_content, flags=re.DOTALL)
+
+    # Write to file if output_path is provided
+    if output_path is not None:
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(html_content, encoding="utf-8")
+
+    return html_content

@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated HTML reports (but keep autopsy/template.html)
+*.html
+!autopsy/template.html
+!autopsy_html/index.html
