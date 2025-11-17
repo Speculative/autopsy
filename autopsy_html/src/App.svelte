@@ -1,100 +1,104 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite } from './types'
-  import TreeView from './TreeView.svelte'
+  import type { AutopsyData } from "./types";
+  import StreamsView from "./StreamsView.svelte";
+  import HistoryView from "./HistoryView.svelte";
 
-  let data: AutopsyData = { generated_at: '', call_sites: [] }
+  let data: AutopsyData = $state({ generated_at: "", call_sites: [] });
+  let activeTab = $state<"streams" | "history">("streams");
+  let highlightedLogIndex = $state<number | null>(null);
 
   // Load data from the injection point or dev data
   async function loadData(): Promise<void> {
     // In development mode, try to load dev-data.json if it exists
     if (import.meta.env.DEV) {
       try {
-        const response = await fetch('/dev-data.json')
+        const response = await fetch("/dev-data.json");
         if (response.ok) {
-          const parsed = await response.json() as Partial<AutopsyData>
+          const parsed = (await response.json()) as Partial<AutopsyData>;
           data = {
-            generated_at: parsed.generated_at ?? '',
-            call_sites: parsed.call_sites ?? []
-          }
-          console.log('Loaded development data from dev-data.json')
-          return
+            generated_at: parsed.generated_at ?? "",
+            call_sites: parsed.call_sites ?? [],
+          };
+          console.log("Loaded development data from dev-data.json");
+          return;
         }
       } catch (e) {
-        console.log('No dev-data.json found, using empty data')
+        console.log("No dev-data.json found, using empty data");
       }
     }
 
     // Load from the injected data element (production mode or no dev data)
-    const dataElement = document.getElementById('autopsy-data')
+    const dataElement = document.getElementById("autopsy-data");
     if (dataElement && dataElement.textContent) {
       try {
-        const parsed = JSON.parse(dataElement.textContent) as Partial<AutopsyData>
+        const parsed = JSON.parse(
+          dataElement.textContent
+        ) as Partial<AutopsyData>;
         data = {
-          generated_at: parsed.generated_at ?? '',
-          call_sites: parsed.call_sites ?? []
-        }
+          generated_at: parsed.generated_at ?? "",
+          call_sites: parsed.call_sites ?? [],
+        };
       } catch (e) {
-        console.error('Failed to parse autopsy data:', e)
-        data = { generated_at: '', call_sites: [] }
+        console.error("Failed to parse autopsy data:", e);
+        data = { generated_at: "", call_sites: [] };
       }
     }
   }
 
   // Load data on mount
-  loadData()
+  loadData();
 
-  function getFilename(callSite: CallSite): string {
-    const parts = callSite.filename.split('/')
-    return parts[parts.length - 1]
+  function handleShowInHistory(logIndex: number) {
+    highlightedLogIndex = logIndex;
+    activeTab = "history";
+    // Clear highlight after animation completes (2s)
+    setTimeout(() => {
+      highlightedLogIndex = null;
+    }, 2000);
   }
+
+  // Clear highlight when switching tabs manually
+  $effect(() => {
+    if (activeTab === "streams") {
+      highlightedLogIndex = null;
+    }
+  });
 </script>
 
 <main>
   <div class="header">
     <h1>Autopsy Report</h1>
     {#if data.generated_at}
-      <div class="timestamp">Generated: {new Date(data.generated_at).toLocaleString()}</div>
+      <div class="timestamp">
+        Generated: {new Date(data.generated_at).toLocaleString()}
+      </div>
     {/if}
   </div>
 
-  {#if data.call_sites.length === 0}
-    <p class="empty">No report data available.</p>
-  {:else}
-    <div class="call-sites">
-      {#each data.call_sites as callSite (callSite.filename + callSite.line)}
-        <div class="call-site">
-          <div class="call-site-header">
-            <span class="filename">{getFilename(callSite)}</span>
-            <span class="line">Line {callSite.line}</span>
-          </div>
-          <div class="function-name">Function: <code>{callSite.function_name}</code></div>
-          <div class="file-path">{callSite.filename}</div>
-          <div class="value-groups">
-            {#each callSite.value_groups as valueGroup, groupIndex}
-              <div class="value-group">
-                <div class="value-group-header">
-                  Call {groupIndex + 1}
-                  {#if valueGroup.function_name !== callSite.function_name}
-                    <span class="function-name-inline">in {valueGroup.function_name}</span>
-                  {/if}
-                </div>
-                <div class="values">
-                  {#each valueGroup.values as valueWithName, valueIndex}
-                    <div class="value-item">
-                      {#if valueWithName.name}
-                        <div class="value-label">{valueWithName.name}:</div>
-                      {/if}
-                      <TreeView value={valueWithName.value} />
-                    </div>
-                  {/each}
-                </div>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/each}
-    </div>
-  {/if}
+  <div class="tabs">
+    <button
+      class="tab"
+      class:active={activeTab === "streams"}
+      onclick={() => (activeTab = "streams")}
+    >
+      Streams
+    </button>
+    <button
+      class="tab"
+      class:active={activeTab === "history"}
+      onclick={() => (activeTab = "history")}
+    >
+      History
+    </button>
+  </div>
+
+  <div class="content">
+    {#if activeTab === "streams"}
+      <StreamsView {data} onShowInHistory={handleShowInHistory} />
+    {:else if activeTab === "history"}
+      <HistoryView {data} {highlightedLogIndex} />
+    {/if}
+  </div>
 </main>
 
 <style>
@@ -102,11 +106,14 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 2rem;
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      sans-serif;
   }
 
   .header {
-    margin-bottom: 2rem;
+    margin-bottom: 1.5rem;
   }
 
   h1 {
@@ -119,131 +126,37 @@
     font-size: 0.9rem;
   }
 
-  .empty {
-    text-align: center;
-    color: #666;
-    padding: 3rem;
-  }
-
-  .call-sites {
+  .tabs {
     display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  .call-site {
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    padding: 1rem;
-    background: #f9f9f9;
-  }
-
-  .call-site-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-  }
-
-  .filename {
-    font-weight: 600;
-    color: #2563eb;
-    font-size: 1.1rem;
-  }
-
-  .line {
-    color: #666;
-    font-size: 0.9rem;
-  }
-
-  .function-name {
-    color: #666;
-    font-size: 0.9rem;
-    margin-bottom: 0.5rem;
-    font-weight: 500;
-  }
-
-  .function-name code {
-    background: #f0f0f0;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
-    color: #2563eb;
-  }
-
-  .file-path {
-    color: #888;
-    font-size: 0.85rem;
-    margin-bottom: 1rem;
-    font-family: monospace;
-  }
-
-  .value-groups {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .value-group {
-    border-left: 3px solid #2563eb;
-    padding-left: 0.75rem;
-  }
-
-  .value-group-header {
-    font-weight: 600;
-    color: #2563eb;
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    display: flex;
-    align-items: center;
     gap: 0.5rem;
+    border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 1.5rem;
   }
 
-  .function-name-inline {
-    font-size: 0.75rem;
-    text-transform: none;
-    font-weight: 400;
-    color: #666;
+  .tab {
+    padding: 0.75rem 1.5rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
   }
 
-  .values {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 1rem;
-    align-items: flex-start;
+  .tab:hover {
+    color: #2563eb;
+    background: #f8fafc;
   }
 
-  .value-item {
-    flex: 0 1 auto;
-    min-width: 0;
-    padding: 0.75rem;
-    background: white;
-    border: 1px solid #e5e5e5;
-    border-radius: 4px;
-    overflow-x: auto;
-    max-width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+  .tab.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
   }
 
-  .value-label {
-    font-weight: 600;
-    color: #881391;
-    font-size: 0.85rem;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
-  }
-
-  @media (max-width: 768px) {
-    .values {
-      flex-direction: column;
-    }
-
-    .value-item {
-      width: 100%;
-    }
+  .content {
+    min-height: 200px;
   }
 </style>

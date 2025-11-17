@@ -10,6 +10,7 @@ export interface ValueWithName {
 export interface ValueGroup {
   values: ValueWithName[]  // Values with their variable names
   function_name: string  // Name of the function containing this log call
+  log_index: number  // Global index for ordering all logs chronologically
 }
 
 export interface CallSite {

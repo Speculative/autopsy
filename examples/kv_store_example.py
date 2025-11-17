@@ -92,9 +92,10 @@ class Transaction:
 class TransactionManager:
     """Manages transactions for a KV store."""
 
-    def __init__(self, store: KVStore):
+    def __init__(self, store: KVStore, report: Report):
         """Initialize transaction manager with a store."""
         self.store = store
+        self.report = report
         self.active_transactions: Dict[str, Transaction] = {}
         self.committed_transactions: List[str] = []
         self.rolled_back_transactions: List[str] = []
@@ -105,26 +106,33 @@ class TransactionManager:
             tx_id = f"tx_{len(self.active_transactions) + len(self.committed_transactions) + len(self.rolled_back_transactions)}"
         tx = Transaction(tx_id)
         self.active_transactions[tx_id] = tx
+        self.report.log(tx_id, len(self.active_transactions))
         return tx
 
     def commit_transaction(self, tx_id: str) -> bool:
         """Commit a transaction. Returns True if successful."""
         if tx_id not in self.active_transactions:
+            self.report.log("commit_failed", tx_id, "not_active")
             return False
         tx = self.active_transactions[tx_id]
+        num_ops = len(tx.operations)
         tx.commit(self.store)
         del self.active_transactions[tx_id]
         self.committed_transactions.append(tx_id)
+        self.report.log(tx_id, num_ops, len(self.committed_transactions))
         return True
 
     def rollback_transaction(self, tx_id: str) -> bool:
         """Rollback a transaction. Returns True if successful."""
         if tx_id not in self.active_transactions:
+            self.report.log("rollback_failed", tx_id, "not_active")
             return False
         tx = self.active_transactions[tx_id]
+        num_ops = len(tx.operations)
         tx.rollback()
         del self.active_transactions[tx_id]
         self.rolled_back_transactions.append(tx_id)
+        self.report.log(tx_id, num_ops, len(self.rolled_back_transactions))
         return True
 
     def get_stats(self) -> Dict[str, Any]:
@@ -211,7 +219,7 @@ def run_example(report: Report) -> None:
     """Run the KV store example and populate the report."""
     print("Initializing KV store and transaction manager...")
     store = KVStore()
-    manager = TransactionManager(store)
+    manager = TransactionManager(store, report)
 
     report.log("system_init", store.get_stats(), manager.get_stats())
 

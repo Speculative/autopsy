@@ -1,86 +1,88 @@
 <script lang="ts">
-  import TreeView from './TreeView.svelte'
+  import TreeView from "./TreeView.svelte";
 
   interface Props {
-    value: unknown
-    key?: string | number
-    depth?: number
+    value: unknown;
+    key?: string | number;
+    depth?: number;
   }
 
-  export let value: unknown
-  export let key: string | number | undefined = undefined
-  export let depth: number = 0
+  export let value: unknown;
+  export let key: string | number | undefined = undefined;
+  export let depth: number = 0;
 
-  let expanded = depth < 2 // Auto-expand first 2 levels
+  let expanded = depth < 2; // Auto-expand first 2 levels
 
   function isObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value)
+    return value !== null && typeof value === "object" && !Array.isArray(value);
   }
 
   function isArray(value: unknown): value is unknown[] {
-    return Array.isArray(value)
+    return Array.isArray(value);
   }
 
   function getType(value: unknown): string {
-    if (value === null) return 'null'
-    if (value === undefined) return 'undefined'
-    if (isArray(value)) return 'array'
-    if (isObject(value)) return 'object'
-    return typeof value
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (isArray(value)) return "array";
+    if (isObject(value)) return "object";
+    return typeof value;
   }
 
   function getValuePreview(value: unknown): string {
-    const type = getType(value)
-    if (type === 'string') {
-      const str = value as string
+    const type = getType(value);
+    if (type === "string") {
+      const str = value as string;
       // Truncate long strings
       if (str.length > 50) {
-        return `"${str.substring(0, 47)}..."`
+        return `"${str.substring(0, 47)}..."`;
       }
-      return `"${str}"`
+      return `"${str}"`;
     }
-    if (type === 'null' || type === 'undefined') return type
-    if (type === 'number' || type === 'boolean') return String(value)
+    if (type === "null" || type === "undefined") return type;
+    if (type === "number" || type === "boolean") return String(value);
     if (isArray(value)) {
-      return `Array(${value.length})`
+      return `Array(${value.length})`;
     }
     if (isObject(value)) {
-      const keys = Object.keys(value)
-      return keys.length === 0 ? '{}' : `{${keys.length} ${keys.length === 1 ? 'key' : 'keys'}}`
+      const keys = Object.keys(value);
+      return keys.length === 0
+        ? "{}"
+        : `{${keys.length} ${keys.length === 1 ? "key" : "keys"}}`;
     }
-    return String(value)
+    return String(value);
   }
 
   function toggle() {
     if (isObject(value) || isArray(value)) {
-      expanded = !expanded
+      expanded = !expanded;
     }
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      toggle()
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
     }
   }
 
   function getTypeColor(type: string): string {
     switch (type) {
-      case 'string':
-        return '#0a0'
-      case 'number':
-        return '#00a'
-      case 'boolean':
-        return '#a0a'
-      case 'null':
-      case 'undefined':
-        return '#888'
-      case 'object':
-        return '#a50'
-      case 'array':
-        return '#05a'
+      case "string":
+        return "#0a0";
+      case "number":
+        return "#00a";
+      case "boolean":
+        return "#a0a";
+      case "null":
+      case "undefined":
+        return "#888";
+      case "object":
+        return "#a50";
+      case "array":
+        return "#05a";
       default:
-        return '#333'
+        return "#333";
     }
   }
 </script>
@@ -94,17 +96,22 @@
       role="button"
       tabindex="0"
     >
-      {#if (isObject(value) || isArray(value))}
-        <span class="expand-icon">{expanded ? '▼' : '▶'}</span>
+      {#if isObject(value) || isArray(value)}
+        <span class="expand-icon">{expanded ? "▼" : "▶"}</span>
       {:else}
         <span class="expand-icon-placeholder"></span>
       {/if}
       <span class="key-name">{key}:</span>
     </span>
   {/if}
-  <span class="value-wrapper" class:expandable={isObject(value) || isArray(value)}>
+  <span
+    class="value-wrapper"
+    class:expandable={isObject(value) || isArray(value)}
+  >
     {#if isObject(value)}
-      <span class="type-badge" style="color: {getTypeColor('object')}">Object</span>
+      <span class="type-badge" style="color: {getTypeColor('object')}"
+        >Object</span
+      >
       <span
         class="value-preview"
         on:click={toggle}
@@ -122,7 +129,9 @@
         </div>
       {/if}
     {:else if isArray(value)}
-      <span class="type-badge" style="color: {getTypeColor('array')}">Array</span>
+      <span class="type-badge" style="color: {getTypeColor('array')}"
+        >Array</span
+      >
       <span
         class="value-preview"
         on:click={toggle}
@@ -140,7 +149,10 @@
         </div>
       {/if}
     {:else}
-      <span class="value-preview literal" style="color: {getTypeColor(getType(value))}">
+      <span
+        class="value-preview literal"
+        style="color: {getTypeColor(getType(value))}"
+      >
         {getValuePreview(value)}
       </span>
     {/if}
@@ -149,9 +161,13 @@
 
 <style>
   .tree-node {
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro",
+      monospace;
     font-size: 13px;
     line-height: 1.5;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
   }
 
   .key {
@@ -245,4 +261,3 @@
     padding-left: 12px;
   }
 </style>
-

@@ -15,8 +15,10 @@ class Report:
         """Initialize a fresh report with empty storage."""
         # Store groups of values with metadata, where each group represents one log() call
         # Format: Dict[call_site, List[LogGroup]]
-        # LogGroup contains: values (list of pickled values), function_name, arg_names
+        # LogGroup contains: values (list of pickled values), function_name, arg_names, log_index
         self._logs: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+        # Global log index to track total ordering across all log calls
+        self._log_index: int = 0
 
     def _ast_node_to_expression(self, node: ast.expr) -> Optional[str]:
         """
@@ -246,12 +248,16 @@ class Report:
                 # Store error info if pickling fails
                 serialized_values.append(f"<PickleError: {str(e)}>")
 
-        # Store the group with metadata
+        # Store the group with metadata including log index for total ordering
         log_group = {
             "values": serialized_values,
             "function_name": function_name,
             "arg_names": arg_names,
+            "log_index": self._log_index,
         }
+
+        # Increment the global log index
+        self._log_index += 1
 
         # Append the group to the list for this call site
         if call_site not in self._logs:
@@ -261,6 +267,7 @@ class Report:
     def init(self):
         """Reset/initialize the report with fresh storage."""
         self._logs.clear()
+        self._log_index = 0
 
     def get_logs(self) -> Dict[Tuple[str, int], List[Dict[str, Any]]]:
         """
@@ -333,6 +340,7 @@ class Report:
                     {
                         "values": json_group,
                         "function_name": log_group.get("function_name", "<unknown>"),
+                        "log_index": log_group.get("log_index", 0),
                     }
                 )
 
