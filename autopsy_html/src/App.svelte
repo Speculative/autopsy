@@ -4,8 +4,27 @@
 
   let data: AutopsyData = { generated_at: '', call_sites: [] }
 
-  // Load data from the injection point
-  function loadData(): void {
+  // Load data from the injection point or dev data
+  async function loadData(): Promise<void> {
+    // In development mode, try to load dev-data.json if it exists
+    if (import.meta.env.DEV) {
+      try {
+        const response = await fetch('/dev-data.json')
+        if (response.ok) {
+          const parsed = await response.json() as Partial<AutopsyData>
+          data = {
+            generated_at: parsed.generated_at ?? '',
+            call_sites: parsed.call_sites ?? []
+          }
+          console.log('Loaded development data from dev-data.json')
+          return
+        }
+      } catch (e) {
+        console.log('No dev-data.json found, using empty data')
+      }
+    }
+
+    // Load from the injected data element (production mode or no dev data)
     const dataElement = document.getElementById('autopsy-data')
     if (dataElement && dataElement.textContent) {
       try {

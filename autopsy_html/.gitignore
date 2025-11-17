@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Development data file (optional, generated from generate_report_demo.py)
+dev-data.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

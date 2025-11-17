@@ -442,3 +442,32 @@ def generate_html(
         output_file.write_text(html_content, encoding="utf-8")
 
     return html_content
+
+
+def generate_json(
+    report: Optional[Report] = None, output_path: Optional[str] = None
+) -> str:
+    """
+    Generate JSON report from Report data.
+
+    Args:
+        report: Report instance to generate JSON from. If None, uses the global report instance.
+        output_path: Optional path to write the JSON file to. If None, returns the JSON as a string.
+
+    Returns:
+        The generated JSON as a string.
+    """
+    if report is None:
+        report = get_report()
+
+    # Get JSON data from report
+    report_data = report.to_json()
+    json_str = json.dumps(report_data, indent=2)
+
+    # Write to file if output_path is provided
+    if output_path is not None:
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(json_str, encoding="utf-8")
+
+    return json_str

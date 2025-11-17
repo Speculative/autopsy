@@ -1,9 +1,9 @@
-"""Demo script showing end-to-end HTML report generation with a realistic KV store."""
+"""Example: KV Store with transactions demonstrating autopsy report logging."""
 
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
-from autopsy.report import Report, generate_html
+from autopsy.report import Report
 
 
 class KVStore:
@@ -207,10 +207,8 @@ def analyze_store_state(store: KVStore, report: Report) -> None:
         report.log("store_entry", key, value)
 
 
-def main():
-    """Demonstrate HTML report generation with realistic KV store operations."""
-    report = Report()
-
+def run_example(report: Report) -> None:
+    """Run the KV store example and populate the report."""
     print("Initializing KV store and transaction manager...")
     store = KVStore()
     manager = TransactionManager(store)
@@ -223,16 +221,5 @@ def main():
     print("Analyzing final store state...")
     analyze_store_state(store, report)
 
-    print("Generating HTML report...")
-    output_file = "report.html"
-    html = generate_html(report, output_file)
-
-    print(f"✓ HTML report generated: {output_file}")
-    print(f"✓ Report size: {len(html)} bytes")
     print(f"✓ Store contains {store.size()} keys")
     print(f"✓ Final stats: {store.get_stats()}")
-    print(f"\nOpen {output_file} in your browser to view the report!")
-
-
-if __name__ == "__main__":
-    main()
