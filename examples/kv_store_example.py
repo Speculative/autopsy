@@ -3,6 +3,7 @@
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
+from autopsy import call_stack
 from autopsy.report import Report
 
 
@@ -221,7 +222,9 @@ def run_example(report: Report) -> None:
     store = KVStore()
     manager = TransactionManager(store, report)
 
-    report.log("system_init", store.get_stats(), manager.get_stats())
+    # Use call_stack() to capture stack trace for this log entry
+    cs = call_stack()
+    report.log(cs, "system_init", store.get_stats(), manager.get_stats())
 
     print("Running transaction workload...")
     simulate_transaction_workload(manager, report, num_transactions=15)

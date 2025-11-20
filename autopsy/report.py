@@ -3,22 +3,43 @@ import inspect
 import json
 import pickle
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from .call_stack import CallStack, StackTrace, call_stack
+
+
+@dataclass
+class ReportConfiguration:
+    """Configuration for Report behavior."""
+
+    auto_stack_trace: bool = True
 
 
 class Report:
     """Core report class for capturing debug values at call sites."""
 
-    def __init__(self):
-        """Initialize a fresh report with empty storage."""
+    def __init__(self, config: Optional[ReportConfiguration] = None):
+        """
+        Initialize a fresh report with empty storage.
+
+        Args:
+            config: Optional configuration object. If None, uses default configuration.
+        """
         # Store groups of values with metadata, where each group represents one log() call
         # Format: Dict[call_site, List[LogGroup]]
         # LogGroup contains: values (list of pickled values), function_name, arg_names, log_index
         self._logs: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
         # Global log index to track total ordering across all log calls
         self._log_index: int = 0
+        # Configuration
+        self._config = config if config is not None else ReportConfiguration()
+        # Stack traces stored by CallStack object ID
+        self._stack_traces: Dict[int, StackTrace] = {}
+        # Map from CallStack object ID to list of log indices that use it
+        self._stack_trace_id_to_log_indices: Dict[int, List[int]] = {}
 
     def _ast_node_to_expression(self, node: ast.expr) -> Optional[str]:
         """
@@ -237,6 +258,34 @@ class Report:
         elif len(arg_names) > len(args):
             arg_names = arg_names[: len(args)]
 
+        # Check if any argument is a CallStack instance, otherwise create one
+        # Always capture stack trace if auto_stack_trace is enabled
+        stack_trace_id: Optional[int] = None
+        call_stack_obj: Optional[CallStack] = None
+
+        # First, check if a CallStack was passed in args
+        for value in args:
+            if isinstance(value, CallStack):
+                call_stack_obj = value
+                break
+
+        # If no CallStack was passed and auto_stack_trace is enabled, create one
+        if call_stack_obj is None and self._config.auto_stack_trace:
+            call_stack_obj = call_stack()
+
+        # Capture stack trace if we have a CallStack and auto_stack_trace is enabled
+        if call_stack_obj is not None and self._config.auto_stack_trace:
+            # Capture stack trace lazily (only captures when this is called)
+            trace = call_stack_obj.capture_stack_trace()
+            stack_trace_id = id(call_stack_obj)
+            # Store trace if not already stored (deduplication by object identity)
+            if stack_trace_id not in self._stack_traces:
+                self._stack_traces[stack_trace_id] = trace
+            # Associate this log index with the stack trace ID
+            if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                self._stack_trace_id_to_log_indices[stack_trace_id] = []
+            self._stack_trace_id_to_log_indices[stack_trace_id].append(self._log_index)
+
         # Serialize and store the values as a group
         serialized_values = []
         for value in args:
@@ -255,6 +304,8 @@ class Report:
             "arg_names": arg_names,
             "log_index": self._log_index,
         }
+        if stack_trace_id is not None:
+            log_group["stack_trace_id"] = stack_trace_id
 
         # Increment the global log index
         self._log_index += 1
@@ -264,10 +315,19 @@ class Report:
             self._logs[call_site] = []
         self._logs[call_site].append(log_group)
 
-    def init(self):
-        """Reset/initialize the report with fresh storage."""
+    def init(self, config: Optional[ReportConfiguration] = None):
+        """
+        Reset/initialize the report with fresh storage.
+
+        Args:
+            config: Optional configuration object. If None, keeps existing config.
+        """
         self._logs.clear()
         self._log_index = 0
+        self._stack_traces.clear()
+        self._stack_trace_id_to_log_indices.clear()
+        if config is not None:
+            self._config = config
 
     def get_logs(self) -> Dict[Tuple[str, int], List[Dict[str, Any]]]:
         """
@@ -287,6 +347,22 @@ class Report:
             List of (filepath, line_number) tuples
         """
         return list(self._logs.keys())
+
+    def get_stack_trace(self, log_index: int) -> Optional[StackTrace]:
+        """
+        Get the stack trace associated with a log entry.
+
+        Args:
+            log_index: The log index to get the stack trace for
+
+        Returns:
+            StackTrace if found, None otherwise
+        """
+        # Find which stack trace ID this log index belongs to
+        for stack_trace_id, log_indices in self._stack_trace_id_to_log_indices.items():
+            if log_index in log_indices:
+                return self._stack_traces.get(stack_trace_id)
+        return None
 
     def to_json(self) -> Dict[str, Any]:
         """
@@ -336,13 +412,17 @@ class Report:
 
                     json_group.append(value_data)
 
-                json_value_groups.append(
-                    {
-                        "values": json_group,
-                        "function_name": log_group.get("function_name", "<unknown>"),
-                        "log_index": log_group.get("log_index", 0),
-                    }
-                )
+                value_group_data = {
+                    "values": json_group,
+                    "function_name": log_group.get("function_name", "<unknown>"),
+                    "log_index": log_group.get("log_index", 0),
+                }
+                if "stack_trace_id" in log_group:
+                    # Convert to string to match stack_traces dictionary keys
+                    value_group_data["stack_trace_id"] = str(
+                        log_group["stack_trace_id"]
+                    )
+                json_value_groups.append(value_group_data)
 
             call_sites.append(
                 {
@@ -357,9 +437,29 @@ class Report:
                 }
             )
 
+        # Convert stack traces to JSON-serializable format
+        json_stack_traces = {}
+        for trace_id, trace in self._stack_traces.items():
+            json_frames = []
+            for frame in trace.frames:
+                json_frames.append(
+                    {
+                        "filename": frame.filename,
+                        "function_name": frame.function_name,
+                        "line_number": frame.line_number,
+                        "code_context": frame.code_context,
+                        "local_variables": frame.local_variables,
+                    }
+                )
+            json_stack_traces[str(trace_id)] = {
+                "frames": json_frames,
+                "timestamp": trace.timestamp,
+            }
+
         return {
             "generated_at": datetime.now().isoformat(),
             "call_sites": call_sites,
+            "stack_traces": json_stack_traces,
         }
 
     def _to_json_serializable(self, value: Any) -> Any:
@@ -401,10 +501,15 @@ def get_report() -> Report:
     return _report_instance
 
 
-def init():
-    """Initialize/reset the global report instance."""
+def init(config: Optional[ReportConfiguration] = None):
+    """
+    Initialize/reset the global report instance.
+
+    Args:
+        config: Optional configuration object. If None, uses default configuration.
+    """
     global _report_instance
-    _report_instance = Report()
+    _report_instance = Report(config)
 
 
 def generate_html(

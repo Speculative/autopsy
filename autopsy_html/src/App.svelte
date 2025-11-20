@@ -3,7 +3,11 @@
   import StreamsView from "./StreamsView.svelte";
   import HistoryView from "./HistoryView.svelte";
 
-  let data: AutopsyData = $state({ generated_at: "", call_sites: [] });
+  let data: AutopsyData = $state({
+    generated_at: "",
+    call_sites: [],
+    stack_traces: {},
+  });
   let activeTab = $state<"streams" | "history">("streams");
   let highlightedLogIndex = $state<number | null>(null);
 
@@ -18,6 +22,7 @@
           data = {
             generated_at: parsed.generated_at ?? "",
             call_sites: parsed.call_sites ?? [],
+            stack_traces: parsed.stack_traces ?? {},
           };
           console.log("Loaded development data from dev-data.json");
           return;
@@ -37,10 +42,11 @@
         data = {
           generated_at: parsed.generated_at ?? "",
           call_sites: parsed.call_sites ?? [],
+          stack_traces: parsed.stack_traces ?? {},
         };
       } catch (e) {
         console.error("Failed to parse autopsy data:", e);
-        data = { generated_at: "", call_sites: [] };
+        data = { generated_at: "", call_sites: [], stack_traces: {} };
       }
     }
   }

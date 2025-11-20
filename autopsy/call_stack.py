@@ -1,5 +1,10 @@
 import inspect
 import os
+import site
+import sys
+import time
+from dataclasses import dataclass
+from types import FrameType
 from typing import Any, Callable, Dict, List, Optional
 
 from .autopsy_result import (
@@ -9,6 +14,25 @@ from .autopsy_result import (
     _AttributeProxy,
     _capture_error_location,
 )
+
+
+@dataclass
+class SerializableFrame:
+    """A serializable representation of a stack frame."""
+
+    filename: str
+    function_name: str
+    line_number: int
+    code_context: str
+    local_variables: Dict[str, str]
+
+
+@dataclass
+class StackTrace:
+    """A complete stack trace with all frames and their local variables."""
+
+    frames: List[SerializableFrame]
+    timestamp: float
 
 
 class Variable:
@@ -279,6 +303,7 @@ class CallStack:
 
     _frames: List[inspect.FrameInfo]
     _autopsy_module_path: str
+    _captured_trace: Optional[StackTrace]
 
     def __init__(self, frames: List[inspect.FrameInfo], autopsy_module_path: str):
         """
@@ -294,6 +319,7 @@ class CallStack:
         """
         self._frames = frames
         self._autopsy_module_path = autopsy_module_path
+        self._captured_trace = None
 
     @property
     def current(self) -> FrameQuery:
@@ -344,6 +370,196 @@ class CallStack:
             )
             return AutopsyResult.err(error)
         return AutopsyResult.ok(Frame(self._frames[frame_index]))
+
+    def _serialize_value(self, value: Any) -> str:
+        """Convert a value to a string representation for storage."""
+        if value is None:
+            return "None"
+
+        try:
+            value_type = type(value)
+
+            if value_type is int or value_type is float or value_type is bool:
+                return str(value)
+            elif value_type is str:
+                if len(value) > 100:
+                    return f"'{value[:97]}...'"
+                else:
+                    return f"'{value}'"
+            elif value_type is list or value_type is tuple:
+                return f"{value_type.__name__}(len={len(value)})"
+            elif value_type is dict:
+                return f"dict(len={len(value)})"
+            elif hasattr(value, "__class__"):
+                if hasattr(value, "__dict__"):
+                    return f"{value_type.__name__}(obj)"
+                else:
+                    return value_type.__name__
+            else:
+                return value_type.__name__
+
+        except Exception:
+            return f"{type(value).__name__}(unprintable)"
+
+    def _extract_local_variables(self, frame: FrameType) -> Dict[str, str]:
+        """Extract local variables from frame and convert to serializable form."""
+        local_vars = {}
+
+        filtered_items = [
+            (var_name, var_value)
+            for var_name, var_value in frame.f_locals.items()
+            if not var_name.startswith("_")
+            and var_name not in ("__builtins__", "__file__", "__name__")
+        ]
+
+        for var_name, var_value in filtered_items:
+            local_vars[var_name] = self._serialize_value(var_value)
+
+        return local_vars
+
+    def _get_line_content(self, filename: str, line_no: int) -> str:
+        """Get line content from a file."""
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                if 0 < line_no <= len(lines):
+                    return lines[line_no - 1].rstrip("\n\r")
+        except Exception:
+            pass
+        return ""
+
+    def _create_serializable_frame(self, frame: FrameType) -> SerializableFrame:
+        """Create a serializable frame from a Python frame object."""
+        filename = frame.f_code.co_filename
+        function_name = frame.f_code.co_name
+        line_number = frame.f_lineno
+        code_context = self._get_line_content(filename, line_number)
+        local_variables = self._extract_local_variables(frame)
+
+        return SerializableFrame(
+            filename=filename,
+            function_name=function_name,
+            line_number=line_number,
+            code_context=code_context,
+            local_variables=local_variables,
+        )
+
+    def _is_stdlib_frame(self, frame: FrameType) -> bool:
+        """Check if frame is from Python standard library."""
+        filename = frame.f_code.co_filename
+
+        # Check for generated/frozen code
+        if filename.startswith("<") and filename.endswith(">"):
+            module_name = frame.f_globals.get("__name__")
+            return bool(module_name and module_name in sys.builtin_module_names)
+
+        # Check if file is in stdlib directory
+        abs_filename = os.path.abspath(filename)
+        stdlib_dir = os.path.dirname(os.__file__)
+        if abs_filename.startswith(stdlib_dir):
+            return True
+
+        # Check if module is in stdlib module names (Python 3.10+)
+        if sys.version_info >= (3, 10):
+            module_name = frame.f_globals.get("__name__")
+            if module_name and hasattr(sys, "stdlib_module_names"):
+                return bool(module_name in sys.stdlib_module_names)
+
+        return False
+
+    def _is_site_packages_frame(self, frame: FrameType) -> bool:
+        """Check if frame is from site-packages."""
+        filename = frame.f_code.co_filename
+
+        # Skip generated code
+        if filename.startswith("<") and filename.endswith(">"):
+            return False
+
+        abs_filename = os.path.abspath(filename)
+        site_packages_dirs = site.getsitepackages()
+        user_site = site.getusersitepackages()
+        if user_site not in site_packages_dirs:
+            site_packages_dirs.append(user_site)
+
+        for sp_dir in site_packages_dirs:
+            if sp_dir and os.path.isdir(sp_dir):
+                if abs_filename.startswith(os.path.abspath(sp_dir)):
+                    return True
+
+        return False
+
+    def _is_entry_point_frame(self, frame: FrameType) -> bool:
+        """
+        Check if frame is a Python entry point (like _run_module_as_main, _run_code).
+
+        These are stdlib frames that represent the entry point of execution,
+        and we should stop capturing here since everything below is execution infrastructure.
+        """
+        function_name = frame.f_code.co_name
+        filename = frame.f_code.co_filename
+
+        # Entry point functions in runpy module
+        entry_point_functions = {
+            "_run_module_as_main",
+            "_run_code",
+            "run_path",
+            "run_module",
+        }
+
+        if function_name in entry_point_functions:
+            # Check if it's actually from runpy
+            if "runpy.py" in filename:
+                return True
+
+        # Check for exec/eval entry points
+        if function_name in ("exec", "eval") and filename.startswith("<"):
+            return True
+
+        return False
+
+    def _capture_full_stack(self) -> StackTrace:
+        """
+        Capture the complete stack trace from the current frames.
+
+        Includes stdlib frames that are in the middle of the call chain (like map, filter, etc.)
+        but stops at entry point frames (like _run_module_as_main) since those represent
+        execution infrastructure rather than user code.
+        """
+        frames = []
+
+        # Walk through all frames in self._frames
+        # Include stdlib frames in the middle, but stop at entry point frames
+        for frame_info in self._frames:
+            try:
+                frame = frame_info.frame
+
+                # Stop capturing at entry point frames (execution infrastructure)
+                if self._is_entry_point_frame(frame):
+                    break
+
+                # Include all frames (user code and stdlib in the middle)
+                # Only skip site-packages frames
+                if self._is_site_packages_frame(frame):
+                    continue
+
+                serializable_frame = self._create_serializable_frame(frame)
+                frames.append(serializable_frame)
+            except Exception:
+                # Skip problematic frames but continue
+                pass
+
+        return StackTrace(frames=frames, timestamp=time.time())
+
+    def capture_stack_trace(self) -> StackTrace:
+        """
+        Capture full stack trace lazily.
+
+        Returns:
+            StackTrace object with all frames and variables
+        """
+        if self._captured_trace is None:
+            self._captured_trace = self._capture_full_stack()
+        return self._captured_trace
 
 
 def call_stack() -> CallStack:
