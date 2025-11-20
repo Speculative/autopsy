@@ -1,18 +1,35 @@
 <script lang="ts">
   import type { AutopsyData, CallSite } from "./types";
   import TreeView from "./TreeView.svelte";
+  import { tick } from "svelte";
 
   interface Props {
     data: AutopsyData;
+    highlightedLogIndex?: number | null;
     onShowInHistory?: (logIndex: number) => void;
   }
 
-  let { data, onShowInHistory }: Props = $props();
+  let { data, highlightedLogIndex = null, onShowInHistory }: Props = $props();
 
   function getFilename(callSite: CallSite): string {
     const parts = callSite.filename.split("/");
     return parts[parts.length - 1];
   }
+
+  // Effect to scroll to and highlight the entry when highlightedLogIndex changes
+  $effect(() => {
+    if (highlightedLogIndex !== null) {
+      // Wait for the DOM to update
+      tick().then(() => {
+        const element = document.querySelector(
+          `[data-log-index="${highlightedLogIndex}"]`
+        );
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+    }
+  });
 </script>
 
 {#if data.call_sites.length === 0}
@@ -31,7 +48,11 @@
         <div class="file-path">{callSite.filename}</div>
         <div class="value-groups">
           {#each callSite.value_groups as valueGroup, groupIndex}
-            <div class="value-group">
+            <div
+              class="value-group"
+              class:highlighted={highlightedLogIndex === valueGroup.log_index}
+              data-log-index={valueGroup.log_index}
+            >
               <div class="value-group-header">
                 <span class="call-label">
                   Call {groupIndex + 1}
@@ -135,7 +156,32 @@
 
   .value-group {
     border-left: 3px solid #2563eb;
-    padding-left: 0.75rem;
+    padding: 0.5rem 0 0.5rem 0.75rem;
+    transition: border-color 0.2s;
+    border-radius: 4px;
+  }
+
+  .value-group.highlighted {
+    animation: highlight-pulse 2s ease-in-out;
+    border-left-color: #2563eb;
+  }
+
+  @keyframes highlight-pulse {
+    0% {
+      background: transparent;
+      box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
+    }
+    10% {
+      background: #dbeafe;
+      box-shadow: 0 0 0 8px rgba(37, 99, 235, 0);
+    }
+    30% {
+      background: #bfdbfe;
+    }
+    100% {
+      background: transparent;
+      box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+    }
   }
 
   .value-group-header {

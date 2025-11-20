@@ -63,10 +63,20 @@
     }, 2000);
   }
 
+  function handleShowInStream(logIndex: number) {
+    highlightedLogIndex = logIndex;
+    activeTab = "streams";
+    // Clear highlight after animation completes (2s)
+    setTimeout(() => {
+      highlightedLogIndex = null;
+    }, 2000);
+  }
+
   // Clear highlight when switching tabs manually
   $effect(() => {
-    if (activeTab === "streams") {
-      highlightedLogIndex = null;
+    if (activeTab === "history") {
+      // Only clear highlight when switching to history, not streams
+      // (streams might be showing a highlight from handleShowInStream)
     }
   });
 </script>
@@ -100,9 +110,9 @@
 
   <div class="content">
     {#if activeTab === "streams"}
-      <StreamsView {data} onShowInHistory={handleShowInHistory} />
+      <StreamsView {data} {highlightedLogIndex} onShowInHistory={handleShowInHistory} />
     {:else if activeTab === "history"}
-      <HistoryView {data} {highlightedLogIndex} />
+      <HistoryView {data} {highlightedLogIndex} onShowInStream={handleShowInStream} />
     {/if}
   </div>
 </main>

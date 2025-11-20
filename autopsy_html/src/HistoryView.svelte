@@ -6,9 +6,10 @@
   interface Props {
     data: AutopsyData;
     highlightedLogIndex?: number | null;
+    onShowInStream?: (logIndex: number) => void;
   }
 
-  let { data, highlightedLogIndex = null }: Props = $props();
+  let { data, highlightedLogIndex = null, onShowInStream }: Props = $props();
 
   // Create a flattened list of all log entries with their context
   interface HistoryEntry {
@@ -97,6 +98,16 @@
           <span class="function">
             {entry.valueGroup.function_name}
           </span>
+          <button
+            class="show-in-stream-btn"
+            onclick={(e) => {
+              e.stopPropagation();
+              onShowInStream?.(entry.log_index);
+            }}
+            title="Show this log in the Streams view"
+          >
+            ← Show in Stream
+          </button>
         </div>
         <div class="values">
           {#each entry.valueGroup.values as valueWithName}
@@ -247,7 +258,31 @@
   .function {
     color: #64748b;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+  }
+
+  .show-in-stream-btn {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #2563eb;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+    transition: all 0.2s;
+    white-space: nowrap;
     margin-left: auto;
+  }
+
+  .show-in-stream-btn:hover {
+    background: #dbeafe;
+    border-color: #93c5fd;
+  }
+
+  .show-in-stream-btn:active {
+    background: #bfdbfe;
   }
 
   .values {
