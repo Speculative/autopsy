@@ -11,7 +11,7 @@
   export let key: string | number | undefined = undefined;
   export let depth: number = 0;
 
-  let expanded = depth < 2; // Auto-expand first 2 levels
+  let expanded = false; // Collapsed by default
 
   function isObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -53,7 +53,8 @@
     return String(value);
   }
 
-  function toggle() {
+  function toggle(event: MouseEvent | KeyboardEvent) {
+    event.stopPropagation();
     if (isObject(value) || isArray(value)) {
       expanded = !expanded;
     }
@@ -62,7 +63,7 @@
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      toggle();
+      toggle(event);
     }
   }
 
@@ -91,7 +92,7 @@
   {#if key !== undefined}
     <span
       class="key"
-      on:click={toggle}
+      on:click={(e) => toggle(e)}
       on:keydown={handleKeydown}
       role="button"
       tabindex="0"
@@ -114,7 +115,7 @@
       >
       <span
         class="value-preview"
-        on:click={toggle}
+        on:click={(e) => toggle(e)}
         on:keydown={handleKeydown}
         role="button"
         tabindex="0"
@@ -134,7 +135,7 @@
       >
       <span
         class="value-preview"
-        on:click={toggle}
+        on:click={(e) => toggle(e)}
         on:keydown={handleKeydown}
         role="button"
         tabindex="0"

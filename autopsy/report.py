@@ -247,8 +247,13 @@ class Report:
 
         call_site = (caller_frame.filename, caller_frame.lineno)
 
-        # Get function name
+        # Get function name and class name (if it's a method)
         function_name = caller_frame.function
+        class_name = None
+        frame = caller_frame.frame
+        if "self" in frame.f_locals:
+            self_obj = frame.f_locals["self"]
+            class_name = type(self_obj).__name__
 
         # Extract argument names from source code
         arg_names = self._extract_arg_names(caller_frame.filename, caller_frame.lineno)
@@ -304,6 +309,8 @@ class Report:
             "arg_names": arg_names,
             "log_index": self._log_index,
         }
+        if class_name is not None:
+            log_group["class_name"] = class_name
         if stack_trace_id is not None:
             log_group["stack_trace_id"] = stack_trace_id
 
@@ -417,6 +424,8 @@ class Report:
                     "function_name": log_group.get("function_name", "<unknown>"),
                     "log_index": log_group.get("log_index", 0),
                 }
+                if "class_name" in log_group:
+                    value_group_data["class_name"] = log_group["class_name"]
                 if "stack_trace_id" in log_group:
                     # Convert to string to match stack_traces dictionary keys
                     value_group_data["stack_trace_id"] = str(
@@ -424,18 +433,19 @@ class Report:
                     )
                 json_value_groups.append(value_group_data)
 
-            call_sites.append(
-                {
-                    "filename": filename,
-                    "line": line_number,
-                    "function_name": (
-                        log_groups[0].get("function_name", "<unknown>")
-                        if log_groups
-                        else "<unknown>"
-                    ),
-                    "value_groups": json_value_groups,
-                }
-            )
+            call_site_data = {
+                "filename": filename,
+                "line": line_number,
+                "function_name": (
+                    log_groups[0].get("function_name", "<unknown>")
+                    if log_groups
+                    else "<unknown>"
+                ),
+                "value_groups": json_value_groups,
+            }
+            if log_groups and "class_name" in log_groups[0]:
+                call_site_data["class_name"] = log_groups[0]["class_name"]
+            call_sites.append(call_site_data)
 
         # Convert stack traces to JSON-serializable format
         json_stack_traces = {}

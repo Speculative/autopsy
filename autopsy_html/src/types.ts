@@ -23,6 +23,7 @@ export interface StackTrace {
 export interface ValueGroup {
   values: ValueWithName[]  // Values with their variable names
   function_name: string  // Name of the function containing this log call
+  class_name?: string  // Name of the class if this is a method
   log_index: number  // Global index for ordering all logs chronologically
   stack_trace_id?: string  // ID of associated stack trace (as string to match JSON keys)
 }
@@ -31,6 +32,7 @@ export interface CallSite {
   filename: string
   line: number
   function_name: string  // Name of the enclosing function
+  class_name?: string  // Name of the class if this is a method
   value_groups: ValueGroup[]  // Each group contains values from one log() call
 }
 

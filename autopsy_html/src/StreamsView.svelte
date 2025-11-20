@@ -39,13 +39,23 @@
     {#each data.call_sites as callSite (callSite.filename + callSite.line)}
       <div class="call-site">
         <div class="call-site-header">
-          <span class="filename">{getFilename(callSite)}</span>
-          <span class="line">Line {callSite.line}</span>
+          <div class="header-left">
+            <span class="filename"
+              >{getFilename(callSite)}<span class="line-number"
+                >:{callSite.line}</span
+              ></span
+            >
+            <span class="function-name">
+              in <code>
+                {#if callSite.class_name}
+                  {callSite.class_name}.{callSite.function_name}
+                {:else}
+                  {callSite.function_name}
+                {/if}
+              </code>
+            </span>
+          </div>
         </div>
-        <div class="function-name">
-          Function: <code>{callSite.function_name}</code>
-        </div>
-        <div class="file-path">{callSite.filename}</div>
         <div class="value-groups">
           {#each callSite.value_groups as valueGroup, groupIndex}
             <div
@@ -53,32 +63,38 @@
               class:highlighted={highlightedLogIndex === valueGroup.log_index}
               data-log-index={valueGroup.log_index}
             >
-              <div class="value-group-header">
-                <span class="call-label">
-                  Call {groupIndex + 1}
-                  {#if valueGroup.function_name !== callSite.function_name}
-                    <span class="function-name-inline"
-                      >in {valueGroup.function_name}</span
-                    >
-                  {/if}
-                </span>
-                <button
-                  class="show-in-history-btn"
+              <div class="value-group-row">
+                <span
+                  class="log-number clickable"
+                  role="button"
+                  tabindex="0"
                   onclick={() => onShowInHistory?.(valueGroup.log_index)}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onShowInHistory?.(valueGroup.log_index);
+                    }
+                  }}
                   title="Show this log in the History view"
                 >
-                  Show in History →
-                </button>
-              </div>
-              <div class="values">
-                {#each valueGroup.values as valueWithName, valueIndex}
-                  <div class="value-item">
-                    {#if valueWithName.name}
-                      <div class="value-label">{valueWithName.name}:</div>
-                    {/if}
-                    <TreeView value={valueWithName.value} />
-                  </div>
-                {/each}
+                  <span class="log-number-text">#{valueGroup.log_index}</span>
+                  <span class="log-number-arrow">➡️</span>
+                </span>
+                <div class="values">
+                  {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
+                    <span class="function-name-inline">
+                      in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
+                    </span>
+                  {/if}
+                  {#each valueGroup.values as valueWithName, valueIndex}
+                    <div class="value-item">
+                      {#if valueWithName.name}
+                        <div class="value-label">{valueWithName.name}:</div>
+                      {/if}
+                      <TreeView value={valueWithName.value} />
+                    </div>
+                  {/each}
+                </div>
               </div>
             </div>
           {/each}
@@ -113,6 +129,21 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.5rem;
+    position: sticky;
+    top: 0;
+    background: #f9f9f9;
+    z-index: 10;
+    padding: 0.75rem 0;
+    margin: -1rem -1rem 0.5rem -1rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    border-bottom: 1px solid #e5e5e5;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
   }
 
   .filename {
@@ -121,15 +152,17 @@
     font-size: 1.1rem;
   }
 
-  .line {
-    color: #666;
+  .line-number {
+    margin-left: 0.25rem;
+    font-weight: 400;
     font-size: 0.9rem;
+    color: #666;
   }
 
   .function-name {
+    margin-left: 0.4rem;
     color: #666;
     font-size: 0.9rem;
-    margin-bottom: 0.5rem;
     font-weight: 500;
   }
 
@@ -139,13 +172,6 @@
     border-radius: 3px;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     color: #2563eb;
-  }
-
-  .file-path {
-    color: #888;
-    font-size: 0.85rem;
-    margin-bottom: 1rem;
-    font-family: monospace;
   }
 
   .value-groups {
@@ -184,23 +210,72 @@
     }
   }
 
-  .value-group-header {
-    font-weight: 600;
-    color: #2563eb;
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  .value-group-row {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
+    align-items: flex-start;
+    gap: 0.75rem;
   }
 
-  .call-label {
+  .log-number {
+    font-weight: 600;
+    color: #2563eb;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    background: #eff6ff;
+    border-radius: 3px;
+    text-transform: none;
+    letter-spacing: normal;
+    flex-shrink: 0;
+    width: 4rem;
+  }
+
+  .log-number.clickable {
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+    overflow: hidden;
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  }
+
+  .log-number.clickable:hover,
+  .log-number.clickable:focus {
+    background: #dbeafe;
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+
+  .log-number-text,
+  .log-number-arrow {
+    display: inline-block;
+    width: 100%;
+    flex-shrink: 0;
+    padding: 2px 6px;
+    transition: transform 0.2s ease;
+  }
+
+  .log-number-arrow {
+    color: #2563eb;
+    font-weight: 600;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    font-size: 1.2em;
+    text-align: center;
+  }
+
+  .log-number-text {
+    transform: translateX(0);
+  }
+
+  .log-number-arrow {
+    transform: translateX(0);
+  }
+
+  .log-number.clickable:hover .log-number-text,
+  .log-number.clickable:focus .log-number-text {
+    transform: translateX(-100%);
+  }
+
+  .log-number.clickable:hover .log-number-arrow,
+  .log-number.clickable:focus .log-number-arrow {
+    transform: translateX(-100%);
   }
 
   .function-name-inline {
@@ -208,30 +283,8 @@
     text-transform: none;
     font-weight: 400;
     color: #666;
-  }
-
-  .show-in-history-btn {
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    color: #2563eb;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.7rem;
-    font-weight: 500;
-    border-radius: 4px;
-    cursor: pointer;
-    text-transform: none;
-    letter-spacing: normal;
-    transition: all 0.2s;
-    white-space: nowrap;
-  }
-
-  .show-in-history-btn:hover {
-    background: #dbeafe;
-    border-color: #93c5fd;
-  }
-
-  .show-in-history-btn:active {
-    background: #bfdbfe;
+    align-self: center;
+    flex-shrink: 0;
   }
 
   .values {

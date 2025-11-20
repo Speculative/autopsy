@@ -89,25 +89,39 @@
         onclick={() => handleEntryClick(entry)}
       >
         <div class="entry-header">
-          <span class="log-number">#{entry.log_index}</span>
+          <span
+            class="log-number clickable"
+            role="button"
+            tabindex="0"
+            onclick={(e) => {
+              e.stopPropagation();
+              onShowInStream?.(entry.log_index);
+            }}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                onShowInStream?.(entry.log_index);
+              }
+            }}
+            title="Show this log in the Streams view"
+          >
+            <span class="log-number-arrow">⬅️</span>
+            <span class="log-number-text">#{entry.log_index}</span>
+          </span>
           <span class="location">
             <span class="filename">{getFilename(entry.callSite)}</span>
             <span class="separator">:</span>
             <span class="line">{entry.callSite.line}</span>
           </span>
+          <span class="separator">in</span>
           <span class="function">
-            {entry.valueGroup.function_name}
+            {#if entry.valueGroup.class_name}
+              {entry.valueGroup.class_name}.{entry.valueGroup.function_name}
+            {:else}
+              {entry.valueGroup.function_name}
+            {/if}
           </span>
-          <button
-            class="show-in-stream-btn"
-            onclick={(e) => {
-              e.stopPropagation();
-              onShowInStream?.(entry.log_index);
-            }}
-            title="Show this log in the Streams view"
-          >
-            ← Show in Stream
-          </button>
         </div>
         <div class="values">
           {#each entry.valueGroup.values as valueWithName}
@@ -133,10 +147,10 @@
       </div>
       <div class="modal-body">
         <div class="stack-trace">
-          {#each [...selectedStackTrace.frames].reverse() as frame, index}
+          {#each selectedStackTrace.frames as frame, index}
             <div class="stack-frame">
               <div class="frame-header">
-                <span class="frame-number">#{selectedStackTrace.frames.length - index}</span>
+                <span class="frame-number">#{index + 1}</span>
                 <span class="frame-function">{frame.function_name}</span>
                 <span class="frame-location">
                   {frame.filename}:{frame.line_number}
@@ -221,7 +235,7 @@
   .entry-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.4rem;
     margin-bottom: 0.5rem;
     font-size: 0.85rem;
   }
@@ -231,8 +245,58 @@
     color: #2563eb;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     background: #eff6ff;
-    padding: 2px 6px;
     border-radius: 3px;
+    width: 4rem;
+  }
+
+  .log-number.clickable {
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+    overflow: hidden;
+    display: flex;
+  }
+
+  .log-number.clickable:hover,
+  .log-number.clickable:focus {
+    background: #dbeafe;
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+
+  .log-number-text,
+  .log-number-arrow {
+    display: inline-block;
+    width: 100%;
+    flex-shrink: 0;
+    padding: 2px 6px;
+    transition: transform 0.2s ease;
+  }
+
+  .log-number-arrow {
+    color: #2563eb;
+    font-weight: 600;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    font-size: 1.2em;
+    text-align: center;
+  }
+
+  .log-number-text {
+    transform: translateX(-100%);
+  }
+
+  .log-number-arrow {
+    transform: translateX(-100%);
+  }
+
+  .log-number.clickable:hover .log-number-text,
+  .log-number.clickable:focus .log-number-text {
+    transform: translateX(0);
+  }
+
+  .log-number.clickable:hover .log-number-arrow,
+  .log-number.clickable:focus .log-number-arrow {
+    transform: translateX(0);
   }
 
   .location {
@@ -248,7 +312,7 @@
   }
 
   .separator {
-    color: #cbd5e1;
+    color: #64748b;
   }
 
   .line {
@@ -258,31 +322,6 @@
   .function {
     color: #64748b;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-  }
-
-  .show-in-stream-btn {
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    color: #2563eb;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.7rem;
-    font-weight: 500;
-    border-radius: 4px;
-    cursor: pointer;
-    text-transform: none;
-    letter-spacing: normal;
-    transition: all 0.2s;
-    white-space: nowrap;
-    margin-left: auto;
-  }
-
-  .show-in-stream-btn:hover {
-    background: #dbeafe;
-    border-color: #93c5fd;
-  }
-
-  .show-in-stream-btn:active {
-    background: #bfdbfe;
   }
 
   .values {
@@ -355,7 +394,8 @@
     max-height: 90vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
+    box-shadow:
+      0 20px 25px -5px rgba(0, 0, 0, 0.1),
       0 10px 10px -5px rgba(0, 0, 0, 0.04);
   }
 
