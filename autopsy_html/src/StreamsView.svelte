@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite } from "./types";
+  import type { AutopsyData, CallSite, ValueGroup } from "./types";
   import TreeView from "./TreeView.svelte";
   import { tick } from "svelte";
 
@@ -14,6 +14,28 @@
   function getFilename(callSite: CallSite): string {
     const parts = callSite.filename.split("/");
     return parts[parts.length - 1];
+  }
+
+  // Get all unique column names (argument names) for a call site
+  function getColumnNames(callSite: CallSite): string[] {
+    const columnNames = new Set<string>();
+    for (const valueGroup of callSite.value_groups) {
+      for (const value of valueGroup.values) {
+        if (value.name) {
+          columnNames.add(value.name);
+        }
+      }
+    }
+    return Array.from(columnNames).sort();
+  }
+
+  // Get value for a specific column in a value group
+  function getValueForColumn(
+    valueGroup: ValueGroup,
+    columnName: string
+  ): unknown | undefined {
+    const value = valueGroup.values.find((v) => v.name === columnName);
+    return value?.value;
   }
 
   // Effect to scroll to and highlight the entry when highlightedLogIndex changes
@@ -38,67 +60,127 @@
   <div class="call-sites">
     {#each data.call_sites as callSite (callSite.filename + callSite.line)}
       <div class="call-site">
-        <div class="call-site-header">
-          <div class="header-left">
-            <span class="filename"
-              >{getFilename(callSite)}<span class="line-number"
-                >:{callSite.line}</span
-              ></span
-            >
-            <span class="function-name">
-              in <code>
-                {#if callSite.class_name}
-                  {callSite.class_name}.{callSite.function_name}
-                {:else}
-                  {callSite.function_name}
-                {/if}
-              </code>
-            </span>
-          </div>
-        </div>
-        <div class="value-groups">
-          {#each callSite.value_groups as valueGroup, groupIndex}
-            <div
-              class="value-group"
-              class:highlighted={highlightedLogIndex === valueGroup.log_index}
-              data-log-index={valueGroup.log_index}
-            >
-              <div class="value-group-row">
-                <span
-                  class="log-number clickable"
-                  role="button"
-                  tabindex="0"
-                  onclick={() => onShowInHistory?.(valueGroup.log_index)}
-                  onkeydown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onShowInHistory?.(valueGroup.log_index);
-                    }
-                  }}
-                  title="Show this log in the History view"
+        {#if getColumnNames(callSite).length > 0}
+          <table class="value-table">
+            <thead class="table-header">
+              <tr class="call-site-info-row">
+                <th
+                  colspan={getColumnNames(callSite).length + 1}
+                  class="call-site-info"
                 >
-                  <span class="log-number-text">#{valueGroup.log_index}</span>
-                  <span class="log-number-arrow">➡️</span>
-                </span>
-                <div class="values">
-                  {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
-                    <span class="function-name-inline">
-                      in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
+                  <div class="header-left">
+                    <span class="filename"
+                      >{getFilename(callSite)}<span class="line-number"
+                        >:{callSite.line}</span
+                      ></span
+                    >
+                    <span class="function-name">
+                      in <code>
+                        {#if callSite.class_name}
+                          {callSite.class_name}.{callSite.function_name}
+                        {:else}
+                          {callSite.function_name}
+                        {/if}
+                      </code>
                     </span>
-                  {/if}
-                  {#each valueGroup.values as valueWithName, valueIndex}
-                    <div class="value-item">
-                      {#if valueWithName.name}
-                        <div class="value-label">{valueWithName.name}:</div>
+                  </div>
+                </th>
+              </tr>
+              <tr>
+                <th class="log-number-header">#</th>
+                {#each getColumnNames(callSite) as columnName}
+                  <th class="column-header">{columnName}</th>
+                {/each}
+              </tr>
+            </thead>
+            <tbody>
+              {#each callSite.value_groups as valueGroup, groupIndex}
+                <tr
+                  class="table-row"
+                  class:highlighted={highlightedLogIndex ===
+                    valueGroup.log_index}
+                  data-log-index={valueGroup.log_index}
+                >
+                  <td class="log-number-cell">
+                    <span
+                      class="log-number clickable"
+                      role="button"
+                      tabindex="0"
+                      onclick={() => onShowInHistory?.(valueGroup.log_index)}
+                      onkeydown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onShowInHistory?.(valueGroup.log_index);
+                        }
+                      }}
+                      title="Show this log in the History view"
+                    >
+                      <span class="log-number-text"
+                        >#{valueGroup.log_index}</span
+                      >
+                      <span class="log-number-arrow">➡️</span>
+                    </span>
+                  </td>
+                  {#each getColumnNames(callSite) as columnName}
+                    <td class="value-cell">
+                      {#if getValueForColumn(valueGroup, columnName) !== undefined}
+                        <TreeView
+                          value={getValueForColumn(valueGroup, columnName)}
+                        />
+                      {:else}
+                        <span class="empty-cell">—</span>
                       {/if}
-                      <TreeView value={valueWithName.value} />
-                    </div>
+                    </td>
                   {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <div class="value-groups">
+            {#each callSite.value_groups as valueGroup, groupIndex}
+              <div
+                class="value-group"
+                class:highlighted={highlightedLogIndex === valueGroup.log_index}
+                data-log-index={valueGroup.log_index}
+              >
+                <div class="value-group-row">
+                  <span
+                    class="log-number clickable"
+                    role="button"
+                    tabindex="0"
+                    onclick={() => onShowInHistory?.(valueGroup.log_index)}
+                    onkeydown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onShowInHistory?.(valueGroup.log_index);
+                      }
+                    }}
+                    title="Show this log in the History view"
+                  >
+                    <span class="log-number-text">#{valueGroup.log_index}</span>
+                    <span class="log-number-arrow">➡️</span>
+                  </span>
+                  <div class="values">
+                    {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
+                      <span class="function-name-inline">
+                        in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
+                      </span>
+                    {/if}
+                    {#each valueGroup.values as valueWithName, valueIndex}
+                      <div class="value-item">
+                        {#if valueWithName.name}
+                          <div class="value-label">{valueWithName.name}:</div>
+                        {/if}
+                        <TreeView value={valueWithName.value} />
+                      </div>
+                    {/each}
+                  </div>
                 </div>
               </div>
-            </div>
-          {/each}
-        </div>
+            {/each}
+          </div>
+        {/if}
       </div>
     {/each}
   </div>
@@ -124,26 +206,11 @@
     background: #f9f9f9;
   }
 
-  .call-site-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-    position: sticky;
-    top: 0;
-    background: #f9f9f9;
-    z-index: 10;
-    padding: 0.75rem 0;
-    margin: -1rem -1rem 0.5rem -1rem;
-    padding-left: 1rem;
-    padding-right: 1rem;
-    border-bottom: 1px solid #e5e5e5;
-  }
-
   .header-left {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
+    gap: 0.4rem;
   }
 
   .filename {
@@ -172,6 +239,80 @@
     border-radius: 3px;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     color: #2563eb;
+  }
+
+  .value-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .table-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #f9f9f9;
+  }
+
+  .call-site-info-row {
+    border-bottom: 1px solid #e5e5e5;
+  }
+
+  .call-site-info {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #e5e5e5;
+    font-weight: normal;
+    color: inherit;
+    font-size: inherit;
+    font-family: inherit;
+  }
+
+  .table-header th:not(.call-site-info) {
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: #2563eb;
+    font-size: 0.85rem;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    border-bottom: 2px solid #e5e5e5;
+    white-space: nowrap;
+  }
+
+  .log-number-header {
+    width: 4rem;
+    min-width: 4rem;
+  }
+
+  .table-row {
+    border-bottom: 1px solid #e5e5e5;
+    transition: background-color 0.2s;
+  }
+
+  .table-row:hover {
+    background-color: #f8fafc;
+  }
+
+  .table-row.highlighted {
+    animation: highlight-pulse 2s ease-in-out;
+  }
+
+  .log-number-cell {
+    padding: 0.5rem 0.75rem;
+    vertical-align: top;
+  }
+
+  .value-cell {
+    padding: 0.75rem;
+    vertical-align: top;
+    min-width: 200px;
+  }
+
+  .empty-cell {
+    color: #cbd5e1;
+    font-style: italic;
   }
 
   .value-groups {
