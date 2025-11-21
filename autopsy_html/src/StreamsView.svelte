@@ -274,7 +274,8 @@
     padding: 0.75rem;
     text-align: left;
     font-weight: 600;
-    color: #2563eb;
+    /* color: #2563eb; */
+    color: #881391;
     font-size: 0.85rem;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     border-bottom: 2px solid #e5e5e5;

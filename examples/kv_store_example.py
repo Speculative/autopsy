@@ -3,8 +3,7 @@
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
-from autopsy import call_stack
-from autopsy.report import Report
+from autopsy import call_stack, report
 
 
 class KVStore:
@@ -93,10 +92,9 @@ class Transaction:
 class TransactionManager:
     """Manages transactions for a KV store."""
 
-    def __init__(self, store: KVStore, report: Report):
+    def __init__(self, store: KVStore):
         """Initialize transaction manager with a store."""
         self.store = store
-        self.report = report
         self.active_transactions: Dict[str, Transaction] = {}
         self.committed_transactions: List[str] = []
         self.rolled_back_transactions: List[str] = []
@@ -107,33 +105,33 @@ class TransactionManager:
             tx_id = f"tx_{len(self.active_transactions) + len(self.committed_transactions) + len(self.rolled_back_transactions)}"
         tx = Transaction(tx_id)
         self.active_transactions[tx_id] = tx
-        self.report.log(tx_id, len(self.active_transactions))
+        report.log(tx_id, len(self.active_transactions))
         return tx
 
     def commit_transaction(self, tx_id: str) -> bool:
         """Commit a transaction. Returns True if successful."""
         if tx_id not in self.active_transactions:
-            self.report.log("commit_failed", tx_id, "not_active")
+            report.log("commit_failed", tx_id, "not_active")
             return False
         tx = self.active_transactions[tx_id]
         num_ops = len(tx.operations)
         tx.commit(self.store)
         del self.active_transactions[tx_id]
         self.committed_transactions.append(tx_id)
-        self.report.log(tx_id, num_ops, len(self.committed_transactions))
+        report.log(tx_id, num_ops, len(self.committed_transactions))
         return True
 
     def rollback_transaction(self, tx_id: str) -> bool:
         """Rollback a transaction. Returns True if successful."""
         if tx_id not in self.active_transactions:
-            self.report.log("rollback_failed", tx_id, "not_active")
+            report.log("rollback_failed", tx_id, "not_active")
             return False
         tx = self.active_transactions[tx_id]
         num_ops = len(tx.operations)
         tx.rollback()
         del self.active_transactions[tx_id]
         self.rolled_back_transactions.append(tx_id)
-        self.report.log(tx_id, num_ops, len(self.rolled_back_transactions))
+        report.log(tx_id, num_ops, len(self.rolled_back_transactions))
         return True
 
     def get_stats(self) -> Dict[str, Any]:
@@ -147,7 +145,7 @@ class TransactionManager:
 
 
 def generate_random_transaction(
-    manager: TransactionManager, report: Report, max_ops: int = 5
+    manager: TransactionManager, max_ops: int = 5
 ) -> Transaction:
     """Generate a random transaction with random operations."""
     tx = manager.begin_transaction()
@@ -182,13 +180,13 @@ def generate_random_transaction(
 
 
 def simulate_transaction_workload(
-    manager: TransactionManager, report: Report, num_transactions: int = 10
+    manager: TransactionManager, num_transactions: int = 10
 ) -> None:
     """Simulate a workload of random transactions."""
     transactions: List[Transaction] = []
 
     for i in range(num_transactions):
-        tx = generate_random_transaction(manager, report)
+        tx = generate_random_transaction(manager)
         transactions.append(tx)
 
         report.log("workload_progress", i + 1, num_transactions, manager.get_stats())
@@ -204,7 +202,7 @@ def simulate_transaction_workload(
     report.log("workload_complete", len(transactions), manager.get_stats())
 
 
-def analyze_store_state(store: KVStore, report: Report) -> None:
+def analyze_store_state(store: KVStore) -> None:
     """Analyze and log the current state of the store."""
     stats = store.get_stats()
     keys = store.keys()
@@ -216,21 +214,21 @@ def analyze_store_state(store: KVStore, report: Report) -> None:
         report.log("store_entry", key, value)
 
 
-def run_example(report: Report) -> None:
+def run_example() -> None:
     """Run the KV store example and populate the report."""
     print("Initializing KV store and transaction manager...")
     store = KVStore()
-    manager = TransactionManager(store, report)
+    manager = TransactionManager(store)
 
     # Use call_stack() to capture stack trace for this log entry
     cs = call_stack()
     report.log(cs, "system_init", store.get_stats(), manager.get_stats())
 
     print("Running transaction workload...")
-    simulate_transaction_workload(manager, report, num_transactions=15)
+    simulate_transaction_workload(manager, num_transactions=15)
 
     print("Analyzing final store state...")
-    analyze_store_state(store, report)
+    analyze_store_state(store)
 
     print(f"✓ Store contains {store.size()} keys")
     print(f"✓ Final stats: {store.get_stats()}")

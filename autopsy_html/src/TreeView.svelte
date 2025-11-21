@@ -164,7 +164,7 @@
   .tree-node {
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro",
       monospace;
-    font-size: 13px;
+    font-size: 0.9rem;
     line-height: 1.5;
     display: flex;
     flex-direction: row;

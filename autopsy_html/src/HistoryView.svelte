@@ -347,9 +347,9 @@
   }
 
   .value-label {
-    font-weight: 600;
+    font-weight: 400;
     color: #881391;
-    font-size: 0.85rem;
+    font-size: 0.7rem;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
   }
 

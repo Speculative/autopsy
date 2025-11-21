@@ -8,7 +8,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from autopsy.report import Report, generate_html, generate_json
+from autopsy import report
+from autopsy.report import generate_html, generate_json
 
 
 # Registry of available examples
@@ -62,15 +63,15 @@ def generate_html_report(example_name: str, output_path: str) -> None:
         output_path: Path to write the HTML report
     """
     print(f"Running example: {EXAMPLES[example_name]['name']}")
-    report = Report()
+    report.init()
 
     # Load and run the example
     run_example = load_example(example_name)
-    run_example(report)
+    run_example()
 
     # Generate HTML
     print(f"\nGenerating HTML report: {output_path}")
-    html = generate_html(report, output_path)
+    html = generate_html(output_path=output_path)
 
     print(f"✓ HTML report generated: {output_path}")
     print(f"✓ Report size: {len(html)} bytes")
@@ -86,15 +87,15 @@ def generate_json_report(example_name: str, output_path: str) -> None:
         output_path: Path to write the JSON report
     """
     print(f"Running example: {EXAMPLES[example_name]['name']}")
-    report = Report()
+    report.init()
 
     # Load and run the example
     run_example = load_example(example_name)
-    run_example(report)
+    run_example()
 
     # Generate JSON
     print(f"\nGenerating JSON report: {output_path}")
-    json_str = generate_json(report, output_path)
+    json_str = generate_json(output_path=output_path)
 
     print(f"✓ JSON report generated: {output_path}")
     print(f"✓ Report size: {len(json_str)} bytes")

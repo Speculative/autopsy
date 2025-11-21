@@ -194,15 +194,16 @@ class Report:
                         and isinstance(node.func, ast.Attribute)
                         and node.func.attr == "log"
                     ):
-                        # Check if the base is "report" or "_report"
+                        # Check if the attribute before .log() is "report" or "_report"
+                        # This handles: report.log(), self.report.log(), module.report.log(), etc.
                         if isinstance(node.func.value, ast.Name):
+                            # Handle: report.log() or _report.log()
                             if node.func.value.id in ("report", "_report"):
                                 self.found_call = node
                         elif isinstance(node.func.value, ast.Attribute):
-                            # Handle cases like module.report.log
-                            if isinstance(
-                                node.func.value.value, ast.Name
-                            ) and node.func.value.value.id in ("report", "_report"):
+                            # Handle: self.report.log(), module.report.log(), etc.
+                            # Check if the attribute name is "report" or "_report"
+                            if node.func.value.attr in ("report", "_report"):
                                 self.found_call = node
                     # Continue visiting
                     self.generic_visit(node)
@@ -518,8 +519,7 @@ def init(config: Optional[ReportConfiguration] = None):
     Args:
         config: Optional configuration object. If None, uses default configuration.
     """
-    global _report_instance
-    _report_instance = Report(config)
+    _report_instance.init(config)
 
 
 def generate_html(

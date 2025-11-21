@@ -3,12 +3,10 @@
 import asyncio
 from typing import Any, Dict, List, Tuple
 
-from autopsy.report import Report
+from autopsy import report
 
 
-def get_logs_in_order(
-    report: Report,
-) -> List[Tuple[int, Tuple[str, int], Dict[str, Any]]]:
+def get_logs_in_order() -> List[Tuple[int, Tuple[str, int], Dict[str, Any]]]:
     """
     Get all logs from a report in chronological order.
 
@@ -28,7 +26,7 @@ def get_logs_in_order(
 
 def test_loop_ordering():
     """Test that logs inside a loop maintain correct order."""
-    report = Report()
+    report.init()
 
     # Log before the loop
     report.log("before_loop")
@@ -41,7 +39,7 @@ def test_loop_ordering():
     report.log("after_loop")
 
     # Get all logs in chronological order
-    all_groups = get_logs_in_order(report)
+    all_groups = get_logs_in_order()
 
     # Verify we have the expected number of logs: 1 + 5 + 1 = 7
     assert len(all_groups) == 7, f"Expected 7 log entries, got {len(all_groups)}"
@@ -65,7 +63,7 @@ def test_loop_ordering():
 
 def test_recursive_ordering():
     """Test that logs in recursive function calls maintain correct order."""
-    report = Report()
+    report.init()
 
     def factorial(n: int, depth: int = 0) -> int:
         """Compute factorial with logging at entry and exit."""
@@ -86,7 +84,7 @@ def test_recursive_ordering():
     assert result == 120
 
     # Get all logs in chronological order
-    all_groups = get_logs_in_order(report)
+    all_groups = get_logs_in_order()
 
     # We should have:
     # enter(5,0), enter(4,1), enter(3,2), enter(2,3), enter(1,4),
@@ -122,7 +120,7 @@ def test_recursive_ordering():
 
 def test_async_ordering():
     """Test that logs in async code with forced ordering maintain correct order."""
-    report = Report()
+    report.init()
 
     # Create events to control execution order
     event1 = asyncio.Event()
@@ -153,7 +151,7 @@ def test_async_ordering():
     asyncio.run(run_tasks())
 
     # Get all logs in chronological order
-    all_groups = get_logs_in_order(report)
+    all_groups = get_logs_in_order()
 
     # Expected order: task1_start, task2_start, task1_end, task2_end
     assert len(all_groups) == 4, f"Expected 4 log entries, got {len(all_groups)}"
@@ -165,7 +163,7 @@ def test_async_ordering():
 
 def test_mixed_scenario():
     """Test a complex scenario with loops, function calls, and multiple call sites."""
-    report = Report()
+    report.init()
 
     def helper(x: int):
         """Helper function that logs."""
@@ -187,7 +185,7 @@ def test_mixed_scenario():
     report.log("main_end", results)
 
     # Get all logs in chronological order
-    all_groups = get_logs_in_order(report)
+    all_groups = get_logs_in_order()
 
     # Expected sequence:
     # main_start (1)

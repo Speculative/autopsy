@@ -3,12 +3,12 @@
 import tempfile
 from pathlib import Path
 
-from autopsy.report import Report
+from autopsy import report
 
 
 def test_extract_simple_variables():
     """Test extraction of simple variable names."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -30,7 +30,7 @@ def test_func():
 
 def test_extract_attribute_access():
     """Test extraction of attribute access expressions."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -53,7 +53,7 @@ def test_func():
 
 def test_extract_function_calls():
     """Test extraction of function call expressions."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -78,7 +78,7 @@ def test_func():
 
 def test_extract_literals():
     """Test extraction of literal expressions."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -103,7 +103,7 @@ def test_func():
 
 def test_extract_mixed_expressions():
     """Test extraction of mixed variable names, calls, and literals."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -131,7 +131,7 @@ def test_func():
 
 def test_extract_binary_operations():
     """Test extraction of binary operation expressions."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -162,7 +162,7 @@ def test_func():
 
 def test_extract_multiline_call():
     """Test extraction from multi-line log calls."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -189,7 +189,7 @@ def test_func():
 
 def test_extract_nested_calls():
     """Test extraction from nested function calls."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -216,7 +216,7 @@ def test_func():
 
 def test_no_log_call():
     """Test that non-log calls return empty list."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
@@ -236,7 +236,7 @@ def test_func():
 
 def test_invalid_line_number():
     """Test that invalid line numbers return empty list."""
-    report = Report()
+    report.init()
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(
