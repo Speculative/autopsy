@@ -24,7 +24,7 @@ class SerializableFrame:
     function_name: str
     line_number: int
     code_context: str
-    local_variables: Dict[str, str]
+    local_variables: Dict[str, Any]
 
 
 @dataclass
@@ -371,38 +371,179 @@ class CallStack:
             return AutopsyResult.err(error)
         return AutopsyResult.ok(Frame(self._frames[frame_index]))
 
-    def _serialize_value(self, value: Any) -> str:
-        """Convert a value to a string representation for storage."""
+    def _is_autopsy_object(self, value: Any) -> bool:
+        """Check if an object is from the autopsy module."""
+        if hasattr(value, "__module__"):
+            module = value.__module__
+            if module and ("autopsy" in module or "autopsy" in str(type(value))):
+                return True
+        # Check type name
+        type_name = type(value).__name__
+        if "Autopsy" in type_name or "CallStack" in type_name or "Frame" in type_name:
+            return True
+        return False
+
+    def _is_function_or_module(self, value: Any) -> bool:
+        """Check if a value is a function, module, or type (class)."""
+        import types
+
+        # Check if it's a type/class
+        if isinstance(value, type):
+            return True
+
+        # Check if it's a function or module
+        return isinstance(
+            value,
+            (
+                types.FunctionType,
+                types.BuiltinFunctionType,
+                types.MethodType,
+                types.BuiltinMethodType,
+                types.ModuleType,
+            ),
+        )
+
+    def _serialize_to_json(
+        self, value: Any, visited: Optional[set] = None, max_depth: int = 10
+    ) -> Any:
+        """
+        Recursively serialize a value to JSON-compatible format.
+
+        Args:
+            value: The value to serialize
+            visited: Set of object IDs already visited (for circular reference detection)
+            max_depth: Maximum recursion depth
+
+        Returns:
+            JSON-serializable representation of the value
+        """
+        if visited is None:
+            visited = set()
+
+        if max_depth <= 0:
+            return "<max_depth_reached>"
+
+        # Handle None
         if value is None:
-            return "None"
+            return None
+
+        # Skip autopsy objects
+        if self._is_autopsy_object(value):
+            return f"<autopsy.{type(value).__name__}>"
+
+        # Skip functions and modules
+        if self._is_function_or_module(value):
+            return f"<{type(value).__name__}>"
+
+        # Handle primitive types
+        if isinstance(value, (int, float, bool, str)):
+            # Truncate long strings
+            if isinstance(value, str) and len(value) > 1000:
+                return value[:997] + "..."
+            return value
+
+        # Handle circular references
+        obj_id = id(value)
+        if obj_id in visited:
+            return "<circular_reference>"
+
+        # Add to visited set for mutable types
+        is_mutable = isinstance(value, (list, dict, set)) or (
+            hasattr(value, "__dict__") and not isinstance(value, type)
+        )
+        if is_mutable:
+            visited.add(obj_id)
 
         try:
-            value_type = type(value)
+            # Handle lists and tuples
+            if isinstance(value, (list, tuple)):
+                result = [
+                    self._serialize_to_json(item, visited, max_depth - 1)
+                    for item in value
+                ]
+                if is_mutable:
+                    visited.remove(obj_id)
+                return result
 
-            if value_type is int or value_type is float or value_type is bool:
-                return str(value)
-            elif value_type is str:
-                if len(value) > 100:
-                    return f"'{value[:97]}...'"
-                else:
-                    return f"'{value}'"
-            elif value_type is list or value_type is tuple:
-                return f"{value_type.__name__}(len={len(value)})"
-            elif value_type is dict:
-                return f"dict(len={len(value)})"
-            elif hasattr(value, "__class__"):
-                if hasattr(value, "__dict__"):
-                    return f"{value_type.__name__}(obj)"
-                else:
-                    return value_type.__name__
-            else:
-                return value_type.__name__
+            # Handle dictionaries
+            if isinstance(value, dict):
+                result = {}
+                for k, v in value.items():
+                    # Skip keys that aren't JSON-serializable
+                    try:
+                        key_str = (
+                            str(k)
+                            if isinstance(k, (str, int, float, bool))
+                            else repr(k)
+                        )
+                        result[key_str] = self._serialize_to_json(
+                            v, visited, max_depth - 1
+                        )
+                    except Exception:
+                        continue
+                if is_mutable:
+                    visited.remove(obj_id)
+                return result
 
-        except Exception:
-            return f"{type(value).__name__}(unprintable)"
+            # Handle sets
+            if isinstance(value, set):
+                result = [
+                    self._serialize_to_json(item, visited, max_depth - 1)
+                    for item in value
+                ]
+                if is_mutable:
+                    visited.remove(obj_id)
+                return result
 
-    def _extract_local_variables(self, frame: FrameType) -> Dict[str, str]:
-        """Extract local variables from frame and convert to serializable form."""
+            # Handle objects with __dict__
+            if hasattr(value, "__dict__") and not isinstance(value, type):
+                result = {}
+                try:
+                    for attr_name, attr_value in value.__dict__.items():
+                        # Skip private attributes and autopsy objects
+                        if attr_name.startswith("_"):
+                            continue
+                        if self._is_autopsy_object(attr_value):
+                            continue
+                        if self._is_function_or_module(attr_value):
+                            continue
+                        try:
+                            result[attr_name] = self._serialize_to_json(
+                                attr_value, visited, max_depth - 1
+                            )
+                        except Exception:
+                            result[attr_name] = "<serialization_error>"
+                    if is_mutable:
+                        visited.remove(obj_id)
+                    return result
+                except Exception:
+                    if is_mutable:
+                        visited.discard(obj_id)
+                    return f"<{type(value).__name__}: serialization_failed>"
+
+            # Try to convert to JSON directly
+            import json
+
+            try:
+                json.dumps(value)
+                if is_mutable:
+                    visited.discard(obj_id)
+                return value
+            except (TypeError, ValueError):
+                pass
+
+            # Fallback: return type name
+            if is_mutable:
+                visited.discard(obj_id)
+            return f"<{type(value).__name__}>"
+
+        except Exception as e:
+            if is_mutable:
+                visited.discard(obj_id)
+            return f"<{type(value).__name__}: {str(e)[:50]}>"
+
+    def _extract_local_variables(self, frame: FrameType) -> Dict[str, Any]:
+        """Extract local variables from frame and convert to JSON-serializable form."""
         local_vars = {}
 
         filtered_items = [
@@ -413,7 +554,17 @@ class CallStack:
         ]
 
         for var_name, var_value in filtered_items:
-            local_vars[var_name] = self._serialize_value(var_value)
+            # Skip autopsy objects, functions, modules, and types (classes)
+            if self._is_autopsy_object(var_value):
+                continue
+            if self._is_function_or_module(var_value):
+                continue
+
+            try:
+                local_vars[var_name] = self._serialize_to_json(var_value)
+            except Exception:
+                # If serialization fails completely, skip the variable
+                continue
 
         return local_vars
 

@@ -12,7 +12,7 @@ export interface StackFrame {
   function_name: string
   line_number: number
   code_context: string
-  local_variables: Record<string, string>
+  local_variables: Record<string, unknown>
 }
 
 export interface StackTrace {

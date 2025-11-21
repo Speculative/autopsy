@@ -165,8 +165,7 @@
                   <div class="variables-list">
                     {#each Object.entries(frame.local_variables) as [name, value]}
                       <div class="variable-item">
-                        <span class="variable-name">{name}:</span>
-                        <span class="variable-value">{value}</span>
+                        <TreeView {value} key={name} />
                       </div>
                     {/each}
                   </div>
@@ -516,18 +515,6 @@
   }
 
   .variable-item {
-    display: flex;
-    gap: 0.5rem;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    font-size: 0.85rem;
-  }
-
-  .variable-name {
-    font-weight: 600;
-    color: #881391;
-  }
-
-  .variable-value {
-    color: #333;
+    margin-bottom: 0.5rem;
   }
 </style>
