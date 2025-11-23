@@ -89,85 +89,83 @@
 </script>
 
 <div class="tree-node">
-  {#if key !== undefined}
-    <span
-      class="key"
-      on:click={(e) => toggle(e)}
-      on:keydown={handleKeydown}
-      role="button"
-      tabindex="0"
-    >
-      {#if isObject(value) || isArray(value)}
-        <span class="expand-icon">{expanded ? "▼" : "▶"}</span>
-      {:else}
-        <span class="expand-icon-placeholder"></span>
-      {/if}
-      <span class="key-name">{key}:</span>
-    </span>
-  {/if}
-  <span
-    class="value-wrapper"
-    class:expandable={isObject(value) || isArray(value)}
-  >
-    {#if isObject(value)}
-      <span class="type-badge" style="color: {getTypeColor('object')}"
-        >Object</span
-      >
+  <div class="tree-line">
+    {#if key !== undefined}
       <span
-        class="value-preview"
+        class="key"
         on:click={(e) => toggle(e)}
         on:keydown={handleKeydown}
         role="button"
         tabindex="0"
       >
-        {getValuePreview(value)}
-      </span>
-      {#if expanded}
-        <div class="children">
-          {#each Object.entries(value) as [k, v]}
-            <TreeView value={v} key={k} depth={depth + 1} />
-          {/each}
-        </div>
-      {/if}
-    {:else if isArray(value)}
-      <span class="type-badge" style="color: {getTypeColor('array')}"
-        >Array</span
-      >
-      <span
-        class="value-preview"
-        on:click={(e) => toggle(e)}
-        on:keydown={handleKeydown}
-        role="button"
-        tabindex="0"
-      >
-        {getValuePreview(value)}
-      </span>
-      {#if expanded}
-        <div class="children">
-          {#each value as item, index}
-            <TreeView value={item} key={index} depth={depth + 1} />
-          {/each}
-        </div>
-      {/if}
-    {:else}
-      <span
-        class="value-preview literal"
-        style="color: {getTypeColor(getType(value))}"
-      >
-        {getValuePreview(value)}
+        {#if isObject(value) || isArray(value)}
+          <span class="expand-icon">{expanded ? "▼" : "▶"}</span>
+        {:else}
+          <span class="expand-icon-placeholder"></span>
+        {/if}
+        <span class="key-name">{key}:</span>
       </span>
     {/if}
-  </span>
+    <span
+      class="value-wrapper"
+      class:expandable={isObject(value) || isArray(value)}
+      on:click={(e) => (isObject(value) || isArray(value)) && toggle(e)}
+      on:keydown={(e) =>
+        (isObject(value) || isArray(value)) && handleKeydown(e)}
+      {...isObject(value) || isArray(value)
+        ? { role: "button", tabindex: 0 }
+        : {}}
+    >
+      {#if isObject(value)}
+        <span class="type-badge" style="color: {getTypeColor('object')}"
+          >Object</span
+        >
+        <span class="value-preview">
+          {getValuePreview(value)}
+        </span>
+      {:else if isArray(value)}
+        <span class="type-badge" style="color: {getTypeColor('array')}"
+          >Array</span
+        >
+        <span class="value-preview">
+          {getValuePreview(value)}
+        </span>
+      {:else}
+        <span
+          class="value-preview literal"
+          style="color: {getTypeColor(getType(value))}"
+        >
+          {getValuePreview(value)}
+        </span>
+      {/if}
+    </span>
+  </div>
+  {#if expanded && (isObject(value) || isArray(value))}
+    <div class="children">
+      {#if isObject(value)}
+        {#each Object.entries(value) as [k, v]}
+          <TreeView value={v} key={k} depth={depth + 1} />
+        {/each}
+      {:else if isArray(value)}
+        {#each value as item, index}
+          <TreeView value={item} key={index} depth={depth + 1} />
+        {/each}
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
   .tree-node {
+    margin-left: 20px;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro",
       monospace;
     font-size: 0.9rem;
     line-height: 1.5;
+  }
+
+  .tree-line {
     display: flex;
-    flex-direction: row;
     align-items: flex-start;
   }
 
@@ -215,6 +213,18 @@
 
   .value-wrapper.expandable {
     cursor: pointer;
+    user-select: none;
+    padding: 1px 2px;
+    border-radius: 2px;
+  }
+
+  .value-wrapper.expandable:hover {
+    background-color: #f0f0f0;
+  }
+
+  .value-wrapper.expandable:focus {
+    outline: 1px solid #2563eb;
+    outline-offset: 1px;
   }
 
   .type-badge {
@@ -234,31 +244,15 @@
     color: #333;
   }
 
-  .value-preview:not(.literal) {
-    cursor: pointer;
-    user-select: none;
-    padding: 1px 2px;
-    border-radius: 2px;
-  }
-
-  .value-preview:not(.literal):hover {
-    background-color: #f0f0f0;
-  }
-
-  .value-preview:not(.literal):focus {
-    outline: 1px solid #2563eb;
-    outline-offset: 1px;
-  }
-
   /* Color coding for different types */
   .value-preview.literal {
     color: #333;
   }
 
   .children {
-    margin-left: 20px;
     margin-top: 2px;
     border-left: 1px solid #e0e0e0;
-    padding-left: 12px;
+    padding-left: 0;
+    margin-left: 0;
   }
 </style>

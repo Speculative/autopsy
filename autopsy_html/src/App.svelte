@@ -197,7 +197,28 @@
     <aside class="sidebar" style="width: {sidebarWidth}px">
       <div class="sidebar-header">
         <h2>Stack Trace</h2>
-        <button class="close-button" onclick={closeSidebar}>×</button>
+        <div class="sidebar-actions">
+          <button
+            class="nav-button"
+            onclick={() =>
+              selectedLogIndex !== null && handleShowInStream(selectedLogIndex)}
+            disabled={selectedLogIndex === null}
+            title="Jump to Stream"
+          >
+            ⬅️
+          </button>
+          <button
+            class="nav-button"
+            onclick={() =>
+              selectedLogIndex !== null &&
+              handleShowInHistory(selectedLogIndex)}
+            disabled={selectedLogIndex === null}
+            title="Jump to History"
+          >
+            ➡️
+          </button>
+          <button class="close-button" onclick={closeSidebar}>×</button>
+        </div>
       </div>
       <div class="sidebar-body">
         <div class="stack-trace">
@@ -364,6 +385,40 @@
     margin: 0;
     font-size: 1.5rem;
     color: #333;
+  }
+
+  .sidebar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .nav-button {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #666;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
+    min-width: 2rem;
+    height: 2rem;
+  }
+
+  .nav-button:hover:not(:disabled) {
+    background-color: #f0f0f0;
+    color: #2563eb;
+  }
+
+  .nav-button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
   }
 
   .close-button {

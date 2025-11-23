@@ -229,7 +229,7 @@ def run_example() -> None:
 
     # Use call_stack() to capture stack trace for this log entry
     cs = call_stack()
-    report.log(cs, "System initialized", store.get_stats(), manager.get_stats())
+    report.log("System initialized", store.get_stats(), manager.get_stats())
 
     print("Running transaction workload...")
     simulate_transaction_workload(manager, num_transactions=15)

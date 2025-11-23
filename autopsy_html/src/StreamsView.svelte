@@ -11,7 +11,28 @@
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
   }
 
-  let { data, highlightedLogIndex = null, selectedLogIndex = null, onShowInHistory, onEntryClick }: Props = $props();
+  let {
+    data,
+    highlightedLogIndex = null,
+    selectedLogIndex = null,
+    onShowInHistory,
+    onEntryClick,
+  }: Props = $props();
+
+  const collapsedCallSites = $state<Record<string, boolean>>({});
+
+  function getCallSiteKey(callSite: CallSite): string {
+    return callSite.filename + callSite.line;
+  }
+
+  function toggleCollapse(callSite: CallSite) {
+    const key = getCallSiteKey(callSite);
+    collapsedCallSites[key] = !collapsedCallSites[key];
+  }
+
+  function isCollapsed(callSite: CallSite): boolean {
+    return collapsedCallSites[getCallSiteKey(callSite)] ?? false;
+  }
 
   function getFilename(callSite: CallSite): string {
     const parts = callSite.filename.split("/");
@@ -69,7 +90,19 @@
         {#if getColumnNames(callSite).length > 0}
           <table class="value-table">
             <thead class="table-header">
-              <tr class="call-site-info-row">
+              <tr
+                class="call-site-info-row"
+                class:collapsible-header={true}
+                onclick={() => toggleCollapse(callSite)}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleCollapse(callSite);
+                  }
+                }}
+              >
                 <th
                   colspan={getColumnNames(callSite).length + 1}
                   class="call-site-info"
@@ -90,7 +123,9 @@
                       </code>
                     </span>
                     {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
-                      <span class="log-name-header">{callSite.value_groups[0].name}</span>
+                      <span class="log-name-header"
+                        >{callSite.value_groups[0].name}</span
+                      >
                     {/if}
                   </div>
                 </th>
@@ -102,10 +137,153 @@
                 {/each}
               </tr>
             </thead>
-            <tbody>
-              {#each callSite.value_groups as valueGroup, groupIndex}
+            {#if isCollapsed(callSite)}
+              <tbody>
                 <tr
-                  class="table-row"
+                  class="collapsed-summary-row"
+                  onclick={() => toggleCollapse(callSite)}
+                  role="button"
+                  tabindex="0"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleCollapse(callSite);
+                    }
+                  }}
+                >
+                  <td
+                    colspan={getColumnNames(callSite).length + 1}
+                    class="collapsed-summary"
+                  >
+                    ...{callSite.value_groups.length}
+                    {callSite.value_groups.length === 1 ? "log" : "logs"}
+                  </td>
+                </tr>
+              </tbody>
+            {:else}
+              <tbody>
+                {#each callSite.value_groups as valueGroup, groupIndex}
+                  <tr
+                    class="table-row"
+                    class:highlighted={highlightedLogIndex ===
+                      valueGroup.log_index}
+                    class:selected={selectedLogIndex === valueGroup.log_index}
+                    class:clickable={valueGroup.stack_trace_id !== undefined}
+                    data-log-index={valueGroup.log_index}
+                    onclick={() => handleRowClick(valueGroup)}
+                    role={valueGroup.stack_trace_id !== undefined
+                      ? "button"
+                      : undefined}
+                    tabindex={valueGroup.stack_trace_id !== undefined
+                      ? 0
+                      : undefined}
+                    onkeydown={(e) => {
+                      if (
+                        valueGroup.stack_trace_id !== undefined &&
+                        (e.key === "Enter" || e.key === " ")
+                      ) {
+                        e.preventDefault();
+                        handleRowClick(valueGroup);
+                      }
+                    }}
+                  >
+                    <td class="log-number-cell">
+                      <span
+                        class="log-number clickable"
+                        role="button"
+                        tabindex="0"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          onShowInHistory?.(valueGroup.log_index);
+                        }}
+                        onkeydown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onShowInHistory?.(valueGroup.log_index);
+                          }
+                        }}
+                        title="Show this log in the History view"
+                      >
+                        <span class="log-number-text"
+                          >#{valueGroup.log_index}</span
+                        >
+                        <span class="log-number-arrow">➡️</span>
+                      </span>
+                    </td>
+                    {#each getColumnNames(callSite) as columnName}
+                      <td class="value-cell">
+                        {#if getValueForColumn(valueGroup, columnName) !== undefined}
+                          <TreeView
+                            value={getValueForColumn(valueGroup, columnName)}
+                          />
+                        {:else}
+                          <span class="empty-cell">—</span>
+                        {/if}
+                      </td>
+                    {/each}
+                  </tr>
+                {/each}
+              </tbody>
+            {/if}
+          </table>
+        {:else}
+          <div
+            class="call-site-header"
+            class:collapsible-header={true}
+            onclick={() => toggleCollapse(callSite)}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                toggleCollapse(callSite);
+              }
+            }}
+          >
+            <div class="header-left">
+              <span class="filename"
+                >{getFilename(callSite)}<span class="line-number"
+                  >:{callSite.line}</span
+                ></span
+              >
+              <span class="function-name">
+                in <code>
+                  {#if callSite.class_name}
+                    {callSite.class_name}.{callSite.function_name}
+                  {:else}
+                    {callSite.function_name}
+                  {/if}
+                </code>
+              </span>
+              {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
+                <span class="log-name-header"
+                  >{callSite.value_groups[0].name}</span
+                >
+              {/if}
+            </div>
+          </div>
+          {#if isCollapsed(callSite)}
+            <div
+              class="collapsed-summary"
+              onclick={() => toggleCollapse(callSite)}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleCollapse(callSite);
+                }
+              }}
+            >
+              {callSite.value_groups.length}
+              {callSite.value_groups.length === 1 ? "log" : "logs"}
+            </div>
+          {:else}
+            <div class="value-groups">
+              {#each callSite.value_groups as valueGroup, groupIndex}
+                <div
+                  class="value-group"
                   class:highlighted={highlightedLogIndex ===
                     valueGroup.log_index}
                   class:selected={selectedLogIndex === valueGroup.log_index}
@@ -128,7 +306,7 @@
                     }
                   }}
                 >
-                  <td class="log-number-cell">
+                  <div class="value-group-row">
                     <span
                       class="log-number clickable"
                       role="button"
@@ -151,92 +329,32 @@
                       >
                       <span class="log-number-arrow">➡️</span>
                     </span>
-                  </td>
-                  {#each getColumnNames(callSite) as columnName}
-                    <td class="value-cell">
-                      {#if getValueForColumn(valueGroup, columnName) !== undefined}
-                        <TreeView
-                          value={getValueForColumn(valueGroup, columnName)}
-                        />
-                      {:else}
-                        <span class="empty-cell">—</span>
-                      {/if}
-                    </td>
-                  {/each}
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <div class="value-groups">
-            {#each callSite.value_groups as valueGroup, groupIndex}
-              <div
-                class="value-group"
-                class:highlighted={highlightedLogIndex === valueGroup.log_index}
-                class:selected={selectedLogIndex === valueGroup.log_index}
-                class:clickable={valueGroup.stack_trace_id !== undefined}
-                data-log-index={valueGroup.log_index}
-                onclick={() => handleRowClick(valueGroup)}
-                role={valueGroup.stack_trace_id !== undefined
-                  ? "button"
-                  : undefined}
-                tabindex={valueGroup.stack_trace_id !== undefined
-                  ? 0
-                  : undefined}
-                onkeydown={(e) => {
-                  if (
-                    valueGroup.stack_trace_id !== undefined &&
-                    (e.key === "Enter" || e.key === " ")
-                  ) {
-                    e.preventDefault();
-                    handleRowClick(valueGroup);
-                  }
-                }}
-              >
-                <div class="value-group-row">
-                  <span
-                    class="log-number clickable"
-                    role="button"
-                    tabindex="0"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      onShowInHistory?.(valueGroup.log_index);
-                    }}
-                    onkeydown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        onShowInHistory?.(valueGroup.log_index);
-                      }
-                    }}
-                    title="Show this log in the History view"
-                  >
-                    <span class="log-number-text">#{valueGroup.log_index}</span>
-                    <span class="log-number-arrow">➡️</span>
-                  </span>
-                  {#if valueGroup.values.length === 0 && valueGroup.name}
-                    <span class="log-name-only">{valueGroup.name}</span>
-                  {:else}
-                    <div class="values">
-                      {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
-                        <span class="function-name-inline">
-                          in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
-                        </span>
-                      {/if}
-                      {#each valueGroup.values as valueWithName, valueIndex}
-                        <div class="value-item">
-                          {#if valueWithName.name}
-                            <div class="value-label">{valueWithName.name}:</div>
-                          {/if}
-                          <TreeView value={valueWithName.value} />
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
+                    {#if valueGroup.values.length === 0 && valueGroup.name}
+                      <span class="log-name-only">{valueGroup.name}</span>
+                    {:else}
+                      <div class="values">
+                        {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
+                          <span class="function-name-inline">
+                            in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
+                          </span>
+                        {/if}
+                        {#each valueGroup.values as valueWithName, valueIndex}
+                          <div class="value-item">
+                            {#if valueWithName.name}
+                              <div class="value-label">
+                                {valueWithName.name}:
+                              </div>
+                            {/if}
+                            <TreeView value={valueWithName.value} />
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
                 </div>
-              </div>
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {/if}
         {/if}
       </div>
     {/each}
@@ -342,6 +460,44 @@
     font-family: inherit;
   }
 
+  .collapsible-header {
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .collapsible-header:hover {
+    background-color: #f0f0f0;
+  }
+
+  .call-site-header {
+    padding: 0.75rem;
+    border-bottom: 1px solid #e5e5e5;
+    margin-bottom: 0.5rem;
+  }
+
+  .collapsed-summary-row {
+    border-bottom: 1px solid #e5e5e5;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .collapsed-summary-row:hover {
+    background-color: #f8fafc;
+  }
+
+  .collapsed-summary {
+    padding: 0.75rem;
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .collapsed-summary:hover {
+    background-color: #f8fafc;
+  }
+
   .table-header th:not(.call-site-info) {
     padding: 0.75rem;
     text-align: left;
@@ -413,7 +569,9 @@
   .value-group {
     border-left: 3px solid #2563eb;
     padding: 0.5rem 0 0.5rem 0.75rem;
-    transition: border-color 0.2s, background-color 0.2s;
+    transition:
+      border-color 0.2s,
+      background-color 0.2s;
     border-radius: 4px;
     position: relative;
   }
