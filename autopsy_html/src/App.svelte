@@ -13,6 +13,8 @@
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
+  let sidebarWidth = $state(500);
+  let isResizing = $state(false);
 
   // Load data from the injection point or dev data
   async function loadData(): Promise<void> {
@@ -91,6 +93,39 @@
     selectedStackTrace = null;
   }
 
+  function handleResizeStart(e: MouseEvent) {
+    isResizing = true;
+    e.preventDefault();
+  }
+
+  function handleResizeMove(e: MouseEvent) {
+    if (!isResizing) return;
+    const newWidth = window.innerWidth - e.clientX;
+    const minWidth = 300;
+    const maxWidth = Math.min(800, window.innerWidth * 0.7);
+    sidebarWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+  }
+
+  function handleResizeEnd() {
+    isResizing = false;
+  }
+
+  // Set up global mouse event listeners for resizing
+  $effect(() => {
+    if (isResizing) {
+      document.addEventListener("mousemove", handleResizeMove);
+      document.addEventListener("mouseup", handleResizeEnd);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      return () => {
+        document.removeEventListener("mousemove", handleResizeMove);
+        document.removeEventListener("mouseup", handleResizeEnd);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+    }
+  });
+
   // Clear highlight when switching tabs manually
   $effect(() => {
     if (activeTab === "history") {
@@ -150,7 +185,16 @@
   </main>
 
   {#if selectedStackTrace !== null}
-    <aside class="sidebar">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="resize-handle"
+      class:resizing={isResizing}
+      onmousedown={handleResizeStart}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+    ></div>
+    <aside class="sidebar" style="width: {sidebarWidth}px">
       <div class="sidebar-header">
         <h2>Stack Trace</h2>
         <button class="close-button" onclick={closeSidebar}>×</button>
@@ -275,8 +319,30 @@
     border-bottom-color: #2563eb;
   }
 
+  .resize-handle {
+    width: 4px;
+    flex-shrink: 0;
+    background: #e5e5e5;
+    cursor: col-resize;
+    transition: background-color 0.2s;
+    position: relative;
+  }
+
+  .resize-handle:hover,
+  .resize-handle.resizing {
+    background: #2563eb;
+  }
+
+  .resize-handle::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    top: 0;
+    bottom: 0;
+  }
+
   .sidebar {
-    width: 500px;
     flex-shrink: 0;
     background: white;
     border-left: 1px solid #e5e5e5;
@@ -417,8 +483,11 @@
 
   @media (max-width: 1200px) {
     .sidebar {
-      width: 100%;
+      width: 100% !important;
       max-width: 500px;
+    }
+    .resize-handle {
+      display: none;
     }
   }
 </style>
