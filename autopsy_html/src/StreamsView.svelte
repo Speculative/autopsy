@@ -103,6 +103,9 @@
                         {/if}
                       </code>
                     </span>
+                    {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
+                      <span class="log-name-header">{callSite.value_groups[0].name}</span>
+                    {/if}
                   </div>
                 </th>
               </tr>
@@ -223,21 +226,25 @@
                     <span class="log-number-text">#{valueGroup.log_index}</span>
                     <span class="log-number-arrow">➡️</span>
                   </span>
-                  <div class="values">
-                    {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
-                      <span class="function-name-inline">
-                        in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
-                      </span>
-                    {/if}
-                    {#each valueGroup.values as valueWithName, valueIndex}
-                      <div class="value-item">
-                        {#if valueWithName.name}
-                          <div class="value-label">{valueWithName.name}:</div>
-                        {/if}
-                        <TreeView value={valueWithName.value} />
-                      </div>
-                    {/each}
-                  </div>
+                  {#if valueGroup.values.length === 0 && valueGroup.name}
+                    <span class="log-name-only">{valueGroup.name}</span>
+                  {:else}
+                    <div class="values">
+                      {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
+                        <span class="function-name-inline">
+                          in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
+                        </span>
+                      {/if}
+                      {#each valueGroup.values as valueWithName, valueIndex}
+                        <div class="value-item">
+                          {#if valueWithName.name}
+                            <div class="value-label">{valueWithName.name}:</div>
+                          {/if}
+                          <TreeView value={valueWithName.value} />
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -342,6 +349,21 @@
     border-radius: 3px;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     color: #2563eb;
+  }
+
+  .log-name-header {
+    margin-left: 0.4rem;
+    color: #881391;
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+  }
+
+  .log-name-only {
+    color: #881391;
+    font-size: 1rem;
+    font-weight: 500;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
   }
 
   .value-table {

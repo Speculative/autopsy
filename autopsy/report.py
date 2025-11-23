@@ -161,18 +161,16 @@ class Report:
         }
         return op_map.get(type(op))
 
-    def _extract_arg_names(
-        self, filename: str, line_number: int
-    ) -> List[Optional[str]]:
+    def _find_log_call_ast(self, filename: str, line_number: int) -> Optional[ast.Call]:
         """
-        Extract argument names from a report.log() call using AST parsing.
+        Find the AST node for a report.log() call at the given line.
 
         Args:
             filename: Path to the source file
             line_number: Line number of the log() call
 
         Returns:
-            List of argument names (or None if extraction fails)
+            AST Call node if found, None otherwise
         """
         try:
             with open(filename, "r", encoding="utf-8") as f:
@@ -211,27 +209,74 @@ class Report:
             finder = LogCallFinder(line_number)
             finder.visit(tree)
 
-            if finder.found_call is None:
-                return []
-
-            # Extract argument expressions from the AST nodes
-            arg_names: List[Optional[str]] = []
-            for arg in finder.found_call.args:
-                expr = self._ast_node_to_expression(arg)
-                arg_names.append(expr)
-
-            return arg_names
+            return finder.found_call
 
         except Exception:
-            # If AST parsing fails, return empty list
+            # If AST parsing fails, return None
+            return None
+
+    def _extract_arg_names(
+        self, filename: str, line_number: int
+    ) -> List[Optional[str]]:
+        """
+        Extract argument names from a report.log() call using AST parsing.
+
+        Args:
+            filename: Path to the source file
+            line_number: Line number of the log() call
+
+        Returns:
+            List of argument names (or None if extraction fails)
+        """
+        call_node = self._find_log_call_ast(filename, line_number)
+        if call_node is None:
             return []
 
-    def log(self, *args):
+        # Extract argument expressions from the AST nodes
+        arg_names: List[Optional[str]] = []
+        for arg in call_node.args:
+            expr = self._ast_node_to_expression(arg)
+            arg_names.append(expr)
+
+        return arg_names
+
+    def _infer_name_from_first_arg(
+        self, filename: str, line_number: int, first_arg_value: Any
+    ) -> Optional[str]:
+        """
+        Infer a name from the first argument if it's a string literal.
+
+        Args:
+            filename: Path to the source file
+            line_number: Line number of the log() call
+            first_arg_value: The actual value of the first argument
+
+        Returns:
+            The string literal value if the first argument is a constant string literal,
+            None otherwise
+        """
+        call_node = self._find_log_call_ast(filename, line_number)
+        if call_node is None or len(call_node.args) == 0:
+            return None
+
+        first_arg_node = call_node.args[0]
+
+        # Check if it's a string literal constant
+        if isinstance(first_arg_node, ast.Constant):
+            if isinstance(first_arg_value, str):
+                # It's a string literal - return the value
+                return first_arg_value
+
+        return None
+
+    def log(self, *args, name: Optional[str] = None):
         """
         Capture values at the current call site.
 
         Args:
             *args: Variable number of values to capture
+            name: Optional name for this log entry. If not provided and the first
+                  argument is a string literal, it will be inferred as the name.
         """
         # Get the call site (file path and line number) from the caller's frame
         stack = inspect.stack()
@@ -256,21 +301,52 @@ class Report:
             self_obj = frame.f_locals["self"]
             class_name = type(self_obj).__name__
 
-        # Extract argument names from source code
-        arg_names = self._extract_arg_names(caller_frame.filename, caller_frame.lineno)
-        # Pad or truncate to match actual number of arguments
-        if len(arg_names) < len(args):
-            arg_names.extend([None] * (len(args) - len(arg_names)))
-        elif len(arg_names) > len(args):
-            arg_names = arg_names[: len(args)]
+        # Infer name from first argument if not provided and first arg is a string literal constant
+        inferred_name: Optional[str] = None
+        args_to_store = list(args)
+        arg_names_to_store: List[Optional[str]] = []
+
+        if name is None and len(args) > 0:
+            inferred_name = self._infer_name_from_first_arg(
+                caller_frame.filename, caller_frame.lineno, args[0]
+            )
+            if inferred_name is not None:
+                # Exclude the first argument from storage
+                args_to_store = list(args[1:])
+                # Extract arg names excluding the first one
+                all_arg_names = self._extract_arg_names(
+                    caller_frame.filename, caller_frame.lineno
+                )
+                arg_names_to_store = all_arg_names[1:] if len(all_arg_names) > 1 else []
+            else:
+                # No inference, use all args
+                arg_names_to_store = self._extract_arg_names(
+                    caller_frame.filename, caller_frame.lineno
+                )
+        else:
+            # Name provided explicitly, use all args
+            arg_names_to_store = self._extract_arg_names(
+                caller_frame.filename, caller_frame.lineno
+            )
+
+        # Use inferred name if available, otherwise use explicit name
+        log_name = inferred_name if inferred_name is not None else name
+
+        # Pad or truncate arg_names to match actual number of arguments to store
+        if len(arg_names_to_store) < len(args_to_store):
+            arg_names_to_store.extend(
+                [None] * (len(args_to_store) - len(arg_names_to_store))
+            )
+        elif len(arg_names_to_store) > len(args_to_store):
+            arg_names_to_store = arg_names_to_store[: len(args_to_store)]
 
         # Check if any argument is a CallStack instance, otherwise create one
         # Always capture stack trace if auto_stack_trace is enabled
         stack_trace_id: Optional[int] = None
         call_stack_obj: Optional[CallStack] = None
 
-        # First, check if a CallStack was passed in args
-        for value in args:
+        # First, check if a CallStack was passed in args_to_store
+        for value in args_to_store:
             if isinstance(value, CallStack):
                 call_stack_obj = value
                 break
@@ -294,7 +370,7 @@ class Report:
 
         # Serialize and store the values as a group
         serialized_values = []
-        for value in args:
+        for value in args_to_store:
             try:
                 # Pickle the value for storage
                 pickled = pickle.dumps(value)
@@ -307,13 +383,15 @@ class Report:
         log_group = {
             "values": serialized_values,
             "function_name": function_name,
-            "arg_names": arg_names,
+            "arg_names": arg_names_to_store,
             "log_index": self._log_index,
         }
         if class_name is not None:
             log_group["class_name"] = class_name
         if stack_trace_id is not None:
             log_group["stack_trace_id"] = stack_trace_id
+        if log_name is not None:
+            log_group["name"] = log_name
 
         # Increment the global log index
         self._log_index += 1
@@ -432,6 +510,8 @@ class Report:
                     value_group_data["stack_trace_id"] = str(
                         log_group["stack_trace_id"]
                     )
+                if "name" in log_group:
+                    value_group_data["name"] = log_group["name"]
                 json_value_groups.append(value_group_data)
 
             call_site_data = {

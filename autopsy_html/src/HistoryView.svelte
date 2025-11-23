@@ -123,16 +123,23 @@
             {/if}
           </span>
         </div>
-        <div class="values">
-          {#each entry.valueGroup.values as valueWithName}
-            <div class="value-item">
-              {#if valueWithName.name}
-                <div class="value-label">{valueWithName.name}:</div>
-              {/if}
-              <TreeView value={valueWithName.value} />
-            </div>
-          {/each}
-        </div>
+        {#if entry.valueGroup.values.length === 0 && entry.valueGroup.name}
+          <div class="log-name-only">{entry.valueGroup.name}</div>
+        {:else}
+          <div class="values">
+            {#if entry.valueGroup.name}
+              <span class="log-name-inline">{entry.valueGroup.name}</span>
+            {/if}
+            {#each entry.valueGroup.values as valueWithName}
+              <div class="value-item">
+                {#if valueWithName.name}
+                  <div class="value-label">{valueWithName.name}:</div>
+                {/if}
+                <TreeView value={valueWithName.value} />
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
     {/each}
   </div>
@@ -329,6 +336,23 @@
     flex-wrap: wrap;
     gap: 0.75rem;
     align-items: flex-start;
+  }
+
+  .log-name-only {
+    color: #881391;
+    font-size: 1rem;
+    font-weight: 500;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    margin-top: 0.25rem;
+  }
+
+  .log-name-inline {
+    color: #881391;
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    align-self: center;
+    margin-right: 0.25rem;
   }
 
   .value-item {

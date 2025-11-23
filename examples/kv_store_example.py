@@ -105,33 +105,38 @@ class TransactionManager:
             tx_id = f"tx_{len(self.active_transactions) + len(self.committed_transactions) + len(self.rolled_back_transactions)}"
         tx = Transaction(tx_id)
         self.active_transactions[tx_id] = tx
-        report.log(tx_id, len(self.active_transactions))
+        report.log("Transaction begun", tx_id, len(self.active_transactions))
         return tx
 
     def commit_transaction(self, tx_id: str) -> bool:
         """Commit a transaction. Returns True if successful."""
         if tx_id not in self.active_transactions:
-            report.log("commit_failed", tx_id, "not_active")
+            report.log("Commit failed", tx_id, "not_active")
             return False
         tx = self.active_transactions[tx_id]
         num_ops = len(tx.operations)
         tx.commit(self.store)
         del self.active_transactions[tx_id]
         self.committed_transactions.append(tx_id)
-        report.log(tx_id, num_ops, len(self.committed_transactions))
+        report.log("Commit completed", tx_id, num_ops, len(self.committed_transactions))
         return True
 
     def rollback_transaction(self, tx_id: str) -> bool:
         """Rollback a transaction. Returns True if successful."""
         if tx_id not in self.active_transactions:
-            report.log("rollback_failed", tx_id, "not_active")
+            report.log("Rollback failed", tx_id, "not_active")
             return False
         tx = self.active_transactions[tx_id]
         num_ops = len(tx.operations)
         tx.rollback()
         del self.active_transactions[tx_id]
         self.rolled_back_transactions.append(tx_id)
-        report.log(tx_id, num_ops, len(self.rolled_back_transactions))
+        report.log(
+            "Rollback completed",
+            tx_id,
+            num_ops,
+            len(self.rolled_back_transactions),
+        )
         return True
 
     def get_stats(self) -> Dict[str, Any]:
@@ -170,12 +175,12 @@ def generate_random_transaction(
                 ["active", "pending", "completed", random.randint(1, 100)]
             )
             tx.add_operation(op_type, key, value)
-            report.log("tx_operation", tx.tx_id, op_type, key, value)
+            report.log("Adding set operation", tx.tx_id, op_type, key, value)
         else:
             tx.add_operation(op_type, key)
-            report.log("tx_operation", tx.tx_id, op_type, key)
+            report.log("Adding delete operation", tx.tx_id, op_type, key)
 
-    report.log("tx_created", tx.tx_id, len(tx.operations), manager.get_stats())
+    report.log("Transaction created", tx.tx_id, len(tx.operations), manager.get_stats())
     return tx
 
 
@@ -189,17 +194,19 @@ def simulate_transaction_workload(
         tx = generate_random_transaction(manager)
         transactions.append(tx)
 
-        report.log("workload_progress", i + 1, num_transactions, manager.get_stats())
+        report.log("Workload progress", i + 1, num_transactions, manager.get_stats())
 
         commit_probability = 0.7
         if random.random() < commit_probability:
             manager.commit_transaction(tx.tx_id)
-            report.log("tx_committed", tx.tx_id, manager.store.get_stats())
+            report.log(
+                "Workload transaction committed", tx.tx_id, manager.store.get_stats()
+            )
         else:
             manager.rollback_transaction(tx.tx_id)
-            report.log("tx_rolled_back", tx.tx_id, len(tx.operations))
+            report.log("Workload transaction rolled back", tx.tx_id, len(tx.operations))
 
-    report.log("workload_complete", len(transactions), manager.get_stats())
+    report.log("Workload complete", len(transactions), manager.get_stats())
 
 
 def analyze_store_state(store: KVStore) -> None:
@@ -207,11 +214,11 @@ def analyze_store_state(store: KVStore) -> None:
     stats = store.get_stats()
     keys = store.keys()
 
-    report.log("store_analysis", stats, keys)
+    report.log("Store analysis", stats, keys)
 
     for key in keys[:5]:
         value = store.get(key)
-        report.log("store_entry", key, value)
+        report.log("Store entry", key, value)
 
 
 def run_example() -> None:
@@ -222,7 +229,7 @@ def run_example() -> None:
 
     # Use call_stack() to capture stack trace for this log entry
     cs = call_stack()
-    report.log(cs, "system_init", store.get_stats(), manager.get_stats())
+    report.log(cs, "System initialized", store.get_stats(), manager.get_stats())
 
     print("Running transaction workload...")
     simulate_transaction_workload(manager, num_transactions=15)

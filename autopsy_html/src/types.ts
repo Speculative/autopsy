@@ -26,6 +26,7 @@ export interface ValueGroup {
   class_name?: string  // Name of the class if this is a method
   log_index: number  // Global index for ordering all logs chronologically
   stack_trace_id?: string  // ID of associated stack trace (as string to match JSON keys)
+  name?: string  // Optional name for this log entry (inferred or explicit)
 }
 
 export interface CallSite {
