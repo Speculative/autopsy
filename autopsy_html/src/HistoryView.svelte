@@ -1,15 +1,17 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite, StackTrace, ValueGroup } from "./types";
+  import type { AutopsyData, CallSite, ValueGroup } from "./types";
   import TreeView from "./TreeView.svelte";
   import { tick } from "svelte";
 
   interface Props {
     data: AutopsyData;
     highlightedLogIndex?: number | null;
+    selectedLogIndex?: number | null;
     onShowInStream?: (logIndex: number) => void;
+    onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
   }
 
-  let { data, highlightedLogIndex = null, onShowInStream }: Props = $props();
+  let { data, highlightedLogIndex = null, selectedLogIndex = null, onShowInStream, onEntryClick }: Props = $props();
 
   // Create a flattened list of all log entries with their context
   interface HistoryEntry {
@@ -35,29 +37,13 @@
     return entries.sort((a, b) => a.log_index - b.log_index);
   });
 
-  let selectedStackTrace = $state<StackTrace | null>(null);
-
   function getFilename(callSite: CallSite): string {
     const parts = callSite.filename.split("/");
     return parts[parts.length - 1];
   }
 
   function handleEntryClick(entry: HistoryEntry) {
-    if (entry.valueGroup.stack_trace_id !== undefined && data.stack_traces) {
-      const traceId = String(entry.valueGroup.stack_trace_id);
-      const trace = data.stack_traces[traceId];
-      selectedStackTrace = trace || null;
-    }
-  }
-
-  function closeModal() {
-    selectedStackTrace = null;
-  }
-
-  function handleBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget) {
-      closeModal();
-    }
+    onEntryClick?.(entry.log_index, entry.valueGroup.stack_trace_id);
   }
 
   // Effect to scroll to and highlight the entry when highlightedLogIndex changes
@@ -84,6 +70,7 @@
       <div
         class="history-entry"
         class:highlighted={highlightedLogIndex === entry.log_index}
+        class:selected={selectedLogIndex === entry.log_index}
         class:clickable={entry.valueGroup.stack_trace_id !== undefined}
         data-log-index={entry.log_index}
         onclick={() => handleEntryClick(entry)}
@@ -145,47 +132,6 @@
   </div>
 {/if}
 
-{#if selectedStackTrace !== null}
-  <div class="modal-backdrop" onclick={handleBackdropClick}>
-    <div class="modal-content" onclick={(e) => e.stopPropagation()}>
-      <div class="modal-header">
-        <h2>Stack Trace</h2>
-        <button class="close-button" onclick={closeModal}>×</button>
-      </div>
-      <div class="modal-body">
-        <div class="stack-trace">
-          {#each selectedStackTrace.frames as frame, index}
-            <div class="stack-frame">
-              <div class="frame-header">
-                <span class="frame-number">#{index + 1}</span>
-                <span class="frame-function">{frame.function_name}</span>
-                <span class="frame-location">
-                  {frame.filename}:{frame.line_number}
-                </span>
-              </div>
-              <div class="frame-code">
-                <code>{frame.code_context || "(no code context)"}</code>
-              </div>
-              {#if Object.keys(frame.local_variables).length > 0}
-                <div class="frame-variables">
-                  <div class="variables-header">Local Variables:</div>
-                  <div class="variables-list">
-                    {#each Object.entries(frame.local_variables) as [name, value]}
-                      <div class="variable-item">
-                        <TreeView {value} key={name} />
-                      </div>
-                    {/each}
-                  </div>
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
-    </div>
-  </div>
-{/if}
-
 <style>
   .empty {
     text-align: center;
@@ -204,7 +150,8 @@
     border-radius: 6px;
     padding: 0.75rem;
     background: white;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, background-color 0.2s;
+    position: relative;
   }
 
   .history-entry.clickable {
@@ -216,26 +163,53 @@
   }
 
   .history-entry.highlighted {
-    animation: highlight-pulse 2s ease-in-out;
+    position: relative;
     border-color: #2563eb;
+  }
+
+  .history-entry.highlighted::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-radius: 6px;
+    pointer-events: none;
+    animation: highlight-pulse 2s ease-in-out;
+    z-index: 1;
+  }
+
+  .history-entry.selected {
+    background: #eff6ff;
+    border-color: #2563eb;
+  }
+
+  .history-entry.selected:hover {
+    background: #dbeafe;
   }
 
   @keyframes highlight-pulse {
     0% {
-      background: white;
+      background-color: rgba(219, 234, 254, 0);
       box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4);
     }
     10% {
-      background: #dbeafe;
+      background-color: rgba(219, 234, 254, 1);
       box-shadow: 0 0 0 8px rgba(37, 99, 235, 0);
     }
     30% {
-      background: #bfdbfe;
+      background-color: rgba(191, 219, 254, 1);
     }
     100% {
-      background: white;
+      background-color: rgba(219, 234, 254, 0);
       box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
     }
+  }
+
+  .history-entry > * {
+    position: relative;
+    z-index: 2;
   }
 
   .entry-header {
@@ -393,152 +367,5 @@
     .value-item {
       width: 100%;
     }
-  }
-
-  .modal-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 2rem;
-  }
-
-  .modal-content {
-    background: white;
-    border-radius: 8px;
-    max-width: 900px;
-    width: 100%;
-    max-height: 90vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow:
-      0 20px 25px -5px rgba(0, 0, 0, 0.1),
-      0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1.5rem;
-    border-bottom: 1px solid #e5e5e5;
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 1.5rem;
-    color: #333;
-  }
-
-  .close-button {
-    background: none;
-    border: none;
-    font-size: 2rem;
-    color: #666;
-    cursor: pointer;
-    padding: 0;
-    width: 2rem;
-    height: 2rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    transition: background-color 0.2s;
-  }
-
-  .close-button:hover {
-    background-color: #f0f0f0;
-  }
-
-  .modal-body {
-    padding: 1.5rem;
-    overflow-y: auto;
-    flex: 1;
-  }
-
-  .stack-trace {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .stack-frame {
-    border: 1px solid #e5e5e5;
-    border-radius: 6px;
-    padding: 1rem;
-    background: #f9fafb;
-  }
-
-  .frame-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-    font-size: 0.9rem;
-  }
-
-  .frame-number {
-    font-weight: 600;
-    color: #2563eb;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    background: #eff6ff;
-    padding: 2px 6px;
-    border-radius: 3px;
-  }
-
-  .frame-function {
-    font-weight: 500;
-    color: #475569;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-  }
-
-  .frame-location {
-    color: #64748b;
-    font-size: 0.85rem;
-    margin-left: auto;
-  }
-
-  .frame-code {
-    background: white;
-    padding: 0.75rem;
-    border-radius: 4px;
-    margin-bottom: 0.75rem;
-    border: 1px solid #e5e5e5;
-  }
-
-  .frame-code code {
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    font-size: 0.85rem;
-    color: #333;
-  }
-
-  .frame-variables {
-    background: white;
-    padding: 0.75rem;
-    border-radius: 4px;
-    border: 1px solid #e5e5e5;
-  }
-
-  .variables-header {
-    font-weight: 600;
-    color: #475569;
-    margin-bottom: 0.5rem;
-    font-size: 0.85rem;
-  }
-
-  .variables-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .variable-item {
-    margin-bottom: 0.5rem;
   }
 </style>
