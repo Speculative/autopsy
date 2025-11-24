@@ -2,6 +2,7 @@
   import type { AutopsyData, StackTrace } from "./types";
   import StreamsView from "./StreamsView.svelte";
   import HistoryView from "./HistoryView.svelte";
+  import DashboardView from "./DashboardView.svelte";
   import TreeView from "./TreeView.svelte";
 
   let data: AutopsyData = $state({
@@ -9,7 +10,7 @@
     call_sites: [],
     stack_traces: {},
   });
-  let activeTab = $state<"streams" | "history">("streams");
+  let activeTab = $state<"streams" | "history" | "dashboard">("streams");
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
@@ -28,6 +29,7 @@
             generated_at: parsed.generated_at ?? "",
             call_sites: parsed.call_sites ?? [],
             stack_traces: parsed.stack_traces ?? {},
+            dashboard: parsed.dashboard,
           };
           console.log("Loaded development data from dev-data.json");
           return;
@@ -48,6 +50,7 @@
           generated_at: parsed.generated_at ?? "",
           call_sites: parsed.call_sites ?? [],
           stack_traces: parsed.stack_traces ?? {},
+          dashboard: parsed.dashboard,
         };
       } catch (e) {
         console.error("Failed to parse autopsy data:", e);
@@ -161,6 +164,13 @@
       >
         History
       </button>
+      <button
+        class="tab"
+        class:active={activeTab === "dashboard"}
+        onclick={() => (activeTab = "dashboard")}
+      >
+        Dashboard
+      </button>
     </div>
 
     <div class="content">
@@ -178,6 +188,12 @@
           {highlightedLogIndex}
           {selectedLogIndex}
           onShowInStream={handleShowInStream}
+          onEntryClick={handleEntryClick}
+        />
+      {:else if activeTab === "dashboard"}
+        <DashboardView
+          {data}
+          {selectedLogIndex}
           onEntryClick={handleEntryClick}
         />
       {/if}

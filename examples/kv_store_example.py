@@ -1,6 +1,7 @@
 """Example: KV Store with transactions demonstrating autopsy report logging."""
 
 import random
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from autopsy import call_stack, report
@@ -24,15 +25,23 @@ class KVStore:
     def set(self, key: str, value: Any) -> None:
         """Set a key-value pair."""
         self._write_count += 1
+        # Track whether this is a new key or an update
+        if key in self._data:
+            report.happened("Existing key updated")
+        else:
+            report.happened("New key inserted")
         self._data[key] = value
 
     def delete(self, key: str) -> bool:
         """Delete a key. Returns True if key existed."""
         if key in self._data:
             self._write_count += 1
+            report.happened("Key deleted")
             del self._data[key]
             return True
-        return False
+        else:
+            report.happened("Key not found")
+            return False
 
     def size(self) -> int:
         """Get the number of keys in the store."""
@@ -60,6 +69,7 @@ class Transaction:
         self.operations: List[Tuple[str, str, Any]] = []  # (op_type, key, value)
         self.committed = False
         self.rolled_back = False
+        self.start_time: Optional[float] = None
 
     def add_operation(self, op_type: str, key: str, value: Any = None) -> None:
         """Add an operation to the transaction."""
@@ -104,6 +114,7 @@ class TransactionManager:
         if tx_id is None:
             tx_id = f"tx_{len(self.active_transactions) + len(self.committed_transactions) + len(self.rolled_back_transactions)}"
         tx = Transaction(tx_id)
+        tx.start_time = time.time()  # Track start time for latency measurement
         self.active_transactions[tx_id] = tx
         report.log("Transaction begun", tx_id, len(self.active_transactions))
         return tx
@@ -116,6 +127,15 @@ class TransactionManager:
         tx = self.active_transactions[tx_id]
         num_ops = len(tx.operations)
         tx.commit(self.store)
+
+        # Record transaction latency
+        if hasattr(tx, "start_time") and tx.start_time is not None:
+            latency = time.time() - tx.start_time
+            report.hist(latency)
+
+        # Count transaction outcome
+        report.count("committed")
+
         del self.active_transactions[tx_id]
         self.committed_transactions.append(tx_id)
         report.log("Commit completed", tx_id, num_ops, len(self.committed_transactions))
@@ -129,6 +149,15 @@ class TransactionManager:
         tx = self.active_transactions[tx_id]
         num_ops = len(tx.operations)
         tx.rollback()
+
+        # Record transaction latency
+        if hasattr(tx, "start_time") and tx.start_time is not None:
+            latency = time.time() - tx.start_time
+            report.hist(latency)
+
+        # Count transaction outcome
+        report.count("rolled_back")
+
         del self.active_transactions[tx_id]
         self.rolled_back_transactions.append(tx_id)
         report.log(
@@ -223,6 +252,7 @@ def analyze_store_state(store: KVStore) -> None:
 
 def run_example() -> None:
     """Run the KV store example and populate the report."""
+    report.timeline("Initialization")
     print("Initializing KV store and transaction manager...")
     store = KVStore()
     manager = TransactionManager(store)
@@ -231,11 +261,14 @@ def run_example() -> None:
     cs = call_stack()
     report.log("System initialized", store.get_stats(), manager.get_stats())
 
+    report.timeline("Transaction Processing")
     print("Running transaction workload...")
     simulate_transaction_workload(manager, num_transactions=15)
 
+    report.timeline("Analysis")
     print("Analyzing final store state...")
     analyze_store_state(store)
 
+    report.timeline("Complete")
     print(f"✓ Store contains {store.size()} keys")
     print(f"✓ Final stats: {store.get_stats()}")

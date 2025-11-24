@@ -37,9 +37,58 @@ export interface CallSite {
   value_groups: ValueGroup[]  // Each group contains values from one log() call
 }
 
+export interface DashboardCallSite {
+  filename: string
+  line: number
+  function_name: string
+  class_name?: string
+}
+
+export interface CountValue {
+  count: number
+  stack_trace_ids: string[]
+}
+
+export interface HistogramValue {
+  value: number
+  stack_trace_id?: string
+}
+
+export interface CountEntry {
+  call_site: DashboardCallSite
+  value_counts: Record<string, CountValue>  // Key is JSON-serialized value
+}
+
+export interface HistogramEntry {
+  call_site: DashboardCallSite
+  values: HistogramValue[]
+}
+
+export interface TimelineEntry {
+  timestamp: number
+  event_name: string
+  call_site: DashboardCallSite
+  stack_trace_id?: string
+}
+
+export interface HappenedEntry {
+  call_site: DashboardCallSite
+  count: number
+  stack_trace_ids: string[]
+  message?: string
+}
+
+export interface DashboardData {
+  counts: CountEntry[]
+  histograms: HistogramEntry[]
+  timeline: TimelineEntry[]
+  happened: HappenedEntry[]
+}
+
 export interface AutopsyData {
   generated_at: string
   call_sites: CallSite[]
   stack_traces: Record<string, StackTrace>  // Keyed by stack_trace_id as string
+  dashboard?: DashboardData
 }
 

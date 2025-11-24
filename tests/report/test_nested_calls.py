@@ -36,18 +36,15 @@ def test_nested_calls():
 
     # Verify we have multiple call sites
     call_sites = report.get_call_sites()
-    assert len(call_sites) >= 3, (
-        f"Expected at least 3 call sites, got {len(call_sites)}"
-    )
+    assert (
+        len(call_sites) >= 3
+    ), f"Expected at least 3 call sites, got {len(call_sites)}"
 
     # Verify each call site has logged values
     logs = report.get_logs()
     for call_site in call_sites:
         assert call_site in logs, f"Call site {call_site} not in logs"
         assert len(logs[call_site]) > 0, f"Call site {call_site} has no values"
-
-    print(f"✓ Found {len(call_sites)} distinct call sites")
-    print("✓ Nested calls test passed")
 
 
 def test_recursive_function():
@@ -68,22 +65,20 @@ def test_recursive_function():
     call_sites = report.get_call_sites()
     logs = report.get_logs()
 
-    # Find the factorial call site (line 58 where report.log is called)
+    # Find the factorial call site (line 55 where report.log is called)
     factorial_site = None
     for site in call_sites:
         filename, lineno = site
-        if lineno == 58:  # Line where report.log is called inside factorial
+        if lineno == 55:  # Line where report.log is called inside factorial
             factorial_site = site
             break
 
-    assert factorial_site is not None, (
-        f"Could not find factorial call site. Found sites: {call_sites}"
-    )
+    assert (
+        factorial_site is not None
+    ), f"Could not find factorial call site. Found sites: {call_sites}"
 
     # Should have 4 log entries (one for each call: 4, 3, 2, 1)
     pickled_values = logs[factorial_site]
-    assert len(pickled_values) >= 4, (
-        f"Expected at least 4 values, got {len(pickled_values)}"
-    )
-
-    print("✓ Recursive function test passed")
+    assert (
+        len(pickled_values) >= 4
+    ), f"Expected at least 4 values, got {len(pickled_values)}"

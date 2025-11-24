@@ -11,7 +11,7 @@ def test_basic_logging():
     # Log from different lines
     report.log(1)
     report.log(2, 3)
-    report.log("hello")
+    report.log("hello", "world")  # Add second arg so "hello" isn't inferred as name
     report.log(4)
 
     # Verify we have logs

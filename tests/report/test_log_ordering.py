@@ -29,14 +29,14 @@ def test_loop_ordering():
     report.init()
 
     # Log before the loop
-    report.log("before_loop")
+    report.log("before_loop", "data")  # Add second arg so "before_loop" isn't inferred as name
 
     # Log inside a loop
     for i in range(5):
         report.log("iteration", i)
 
     # Log after the loop
-    report.log("after_loop")
+    report.log("after_loop", "data")  # Add second arg so "after_loop" isn't inferred as name
 
     # Get all logs in chronological order
     all_groups = get_logs_in_order()
@@ -51,14 +51,29 @@ def test_loop_ordering():
     # Verify the first log is "before_loop"
     # Verify the last log is "after_loop"
     # Verify the middle 5 logs are "iteration" logs
-    assert (
-        all_groups[0][2]["values"][0] == b'"before_loop"'
-        or b"before_loop" in all_groups[0][2]["values"][0]
+    first_group = all_groups[0][2]
+    assert len(first_group["values"]) > 0, "First log should have values"
+    # Check if "before_loop" is in the name or values
+    first_has_before = (
+        first_group.get("name") == "before_loop"
+        or any(
+            b"before_loop" in v if isinstance(v, bytes) else "before_loop" in str(v)
+            for v in first_group["values"]
+        )
     )
-    assert (
-        all_groups[-1][2]["values"][0] == b'"after_loop"'
-        or b"after_loop" in all_groups[-1][2]["values"][0]
+    assert first_has_before, "First log should be 'before_loop'"
+
+    last_group = all_groups[-1][2]
+    assert len(last_group["values"]) > 0, "Last log should have values"
+    # Check if "after_loop" is in the name or values
+    last_has_after = (
+        last_group.get("name") == "after_loop"
+        or any(
+            b"after_loop" in v if isinstance(v, bytes) else "after_loop" in str(v)
+            for v in last_group["values"]
+        )
     )
+    assert last_has_after, "Last log should be 'after_loop'"
 
 
 def test_recursive_ordering():

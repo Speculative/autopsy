@@ -40,6 +40,21 @@ class Report:
         self._stack_traces: Dict[int, StackTrace] = {}
         # Map from CallStack object ID to list of log indices that use it
         self._stack_trace_id_to_log_indices: Dict[int, List[int]] = {}
+        # Dashboard data storage
+        # Counts: per call site, value -> list of stack_trace_ids
+        self._counts: Dict[Tuple[str, int], Dict[Any, List[int]]] = {}
+        # Counts metadata: per call site, (function_name, class_name)
+        self._counts_metadata: Dict[Tuple[str, int], Tuple[str, Optional[str]]] = {}
+        # Histograms: per call site, list of (number, stack_trace_id) tuples
+        self._histograms: Dict[Tuple[str, int], List[Tuple[float, int]]] = {}
+        # Histograms metadata: per call site, (function_name, class_name)
+        self._histograms_metadata: Dict[Tuple[str, int], Tuple[str, Optional[str]]] = {}
+        # Timeline: global list of events with timestamp, event_name, call_site, stack_trace_id
+        self._timeline: List[Dict[str, Any]] = []
+        # Happened: per call site, (count, list of stack_trace_ids, optional message)
+        self._happened: Dict[Tuple[str, int], Tuple[int, List[int], Optional[str]]] = {}
+        # Happened metadata: per call site, (function_name, class_name)
+        self._happened_metadata: Dict[Tuple[str, int], Tuple[str, Optional[str]]] = {}
 
     def _ast_node_to_expression(self, node: ast.expr) -> Optional[str]:
         """
@@ -401,6 +416,153 @@ class Report:
             self._logs[call_site] = []
         self._logs[call_site].append(log_group)
 
+    def _get_call_site_and_stack_trace(
+        self,
+    ) -> Tuple[Tuple[str, int], Optional[int], str, Optional[str]]:
+        """
+        Helper method to get call site and capture stack trace for dashboard methods.
+
+        Returns:
+            Tuple of (call_site, stack_trace_id, function_name, class_name) where:
+            - call_site is (filename, line_number)
+            - stack_trace_id is None if stack trace capture is disabled or failed
+            - function_name is the name of the function containing the call
+            - class_name is the class name if it's a method, None otherwise
+        """
+        # Get the call site (file path and line number) from the caller's frame
+        stack = inspect.stack()
+        # Skip frames from autopsy module itself
+        caller_frame = None
+        for frame_info in stack[1:]:  # Skip current frame
+            if not frame_info.filename.endswith("autopsy/report.py"):
+                caller_frame = frame_info
+                break
+
+        if caller_frame is None:
+            # Fallback if we can't find a non-autopsy frame
+            caller_frame = stack[1]
+
+        call_site = (caller_frame.filename, caller_frame.lineno)
+
+        # Get function name and class name (if it's a method)
+        function_name = caller_frame.function
+        class_name = None
+        frame = caller_frame.frame
+        if "self" in frame.f_locals:
+            self_obj = frame.f_locals["self"]
+            class_name = type(self_obj).__name__
+
+        # Capture stack trace if auto_stack_trace is enabled
+        stack_trace_id: Optional[int] = None
+        if self._config.auto_stack_trace:
+            call_stack_obj = call_stack()
+            trace = call_stack_obj.capture_stack_trace()
+            stack_trace_id = id(call_stack_obj)
+            # Store trace if not already stored (deduplication by object identity)
+            if stack_trace_id not in self._stack_traces:
+                self._stack_traces[stack_trace_id] = trace
+
+        return call_site, stack_trace_id, function_name, class_name
+
+    def count(self, value: Any):
+        """
+        Collect a value and count how many times this call site was called with that value.
+
+        Args:
+            value: The value to count occurrences of
+        """
+        call_site, stack_trace_id, function_name, class_name = (
+            self._get_call_site_and_stack_trace()
+        )
+
+        if call_site not in self._counts:
+            self._counts[call_site] = {}
+            self._counts_metadata[call_site] = (function_name, class_name)
+
+        # For unhashable types, use JSON string representation as key
+        # This matches how we serialize in to_json()
+        try:
+            # Try to use value directly as dict key (works for hashable types)
+            hash(value)  # Test if hashable
+            value_key = value
+        except TypeError:
+            # For unhashable types, use JSON string representation
+            json_value = self._to_json_serializable(value)
+            value_key = json.dumps(json_value, sort_keys=True)
+
+        if value_key not in self._counts[call_site]:
+            self._counts[call_site][value_key] = []
+
+        if stack_trace_id is not None:
+            self._counts[call_site][value_key].append(stack_trace_id)
+
+    def hist(self, num: float):
+        """
+        Collect a number from each invocation to produce a histogram.
+
+        Args:
+            num: The number to add to the histogram
+        """
+        call_site, stack_trace_id, function_name, class_name = (
+            self._get_call_site_and_stack_trace()
+        )
+
+        if call_site not in self._histograms:
+            self._histograms[call_site] = []
+            self._histograms_metadata[call_site] = (function_name, class_name)
+
+        self._histograms[call_site].append(
+            (num, stack_trace_id if stack_trace_id is not None else -1)
+        )
+
+    def timeline(self, event_name: str):
+        """
+        Record an event with a timestamp for timeline visualization.
+
+        Args:
+            event_name: Name of the event to record
+        """
+        import time
+
+        call_site, stack_trace_id, function_name, class_name = (
+            self._get_call_site_and_stack_trace()
+        )
+
+        event = {
+            "timestamp": time.time(),
+            "event_name": event_name,
+            "call_site": call_site,
+            "stack_trace_id": stack_trace_id,
+            "function_name": function_name,
+            "class_name": class_name,
+        }
+        self._timeline.append(event)
+
+    def happened(self, message: Optional[str] = None):
+        """
+        Record that this call site was invoked. Simply counts invocations.
+
+        Args:
+            message: Optional message to associate with this call site
+        """
+        call_site, stack_trace_id, function_name, class_name = (
+            self._get_call_site_and_stack_trace()
+        )
+
+        if call_site not in self._happened:
+            self._happened[call_site] = (0, [], message)
+            self._happened_metadata[call_site] = (function_name, class_name)
+
+        count, stack_trace_ids, stored_message = self._happened[call_site]
+        # Update message if provided (use first non-None message)
+        if stored_message is None and message is not None:
+            stored_message = message
+
+        if stack_trace_id is not None:
+            stack_trace_ids.append(stack_trace_id)
+
+        self._happened[call_site] = (count + 1, stack_trace_ids, stored_message)
+
     def init(self, config: Optional[ReportConfiguration] = None):
         """
         Reset/initialize the report with fresh storage.
@@ -412,6 +574,13 @@ class Report:
         self._log_index = 0
         self._stack_traces.clear()
         self._stack_trace_id_to_log_indices.clear()
+        self._counts.clear()
+        self._counts_metadata.clear()
+        self._histograms.clear()
+        self._histograms_metadata.clear()
+        self._timeline.clear()
+        self._happened.clear()
+        self._happened_metadata.clear()
         if config is not None:
             self._config = config
 
@@ -547,11 +716,162 @@ class Report:
                 "timestamp": trace.timestamp,
             }
 
-        return {
+        # Serialize dashboard data
+        dashboard_data = {}
+
+        # Serialize counts
+        json_counts = []
+        for call_site, value_counts in self._counts.items():
+            filename, line_number = call_site
+            # Get function name from stored metadata
+            function_name, class_name = self._counts_metadata.get(
+                call_site, ("<unknown>", None)
+            )
+
+            # Convert value_counts to JSON-serializable format
+            json_value_counts = {}
+            for value_key, stack_trace_ids in value_counts.items():
+                # value_key might already be a JSON string (for unhashable types)
+                # or it might be the original value (for hashable types)
+                # Check if it's already a valid JSON string by trying to parse it
+                if isinstance(value_key, str):
+                    try:
+                        # Try to parse as JSON - if it succeeds, it's already a JSON string
+                        json.loads(value_key)
+                        # Already a JSON string, use it directly
+                        json_value_counts[value_key] = {
+                            "count": len(stack_trace_ids),
+                            "stack_trace_ids": [
+                                str(st_id) for st_id in stack_trace_ids
+                            ],
+                        }
+                        continue
+                    except (json.JSONDecodeError, ValueError):
+                        # Not a JSON string, treat as regular string value
+                        pass
+
+                # Convert value to JSON-serializable format
+                json_value = self._to_json_serializable(value_key)
+                json_value_counts[json.dumps(json_value, sort_keys=True)] = {
+                    "count": len(stack_trace_ids),
+                    "stack_trace_ids": [str(st_id) for st_id in stack_trace_ids],
+                }
+
+            count_entry = {
+                "call_site": {
+                    "filename": filename,
+                    "line": line_number,
+                    "function_name": function_name,
+                },
+                "value_counts": json_value_counts,
+            }
+            if class_name is not None:
+                count_entry["call_site"]["class_name"] = class_name
+            json_counts.append(count_entry)
+
+        # Serialize histograms
+        json_histograms = []
+        for call_site, values in self._histograms.items():
+            filename, line_number = call_site
+            # Get function name from stored metadata
+            function_name, class_name = self._histograms_metadata.get(
+                call_site, ("<unknown>", None)
+            )
+
+            json_values = []
+            for num, stack_trace_id in values:
+                json_values.append(
+                    {
+                        "value": num,
+                        "stack_trace_id": (
+                            str(stack_trace_id) if stack_trace_id != -1 else None
+                        ),
+                    }
+                )
+
+            hist_entry = {
+                "call_site": {
+                    "filename": filename,
+                    "line": line_number,
+                    "function_name": function_name,
+                },
+                "values": json_values,
+            }
+            if class_name is not None:
+                hist_entry["call_site"]["class_name"] = class_name
+            json_histograms.append(hist_entry)
+
+        # Serialize timeline (sort by timestamp)
+        json_timeline = []
+        sorted_timeline = sorted(self._timeline, key=lambda x: x["timestamp"])
+        for event in sorted_timeline:
+            call_site = event["call_site"]
+            filename, line_number = call_site
+            # Get function name from stored metadata in event
+            function_name = event.get("function_name", "<unknown>")
+            class_name = event.get("class_name")
+
+            timeline_entry = {
+                "timestamp": event["timestamp"],
+                "event_name": event["event_name"],
+                "call_site": {
+                    "filename": filename,
+                    "line": line_number,
+                    "function_name": function_name,
+                },
+                "stack_trace_id": (
+                    str(event["stack_trace_id"])
+                    if event["stack_trace_id"] is not None
+                    else None
+                ),
+            }
+            if class_name is not None:
+                timeline_entry["call_site"]["class_name"] = class_name
+            json_timeline.append(timeline_entry)
+
+        # Serialize happened
+        json_happened = []
+        for call_site, (count, stack_trace_ids, message) in self._happened.items():
+            filename, line_number = call_site
+            # Get function name from stored metadata
+            function_name, class_name = self._happened_metadata.get(
+                call_site, ("<unknown>", None)
+            )
+
+            happened_entry = {
+                "call_site": {
+                    "filename": filename,
+                    "line": line_number,
+                    "function_name": function_name,
+                },
+                "count": count,
+                "stack_trace_ids": [str(st_id) for st_id in stack_trace_ids],
+            }
+            if class_name is not None:
+                happened_entry["call_site"]["class_name"] = class_name
+            if message is not None:
+                happened_entry["message"] = message
+            json_happened.append(happened_entry)
+
+        # Only include dashboard if there's any data
+        if json_counts or json_histograms or json_timeline or json_happened:
+            dashboard_data = {
+                "counts": json_counts,
+                "histograms": json_histograms,
+                "timeline": json_timeline,
+                "happened": json_happened,
+            }
+
+        result = {
             "generated_at": datetime.now().isoformat(),
             "call_sites": call_sites,
             "stack_traces": json_stack_traces,
         }
+
+        if dashboard_data:
+            result["dashboard"] = dashboard_data
+
+        return result
 
     def _to_json_serializable(self, value: Any) -> Any:
         """
