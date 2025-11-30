@@ -11,10 +11,16 @@
   interface Props {
     data: AutopsyData;
     selectedLogIndex?: number | null;
-    onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
+    selectedElementKey?: string | null;
+    onEntryClick?: (stackTraceIds: string[], elementKey: string) => void;
   }
 
-  let { data, selectedLogIndex = null, onEntryClick }: Props = $props();
+  let {
+    data,
+    selectedLogIndex = null,
+    selectedElementKey = null,
+    onEntryClick,
+  }: Props = $props();
 
   function getFilename(callSite: DashboardCallSite): string {
     const parts = callSite.filename.split("/");
@@ -22,30 +28,38 @@
   }
 
   function handleCountClick(
-    entry: CountEntry,
+    entryIndex: number,
     valueKey: string,
     stackTraceIds: string[]
   ) {
     if (stackTraceIds.length > 0 && onEntryClick) {
-      onEntryClick(0, stackTraceIds[0]);
+      const key = `count-${entryIndex}-${valueKey}`;
+      onEntryClick(stackTraceIds, key);
     }
   }
 
-  function handleHistogramClick(entry: HistogramEntry, stackTraceId?: string) {
-    if (stackTraceId && onEntryClick) {
-      onEntryClick(0, stackTraceId);
+  function handleHistogramClick(
+    entryIndex: number,
+    binIndex: number,
+    stackTraceIds: string[]
+  ) {
+    if (stackTraceIds.length > 0 && onEntryClick) {
+      const key = `histogram-${entryIndex}-${binIndex}`;
+      onEntryClick(stackTraceIds, key);
     }
   }
 
-  function handleTimelineClick(entry: TimelineEntry) {
+  function handleTimelineClick(entryIndex: number, entry: TimelineEntry) {
     if (entry.stack_trace_id && onEntryClick) {
-      onEntryClick(0, entry.stack_trace_id);
+      const key = `timeline-${entryIndex}`;
+      onEntryClick([entry.stack_trace_id], key);
     }
   }
 
-  function handleHappenedClick(entry: HappenedEntry) {
+  function handleHappenedClick(entryIndex: number, entry: HappenedEntry) {
     if (entry.stack_trace_ids.length > 0 && onEntryClick) {
-      onEntryClick(0, entry.stack_trace_ids[0]);
+      const key = `happened-${entryIndex}`;
+      onEntryClick(entry.stack_trace_ids, key);
     }
   }
 
@@ -93,7 +107,7 @@
     {#if data.dashboard.counts.length > 0}
       <section class="dashboard-section">
         <h2>Value Counts</h2>
-        {#each data.dashboard.counts as entry}
+        {#each data.dashboard.counts as entry, entryIndex}
           <div class="dashboard-entry">
             <div class="call-site-header">
               <span class="filename"
@@ -116,12 +130,14 @@
                 {@const maxCount = getMaxCount(entry.value_counts)}
                 {@const barWidth =
                   maxCount > 0 ? (valueData.count / maxCount) * 100 : 0}
+                {@const elementKey = `count-${entryIndex}-${valueKey}`}
                 <div
                   class="count-bar"
                   class:clickable={valueData.stack_trace_ids.length > 0}
+                  class:selected={selectedElementKey === elementKey}
                   onclick={() =>
                     handleCountClick(
-                      entry,
+                      entryIndex,
                       valueKey,
                       valueData.stack_trace_ids
                     )}
@@ -138,7 +154,7 @@
                     ) {
                       e.preventDefault();
                       handleCountClick(
-                        entry,
+                        entryIndex,
                         valueKey,
                         valueData.stack_trace_ids
                       );
@@ -163,7 +179,7 @@
     {#if data.dashboard.histograms.length > 0}
       <section class="dashboard-section">
         <h2>Histograms</h2>
-        {#each data.dashboard.histograms as entry}
+        {#each data.dashboard.histograms as entry, entryIndex}
           {@const values = entry.values.map((v) => v.value)}
           {@const { bins, counts } = computeHistogramBins(values)}
           {@const maxCount = Math.max(...counts, 0)}
@@ -198,12 +214,14 @@
                 {@const stackTraceIds = valuesInBin
                   .map((v) => v.stack_trace_id)
                   .filter((id): id is string => id !== undefined)}
+                {@const elementKey = `histogram-${entryIndex}-${i}`}
                 <div
                   class="histogram-bar"
                   class:clickable={stackTraceIds.length > 0}
+                  class:selected={selectedElementKey === elementKey}
                   onclick={() => {
                     if (stackTraceIds.length > 0) {
-                      handleHistogramClick(entry, stackTraceIds[0]);
+                      handleHistogramClick(entryIndex, i, stackTraceIds);
                     }
                   }}
                   role={stackTraceIds.length > 0 ? "button" : undefined}
@@ -214,7 +232,7 @@
                       (e.key === "Enter" || e.key === " ")
                     ) {
                       e.preventDefault();
-                      handleHistogramClick(entry, stackTraceIds[0]);
+                      handleHistogramClick(entryIndex, i, stackTraceIds);
                     }
                   }}
                   title="{binStart.toFixed(2)} - {binEnd.toFixed(
@@ -245,25 +263,28 @@
                 ? data.dashboard.timeline[index - 1].timestamp
                 : entry.timestamp}
             {@const timeDiff = entry.timestamp - prevTimestamp}
-            <div class="timeline-entry">
+            {@const elementKey = `timeline-${index}`}
+            <div
+              class="timeline-entry"
+              class:clickable={entry.stack_trace_id !== undefined}
+              class:selected={selectedElementKey === elementKey}
+              onclick={() => handleTimelineClick(index, entry)}
+              role={entry.stack_trace_id !== undefined ? "button" : undefined}
+              tabindex={entry.stack_trace_id !== undefined ? 0 : undefined}
+              onkeydown={(e) => {
+                if (
+                  entry.stack_trace_id !== undefined &&
+                  (e.key === "Enter" || e.key === " ")
+                ) {
+                  e.preventDefault();
+                  handleTimelineClick(index, entry);
+                }
+              }}
+            >
               <div class="timeline-marker-container">
                 <div
                   class="timeline-marker"
-                  class:clickable={entry.stack_trace_id !== undefined}
-                  onclick={() => handleTimelineClick(entry)}
-                  role={entry.stack_trace_id !== undefined
-                    ? "button"
-                    : undefined}
-                  tabindex={entry.stack_trace_id !== undefined ? 0 : undefined}
-                  onkeydown={(e) => {
-                    if (
-                      entry.stack_trace_id !== undefined &&
-                      (e.key === "Enter" || e.key === " ")
-                    ) {
-                      e.preventDefault();
-                      handleTimelineClick(entry);
-                    }
-                  }}
+                  class:selected={selectedElementKey === elementKey}
                 ></div>
                 {#if !isLast}
                   <div class="timeline-line"></div>
@@ -304,11 +325,13 @@
     {#if data.dashboard.happened.length > 0}
       <section class="dashboard-section">
         <h2>Invocation Counts</h2>
-        {#each data.dashboard.happened as entry}
+        {#each data.dashboard.happened as entry, entryIndex}
+          {@const elementKey = `happened-${entryIndex}`}
           <div
             class="happened-entry"
             class:clickable={entry.stack_trace_ids.length > 0}
-            onclick={() => handleHappenedClick(entry)}
+            class:selected={selectedElementKey === elementKey}
+            onclick={() => handleHappenedClick(entryIndex, entry)}
             role={entry.stack_trace_ids.length > 0 ? "button" : undefined}
             tabindex={entry.stack_trace_ids.length > 0 ? 0 : undefined}
             onkeydown={(e) => {
@@ -317,7 +340,7 @@
                 (e.key === "Enter" || e.key === " ")
               ) {
                 e.preventDefault();
-                handleHappenedClick(entry);
+                handleHappenedClick(entryIndex, entry);
               }
             }}
           >
@@ -442,6 +465,15 @@
     opacity: 0.8;
   }
 
+  .count-bar.selected .bar-fill {
+    background: #1d4ed8;
+    box-shadow: 0 0 0 2px #93c5fd;
+  }
+
+  .count-bar.selected .bar-container {
+    box-shadow: 0 0 0 2px #93c5fd;
+  }
+
   .bar-label {
     display: flex;
     justify-content: space-between;
@@ -508,6 +540,11 @@
     opacity: 0.8;
   }
 
+  .histogram-bar.selected .bar-fill-vertical {
+    background: #1d4ed8;
+    box-shadow: 0 0 0 2px #93c5fd;
+  }
+
   .bar-value {
     font-size: 0.75rem;
     color: #666;
@@ -533,10 +570,26 @@
     gap: 1rem;
     margin-bottom: 1.5rem;
     position: relative;
+    padding: 0.5rem;
+    margin-left: -0.5rem;
+    border-radius: 6px;
+    transition: background-color 0.2s;
   }
 
   .timeline-entry:last-child {
     margin-bottom: 0;
+  }
+
+  .timeline-entry.clickable {
+    cursor: pointer;
+  }
+
+  .timeline-entry.clickable:hover {
+    background: rgba(37, 99, 235, 0.05);
+  }
+
+  .timeline-entry.selected {
+    background: rgba(37, 99, 235, 0.1);
   }
 
   .timeline-marker-container {
@@ -556,15 +609,13 @@
     box-shadow: 0 0 0 2px #2563eb;
     flex-shrink: 0;
     z-index: 1;
+    transition: transform 0.2s, background-color 0.2s;
   }
 
-  .timeline-marker.clickable {
-    cursor: pointer;
-  }
-
-  .timeline-marker.clickable:hover {
+  .timeline-marker.selected {
     background: #1d4ed8;
-    transform: scale(1.2);
+    transform: scale(1.3);
+    box-shadow: 0 0 0 3px #1d4ed8;
   }
 
   .timeline-line {
@@ -628,6 +679,12 @@
   .happened-entry.clickable:hover {
     border-color: #2563eb;
     background: #f8fafc;
+  }
+
+  .happened-entry.selected {
+    border-color: #1d4ed8;
+    background: #eff6ff;
+    box-shadow: 0 0 0 2px #93c5fd;
   }
 
   .happened-count {

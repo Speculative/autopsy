@@ -14,6 +14,9 @@
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
+  let selectedStackTraceIds = $state<string[]>([]);
+  let selectedStackTraceIndex = $state<number>(0);
+  let selectedDashboardElementKey = $state<string | null>(null);
   let sidebarWidth = $state(500);
   let isResizing = $state(false);
 
@@ -82,18 +85,50 @@
 
   function handleEntryClick(logIndex: number, stackTraceId?: string) {
     selectedLogIndex = logIndex;
+    selectedDashboardElementKey = null;
     if (stackTraceId !== undefined && data.stack_traces) {
       const traceId = String(stackTraceId);
       const trace = data.stack_traces[traceId];
+      selectedStackTrace = trace || null;
+      selectedStackTraceIds = stackTraceId ? [stackTraceId] : [];
+      selectedStackTraceIndex = 0;
+    } else {
+      selectedStackTrace = null;
+      selectedStackTraceIds = [];
+      selectedStackTraceIndex = 0;
+    }
+  }
+
+  function handleDashboardEntryClick(
+    stackTraceIds: string[],
+    elementKey: string
+  ) {
+    selectedLogIndex = null;
+    selectedDashboardElementKey = elementKey;
+    selectedStackTraceIds = stackTraceIds;
+    selectedStackTraceIndex = 0;
+    if (stackTraceIds.length > 0 && data.stack_traces) {
+      const trace = data.stack_traces[stackTraceIds[0]];
       selectedStackTrace = trace || null;
     } else {
       selectedStackTrace = null;
     }
   }
 
+  function handleStackTraceIndexChange(index: number) {
+    selectedStackTraceIndex = index;
+    if (selectedStackTraceIds[index] && data.stack_traces) {
+      const trace = data.stack_traces[selectedStackTraceIds[index]];
+      selectedStackTrace = trace || null;
+    }
+  }
+
   function closeSidebar() {
     selectedLogIndex = null;
     selectedStackTrace = null;
+    selectedStackTraceIds = [];
+    selectedStackTraceIndex = 0;
+    selectedDashboardElementKey = null;
   }
 
   function handleResizeStart(e: MouseEvent) {
@@ -194,7 +229,8 @@
         <DashboardView
           {data}
           {selectedLogIndex}
-          onEntryClick={handleEntryClick}
+          selectedElementKey={selectedDashboardElementKey}
+          onEntryClick={handleDashboardEntryClick}
         />
       {/if}
     </div>
@@ -236,6 +272,25 @@
           <button class="close-button" onclick={closeSidebar}>×</button>
         </div>
       </div>
+      {#if selectedStackTraceIds.length > 1}
+        <div class="stack-trace-selector">
+          <span class="selector-label"
+            >{selectedStackTraceIds.length} matching call stacks</span
+          >
+          <select
+            class="stack-trace-dropdown"
+            value={selectedStackTraceIndex}
+            onchange={(e) =>
+              handleStackTraceIndexChange(
+                parseInt((e.target as HTMLSelectElement).value)
+              )}
+          >
+            {#each selectedStackTraceIds as _id, i}
+              <option value={i}>Invocation #{i + 1}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
       <div class="sidebar-body">
         <div class="stack-trace">
           {#each selectedStackTrace.frames as frame, index}
@@ -455,6 +510,44 @@
 
   .close-button:hover {
     background-color: #f0f0f0;
+  }
+
+  .stack-trace-selector {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1.5rem;
+    background: #f8fafc;
+    border-bottom: 1px solid #e5e5e5;
+    flex-shrink: 0;
+  }
+
+  .selector-label {
+    font-size: 0.85rem;
+    color: #64748b;
+    font-weight: 500;
+  }
+
+  .stack-trace-dropdown {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    background: white;
+    color: #333;
+    cursor: pointer;
+    min-width: 140px;
+  }
+
+  .stack-trace-dropdown:hover {
+    border-color: #2563eb;
+  }
+
+  .stack-trace-dropdown:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
   }
 
   .sidebar-body {
