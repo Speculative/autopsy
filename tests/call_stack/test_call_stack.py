@@ -10,20 +10,20 @@ def test_basic_caller():
         cs = call_stack()
         caller = cs.caller.value
         # The caller is test_basic_caller (who called test_function)
-        assert (
-            caller.function == "test_basic_caller"
-        ), f"Expected 'test_basic_caller', got '{caller.function}'"
+        assert caller.function == "test_basic_caller", (
+            f"Expected 'test_basic_caller', got '{caller.function}'"
+        )
         # Validate function reference
         assert caller.func is not None, "Function reference should not be None"
-        assert (
-            caller.func is test_basic_caller
-        ), "Function reference should match test_basic_caller"
+        assert caller.func is test_basic_caller, (
+            "Function reference should match test_basic_caller"
+        )
         return caller
 
     caller = test_function()
-    assert caller.filename.endswith(
-        "test_call_stack.py"
-    ), f"Expected test file, got {caller.filename}"
+    assert caller.filename.endswith("test_call_stack.py"), (
+        f"Expected test file, got {caller.filename}"
+    )
 
 
 def test_nested_caller():
@@ -58,22 +58,22 @@ def test_call_stack_omits_autopsy():
         # Important: it should NOT be from autopsy package
         # Verify the caller is not from autopsy code using fully qualified name
         fully_qualified = caller.fully_qualified_name
-        assert not fully_qualified.startswith(
-            "autopsy."
-        ), f"Caller should not be from autopsy package: {fully_qualified}"
+        assert not fully_qualified.startswith("autopsy."), (
+            f"Caller should not be from autopsy package: {fully_qualified}"
+        )
         # Verify it's the expected test function
-        assert (
-            caller.function == "test_call_stack_omits_autopsy"
-        ), f"Expected 'test_call_stack_omits_autopsy', got '{caller.function}'"
+        assert caller.function == "test_call_stack_omits_autopsy", (
+            f"Expected 'test_call_stack_omits_autopsy', got '{caller.function}'"
+        )
         return caller
 
     caller = test_func()
     assert caller.filename.endswith("test_call_stack.py")
     # Validate function reference
     assert caller.func is not None, "Function reference should not be None"
-    assert (
-        caller.func is test_call_stack_omits_autopsy
-    ), "Function reference should match test_call_stack_omits_autopsy"
+    assert caller.func is test_call_stack_omits_autopsy, (
+        "Function reference should match test_call_stack_omits_autopsy"
+    )
 
 
 def test_class_method_reference():
@@ -89,22 +89,22 @@ def test_class_method_reference():
 
     current1 = instance1.method().value
     current2 = instance2.method().value
-    assert (
-        current1.function == "method"
-    ), f"Expected 'method', got '{current1.function}'"
-    assert (
-        current2.function == "method"
-    ), f"Expected 'method', got '{current2.function}'"
+    assert current1.function == "method", (
+        f"Expected 'method', got '{current1.function}'"
+    )
+    assert current2.function == "method", (
+        f"Expected 'method', got '{current2.function}'"
+    )
 
     # Validate that both instances have the same method reference
     assert current1.func is not None, "Function reference should not be None"
     assert current2.func is not None, "Function reference should not be None"
-    assert (
-        current1.func is current2.func
-    ), "Different instances should have the same method reference"
-    assert (
-        current1.func is TestClass.method
-    ), "Method reference should match TestClass.method"
+    assert current1.func is current2.func, (
+        "Different instances should have the same method reference"
+    )
+    assert current1.func is TestClass.method, (
+        "Method reference should match TestClass.method"
+    )
 
 
 def test_caller_variables():
@@ -174,34 +174,34 @@ def test_variables_further_up_stack():
     assert current_vars is not None, "Current variables should not be None"
     assert "value" in current_vars, "Inner should have variable 'value'"
     assert "inner_var" in current_vars, "Inner should have variable 'inner_var'"
-    assert (
-        current_vars["value"] == 25
-    ), f"Expected value=25, got value={current_vars['value']}"
-    assert (
-        current_vars["inner_var"] == 50
-    ), f"Expected inner_var=50, got inner_var={current_vars['inner_var']}"
+    assert current_vars["value"] == 25, (
+        f"Expected value=25, got value={current_vars['value']}"
+    )
+    assert current_vars["inner_var"] == 50, (
+        f"Expected inner_var=50, got inner_var={current_vars['inner_var']}"
+    )
 
     # Check caller frame (middle)
     assert caller_vars is not None, "Caller variables should not be None"
     assert "x" in caller_vars, "Middle should have variable 'x'"
     assert "middle_var" in caller_vars, "Middle should have variable 'middle_var'"
     assert caller_vars["x"] == 15, f"Expected x=15, got x={caller_vars['x']}"
-    assert (
-        caller_vars["middle_var"] == 25
-    ), f"Expected middle_var=25, got middle_var={caller_vars['middle_var']}"
+    assert caller_vars["middle_var"] == 25, (
+        f"Expected middle_var=25, got middle_var={caller_vars['middle_var']}"
+    )
 
     # Check caller's caller frame (outer)
-    assert (
-        caller_caller_vars is not None
-    ), "Caller's caller variables should not be None"
+    assert caller_caller_vars is not None, (
+        "Caller's caller variables should not be None"
+    )
     assert "y" in caller_caller_vars, "Outer should have variable 'y'"
     assert "outer_var" in caller_caller_vars, "Outer should have variable 'outer_var'"
-    assert (
-        caller_caller_vars["y"] == 5
-    ), f"Expected y=5, got y={caller_caller_vars['y']}"
-    assert (
-        caller_caller_vars["outer_var"] == 15
-    ), f"Expected outer_var=15, got outer_var={caller_caller_vars['outer_var']}"
+    assert caller_caller_vars["y"] == 5, (
+        f"Expected y=5, got y={caller_caller_vars['y']}"
+    )
+    assert caller_caller_vars["outer_var"] == 15, (
+        f"Expected outer_var=15, got outer_var={caller_caller_vars['outer_var']}"
+    )
 
 
 def test_variables_out_of_range():
@@ -234,9 +234,9 @@ def test_variables_immutability():
     vars_snapshot = test_function(42)
     assert vars_snapshot is not None, "Variables should not be None"
     # The snapshot should have the value when Caller was created (42), not after modification (142)
-    assert (
-        vars_snapshot["x"] == 42
-    ), f"Expected x=42 (value when Caller created), got x={vars_snapshot['x']}"
+    assert vars_snapshot["x"] == 42, (
+        f"Expected x=42 (value when Caller created), got x={vars_snapshot['x']}"
+    )
 
 
 def test_variable_exists():
@@ -296,9 +296,9 @@ def test_variable_from_caller():
     assert var_y.value == 10, f"Expected y=10, got y={var_y.value}"
 
     var_value_result = caller.variable("value")
-    assert (
-        var_value_result.is_err()
-    ), "Variable 'value' should not exist in caller frame"
+    assert var_value_result.is_err(), (
+        "Variable 'value' should not exist in caller frame"
+    )
 
 
 def test_caller_caller_chaining():
@@ -308,12 +308,12 @@ def test_caller_caller_chaining():
         cs = call_stack()
         # Test caller.caller pattern - basic property access
         caller_caller = cs.caller.caller
-        assert (
-            caller_caller.function == "outer"
-        ), f"Expected 'outer', got '{caller_caller.function}'"
-        assert caller_caller.filename.endswith(
-            "test_call_stack.py"
-        ), f"Expected test file, got {caller_caller.filename}"
+        assert caller_caller.function == "outer", (
+            f"Expected 'outer', got '{caller_caller.function}'"
+        )
+        assert caller_caller.filename.endswith("test_call_stack.py"), (
+            f"Expected test file, got {caller_caller.filename}"
+        )
 
         # Test variable access from caller.caller
         var_x = cs.caller.caller.variable("x").value
@@ -346,16 +346,16 @@ def test_caller_chaining_beyond_available_frames():
 
         assert caller_query.is_err(), "Chained caller query should fail"
         error = caller_query.error
-        assert (
-            error.message == "Frame index out of range"
-        ), f"Expected 'Frame index out of range', got '{error.message}'"
-        assert (
-            "frame_index" in error.context
-        ), "Error context should include frame_index"
+        assert error.message == "Frame index out of range", (
+            f"Expected 'Frame index out of range', got '{error.message}'"
+        )
+        assert "frame_index" in error.context, (
+            "Error context should include frame_index"
+        )
         expected_frame_index = frame_count + 1
-        assert (
-            error.context["frame_index"] == expected_frame_index
-        ), f"Expected frame_index={expected_frame_index}, got {error.context['frame_index']}"
+        assert error.context["frame_index"] == expected_frame_index, (
+            f"Expected frame_index={expected_frame_index}, got {error.context['frame_index']}"
+        )
         return caller_query
 
     def middle():
@@ -382,12 +382,12 @@ def test_error_propagation_on_failed_query():
             _ = query.value
             assert False, "Accessing .value should raise ValueError"
         except ValueError as e:
-            assert (
-                "error result" in str(e).lower()
-            ), f"Expected ValueError about error result, got: {e}"
-            assert "Frame index out of range" in str(
-                e
-            ), f"Error message should mention frame index, got: {e}"
+            assert "error result" in str(e).lower(), (
+                f"Expected ValueError about error result, got: {e}"
+            )
+            assert "Frame index out of range" in str(e), (
+                f"Error message should mention frame index, got: {e}"
+            )
 
         # Accessing properties returns a proxy that defers error propagation
         func_proxy = query.function
@@ -396,9 +396,9 @@ def test_error_propagation_on_failed_query():
         # Accessing variable should return an error AutopsyResult
         var_result = query.variable("x")
         assert var_result.is_err(), "variable() should return error"
-        assert (
-            var_result.error.message == "Frame index out of range"
-        ), f"Expected 'Frame index out of range', got '{var_result.error.message}'"
+        assert var_result.error.message == "Frame index out of range", (
+            f"Expected 'Frame index out of range', got '{var_result.error.message}'"
+        )
 
         return query, var_result
 
@@ -421,15 +421,15 @@ def test_caller_chaining_with_multiple_levels():
         caller_caller = cs.caller.caller
         caller_caller_caller = cs.caller.caller.caller
 
-        assert (
-            caller.function == "level3"
-        ), f"Expected 'level3', got '{caller.function}'"
-        assert (
-            caller_caller.function == "level2"
-        ), f"Expected 'level2', got '{caller_caller.function}'"
-        assert (
-            caller_caller_caller.function == "level1"
-        ), f"Expected 'level1', got '{caller_caller_caller.function}'"
+        assert caller.function == "level3", (
+            f"Expected 'level3', got '{caller.function}'"
+        )
+        assert caller_caller.function == "level2", (
+            f"Expected 'level2', got '{caller_caller.function}'"
+        )
+        assert caller_caller_caller.function == "level1", (
+            f"Expected 'level1', got '{caller_caller_caller.function}'"
+        )
 
         # Access variables from different levels
         var_result_3 = caller.variable("var3").value

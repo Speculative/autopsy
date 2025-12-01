@@ -24,8 +24,12 @@ def test_basic_logging():
     for call_site, value_groups in logs.items():
         assert len(value_groups) > 0, f"Call site {call_site} has no value groups"
         for group in value_groups:
-            assert "values" in group, f"Call site {call_site} group missing 'values' key"
-            assert len(group["values"]) > 0, f"Call site {call_site} has empty value group"
+            assert "values" in group, (
+                f"Call site {call_site} group missing 'values' key"
+            )
+            assert len(group["values"]) > 0, (
+                f"Call site {call_site} has empty value group"
+            )
             for pickled in group["values"]:
                 if isinstance(pickled, bytes):
                     _ = pickle.loads(pickled)

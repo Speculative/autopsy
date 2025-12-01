@@ -52,7 +52,9 @@ class Report:
         # Timeline: global list of events with timestamp, event_name, call_site, stack_trace_id
         self._timeline: List[Dict[str, Any]] = []
         # Happened: per call site, (count, list of (stack_trace_id, log_index) tuples, optional message)
-        self._happened: Dict[Tuple[str, int], Tuple[int, List[Tuple[int, int]], Optional[str]]] = {}
+        self._happened: Dict[
+            Tuple[str, int], Tuple[int, List[Tuple[int, int]], Optional[str]]
+        ] = {}
         # Happened metadata: per call site, (function_name, class_name)
         self._happened_metadata: Dict[Tuple[str, int], Tuple[str, Optional[str]]] = {}
         # Dashboard logs: per call site, list of dashboard invocation logs
@@ -908,7 +910,7 @@ class Report:
                 # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
                 stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
                 log_indices = [log_idx for _, log_idx in stack_trace_data]
-                
+
                 # value_key might already be a JSON string (for unhashable types)
                 # or it might be the original value (for hashable types)
                 # Check if it's already a valid JSON string by trying to parse it

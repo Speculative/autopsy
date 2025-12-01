@@ -425,9 +425,9 @@ def test_count_with_complex_values():
 
     # Verify that we found at least one list and one dict value
     # This confirms that complex (unhashable) values can be counted
-    assert (
-        found_list
-    ), "Should find at least one list value in counts - verifies unhashable values work"
-    assert (
-        found_dict
-    ), "Should find at least one dict value in counts - verifies unhashable values work"
+    assert found_list, (
+        "Should find at least one list value in counts - verifies unhashable values work"
+    )
+    assert found_dict, (
+        "Should find at least one dict value in counts - verifies unhashable values work"
+    )

@@ -6,7 +6,6 @@ This CLI tool allows you to run example programs and generate reports in differe
 
 import argparse
 import sys
-from pathlib import Path
 
 from autopsy import report
 from autopsy.report import generate_html, generate_json
@@ -19,6 +18,17 @@ EXAMPLES = {
         "description": "Demonstrates a key-value store with transaction management",
         "module": "examples.kv_store_example",
     },
+    "price_calculator": {
+        "name": "Price Calculator (Caching Bug)",
+        "description": "Demonstrates debugging a memoization cache collision bug",
+        "module": "examples.price_calculator",
+    },
+    "price_calculator_tests": {
+        "name": "Price Calculator Test Suite",
+        "description": "Runs the test suite with autopsy instrumentation",
+        "module": "examples.test_price_calculator",
+        "is_test_suite": True,
+    },
 }
 
 
@@ -30,7 +40,7 @@ def load_example(example_name: str):
         example_name: Name of the example to load
 
     Returns:
-        The run_example function from the module
+        The run_example function from the module, or None for test suites
 
     Raises:
         ImportError: If the example module cannot be loaded
@@ -40,10 +50,16 @@ def load_example(example_name: str):
         raise ValueError(f"Unknown example: {example_name}")
 
     example_info = EXAMPLES[example_name]
+
+    # Test suites are handled differently
+    if example_info.get("is_test_suite"):
+        return None
+
     module_name = example_info["module"]
 
     # Import the module using importlib to handle dotted names correctly
     import importlib
+
     module = importlib.import_module(module_name)
 
     if not hasattr(module, "run_example"):
@@ -54,6 +70,44 @@ def load_example(example_name: str):
     return module.run_example
 
 
+def run_test_suite(example_name: str, output_path: str) -> int:
+    """
+    Run a test suite with autopsy instrumentation.
+
+    Args:
+        example_name: Name of the test suite example
+        output_path: Path to write the report
+
+    Returns:
+        pytest exit code
+    """
+    import subprocess
+    import sys
+
+    example_info = EXAMPLES[example_name]
+    module_name = example_info["module"]
+
+    # Convert module name to file path
+    test_file = module_name.replace(".", "/") + ".py"
+
+    # Run pytest with report generation
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            test_file,
+            "-v",
+            "--tb=short",
+            "--generate-report",
+            f"--report-output={output_path}",
+        ],
+        cwd=".",
+    )
+
+    return result.returncode
+
+
 def generate_html_report(example_name: str, output_path: str) -> None:
     """
     Generate an HTML report from an example program.
@@ -62,7 +116,21 @@ def generate_html_report(example_name: str, output_path: str) -> None:
         example_name: Name of the example to run
         output_path: Path to write the HTML report
     """
-    print(f"Running example: {EXAMPLES[example_name]['name']}")
+    example_info = EXAMPLES[example_name]
+    print(f"Running example: {example_info['name']}")
+
+    if example_info.get("is_test_suite"):
+        # For test suites, run pytest and generate JSON first, then convert
+        json_path = output_path.replace(".html", ".json")
+        exit_code = run_test_suite(example_name, json_path)
+        if exit_code not in (0, 1):  # 0=pass, 1=some tests failed (expected)
+            print(f"⚠ Test suite exited with code {exit_code}")
+
+        print(f"✓ Test suite report generated: {json_path}")
+        print("\nNote: HTML generation from test suite not yet implemented.")
+        print("Use 'json' command instead, then view with autopsy_html dev server.")
+        return
+
     report.init()
 
     # Load and run the example
@@ -86,7 +154,20 @@ def generate_json_report(example_name: str, output_path: str) -> None:
         example_name: Name of the example to run
         output_path: Path to write the JSON report
     """
-    print(f"Running example: {EXAMPLES[example_name]['name']}")
+    example_info = EXAMPLES[example_name]
+    print(f"Running example: {example_info['name']}")
+
+    if example_info.get("is_test_suite"):
+        # For test suites, run pytest with report generation
+        exit_code = run_test_suite(example_name, output_path)
+        if exit_code == 0:
+            print("\n✓ All tests passed")
+        elif exit_code == 1:
+            print("\n⚠ Some tests failed (this is expected for this example)")
+        else:
+            print(f"\n✗ Test suite exited with code {exit_code}")
+        return
+
     report.init()
 
     # Load and run the example

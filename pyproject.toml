@@ -14,3 +14,8 @@ dev = [
 
 [tool.setuptools]
 package-data = {"autopsy" = ["template.html"]}
+
+[tool.pytest]
+testpaths=[
+    "tests"
+]

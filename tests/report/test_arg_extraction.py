@@ -252,4 +252,3 @@ def test_func():
         assert arg_names == []
     finally:
         Path(temp_file).unlink()
-
