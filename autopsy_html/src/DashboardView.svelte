@@ -98,6 +98,7 @@
   ): number {
     return Math.max(...Object.values(counts).map((v) => v.count), 0);
   }
+
 </script>
 
 {#if !data.dashboard || (!data.dashboard.counts.length && !data.dashboard.histograms.length && !data.dashboard.timeline.length && !data.dashboard.happened.length)}
@@ -136,11 +137,7 @@
                   class:clickable={valueData.stack_trace_ids.length > 0}
                   class:selected={selectedElementKey === elementKey}
                   onclick={() =>
-                    handleCountClick(
-                      entryIndex,
-                      valueKey,
-                      valueData.stack_trace_ids
-                    )}
+                    onEntryClick?.(valueData.stack_trace_ids, elementKey)}
                   role={valueData.stack_trace_ids.length > 0
                     ? "button"
                     : undefined}
@@ -153,11 +150,7 @@
                       (e.key === "Enter" || e.key === " ")
                     ) {
                       e.preventDefault();
-                      handleCountClick(
-                        entryIndex,
-                        valueKey,
-                        valueData.stack_trace_ids
-                      );
+                    onEntryClick?.(valueData.stack_trace_ids, elementKey);
                     }
                   }}
                 >
@@ -221,7 +214,7 @@
                   class:selected={selectedElementKey === elementKey}
                   onclick={() => {
                     if (stackTraceIds.length > 0) {
-                      handleHistogramClick(entryIndex, i, stackTraceIds);
+                      onEntryClick?.(stackTraceIds, elementKey);
                     }
                   }}
                   role={stackTraceIds.length > 0 ? "button" : undefined}
@@ -232,7 +225,7 @@
                       (e.key === "Enter" || e.key === " ")
                     ) {
                       e.preventDefault();
-                      handleHistogramClick(entryIndex, i, stackTraceIds);
+                      onEntryClick?.(stackTraceIds, elementKey);
                     }
                   }}
                   title="{binStart.toFixed(2)} - {binEnd.toFixed(
@@ -268,7 +261,12 @@
               class="timeline-entry"
               class:clickable={entry.stack_trace_id !== undefined}
               class:selected={selectedElementKey === elementKey}
-              onclick={() => handleTimelineClick(index, entry)}
+              onclick={() => {
+                onEntryClick?.(
+                  entry.stack_trace_id ? [entry.stack_trace_id] : [],
+                  elementKey
+                );
+              }}
               role={entry.stack_trace_id !== undefined ? "button" : undefined}
               tabindex={entry.stack_trace_id !== undefined ? 0 : undefined}
               onkeydown={(e) => {
@@ -277,7 +275,10 @@
                   (e.key === "Enter" || e.key === " ")
                 ) {
                   e.preventDefault();
-                  handleTimelineClick(index, entry);
+                    onEntryClick?.(
+                      entry.stack_trace_id ? [entry.stack_trace_id] : [],
+                      elementKey
+                    );
                 }
               }}
             >
@@ -331,7 +332,9 @@
             class="happened-entry"
             class:clickable={entry.stack_trace_ids.length > 0}
             class:selected={selectedElementKey === elementKey}
-            onclick={() => handleHappenedClick(entryIndex, entry)}
+            onclick={() => {
+              onEntryClick?.(entry.stack_trace_ids, elementKey);
+            }}
             role={entry.stack_trace_ids.length > 0 ? "button" : undefined}
             tabindex={entry.stack_trace_ids.length > 0 ? 0 : undefined}
             onkeydown={(e) => {
@@ -340,7 +343,7 @@
                 (e.key === "Enter" || e.key === " ")
               ) {
                 e.preventDefault();
-                handleHappenedClick(entryIndex, entry);
+                    onEntryClick?.(entry.stack_trace_ids, elementKey);
               }
             }}
           >

@@ -15,10 +15,13 @@
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
   let selectedStackTraceIds = $state<string[]>([]);
+  let selectedLogIndices = $state<(number | null)[]>([]);
   let selectedStackTraceIndex = $state<number>(0);
   let selectedDashboardElementKey = $state<string | null>(null);
   let sidebarWidth = $state(500);
   let isResizing = $state(false);
+  let hiddenCallSites = $state<Set<string>>(new Set());
+  let showDashboardCalls = $state(false);
 
   // Load data from the injection point or dev data
   async function loadData(): Promise<void> {
@@ -99,27 +102,114 @@
     }
   }
 
+  // Find log index for a stack trace ID
+  function findLogIndexForStackTrace(stackTraceId: string): number | null {
+    for (const callSite of data.call_sites) {
+      for (const valueGroup of callSite.value_groups) {
+        if (valueGroup.stack_trace_id === stackTraceId) {
+          return valueGroup.log_index;
+        }
+      }
+    }
+    return null;
+  }
+
   function handleDashboardEntryClick(
     stackTraceIds: string[],
     elementKey: string
   ) {
-    selectedLogIndex = null;
     selectedDashboardElementKey = elementKey;
     selectedStackTraceIds = stackTraceIds;
     selectedStackTraceIndex = 0;
-    if (stackTraceIds.length > 0 && data.stack_traces) {
-      const trace = data.stack_traces[stackTraceIds[0]];
-      selectedStackTrace = trace || null;
+    
+    // Extract log_indices from dashboard data based on elementKey
+    // elementKey format: "count-{entryIndex}-{valueKey}" or "histogram-{entryIndex}-{binIndex}" etc.
+    const logIndices: (number | null)[] = [];
+    
+    if (elementKey.startsWith("count-")) {
+      const parts = elementKey.split("-");
+      const entryIndex = parseInt(parts[1]);
+      const valueKey = parts.slice(2).join("-");
+      
+      if (data.dashboard?.counts[entryIndex]) {
+        const entry = data.dashboard.counts[entryIndex];
+        const valueData = entry.value_counts[valueKey];
+        if (valueData?.log_indices) {
+          // Match stack_trace_ids to log_indices in order
+          for (const stackTraceId of stackTraceIds) {
+            const idx = valueData.stack_trace_ids.indexOf(stackTraceId);
+            logIndices.push(idx >= 0 ? valueData.log_indices[idx] : null);
+          }
+        }
+      }
+    } else if (elementKey.startsWith("histogram-")) {
+      const parts = elementKey.split("-");
+      const entryIndex = parseInt(parts[1]);
+      const binIndex = parseInt(parts[2]);
+      
+      if (data.dashboard?.histograms[entryIndex]) {
+        const entry = data.dashboard.histograms[entryIndex];
+        // For histograms, match stack_trace_ids to values that have matching stack_trace_id
+        for (const stackTraceId of stackTraceIds) {
+          const value = entry.values.find(v => v.stack_trace_id === stackTraceId);
+          logIndices.push(value?.log_index ?? null);
+        }
+      }
+    } else if (elementKey.startsWith("timeline-")) {
+      const entryIndex = parseInt(elementKey.split("-")[1]);
+      if (data.dashboard?.timeline[entryIndex]) {
+        const entry = data.dashboard.timeline[entryIndex];
+        logIndices.push(entry.log_index ?? null);
+      }
+    } else if (elementKey.startsWith("happened-")) {
+      const entryIndex = parseInt(elementKey.split("-")[1]);
+      if (data.dashboard?.happened[entryIndex]) {
+        const entry = data.dashboard.happened[entryIndex];
+        // Match stack_trace_ids to log_indices in order
+        for (const stackTraceId of stackTraceIds) {
+          const idx = entry.stack_trace_ids.indexOf(stackTraceId);
+          logIndices.push(idx >= 0 ? entry.log_indices[idx] : null);
+        }
+      }
+    }
+    
+    // Fallback: if we couldn't extract log_indices, search for them
+    if (logIndices.length === 0 || logIndices.every(idx => idx === null)) {
+      logIndices.push(...stackTraceIds.map(id => findLogIndexForStackTrace(id)));
+    }
+    
+    selectedLogIndices = logIndices;
+    
+    // Find log index from the first stack trace ID
+    if (stackTraceIds.length > 0) {
+      const logIndex = logIndices[0] ?? findLogIndexForStackTrace(stackTraceIds[0]);
+      selectedLogIndex = logIndex;
+      
+      if (data.stack_traces) {
+        const trace = data.stack_traces[stackTraceIds[0]];
+        selectedStackTrace = trace || null;
+      } else {
+        selectedStackTrace = null;
+      }
     } else {
+      selectedLogIndex = null;
       selectedStackTrace = null;
     }
   }
 
   function handleStackTraceIndexChange(index: number) {
     selectedStackTraceIndex = index;
-    if (selectedStackTraceIds[index] && data.stack_traces) {
-      const trace = data.stack_traces[selectedStackTraceIds[index]];
-      selectedStackTrace = trace || null;
+    if (selectedStackTraceIds[index]) {
+      // Use stored log index if available, otherwise search for it
+      const logIndex = selectedLogIndices[index] ?? findLogIndexForStackTrace(selectedStackTraceIds[index]);
+      selectedLogIndex = logIndex;
+      
+      if (data.stack_traces) {
+        const trace = data.stack_traces[selectedStackTraceIds[index]];
+        selectedStackTrace = trace || null;
+      } else {
+        selectedStackTrace = null;
+      }
     }
   }
 
@@ -127,6 +217,7 @@
     selectedLogIndex = null;
     selectedStackTrace = null;
     selectedStackTraceIds = [];
+    selectedLogIndices = [];
     selectedStackTraceIndex = 0;
     selectedDashboardElementKey = null;
   }
@@ -171,6 +262,30 @@
       // (streams might be showing a highlight from handleShowInStream)
     }
   });
+
+  function handleHideCallSite(callSiteKey: string) {
+    hiddenCallSites.add(callSiteKey);
+    hiddenCallSites = new Set(hiddenCallSites);
+  }
+
+  function handleShowCallSite(callSiteKey: string) {
+    hiddenCallSites.delete(callSiteKey);
+    hiddenCallSites = new Set(hiddenCallSites);
+  }
+
+  function handleNavigateToLog(logIndex: number) {
+    highlightedLogIndex = logIndex;
+    // Switch to history view to show the log
+    activeTab = "history";
+    // Clear highlight after animation completes (2s)
+    setTimeout(() => {
+      highlightedLogIndex = null;
+    }, 2000);
+  }
+
+  function handleToggleShowDashboard(show: boolean) {
+    showDashboardCalls = show;
+  }
 </script>
 
 <div class="app-container">
@@ -214,16 +329,24 @@
           {data}
           {highlightedLogIndex}
           {selectedLogIndex}
+          hiddenCallSites={hiddenCallSites}
           onShowInHistory={handleShowInHistory}
           onEntryClick={handleEntryClick}
+          onHideCallSite={handleHideCallSite}
+          onShowCallSite={handleShowCallSite}
         />
       {:else if activeTab === "history"}
         <HistoryView
           {data}
           {highlightedLogIndex}
           {selectedLogIndex}
+          hiddenCallSites={hiddenCallSites}
+          {showDashboardCalls}
+          {activeTab}
           onShowInStream={handleShowInStream}
           onEntryClick={handleEntryClick}
+          onHideCallSite={handleHideCallSite}
+          onToggleShowDashboard={handleToggleShowDashboard}
         />
       {:else if activeTab === "dashboard"}
         <DashboardView
@@ -273,20 +396,34 @@
         </div>
       </div>
       {#if selectedStackTraceIds.length > 1}
+        {@const sortedEntries = selectedStackTraceIds.map((id, i) => ({ id, logIndex: selectedLogIndices[i] ?? null, originalIndex: i })).sort((a, b) => {
+          if (a.logIndex === null && b.logIndex === null) return 0;
+          if (a.logIndex === null) return 1;
+          if (b.logIndex === null) return -1;
+          return a.logIndex - b.logIndex;
+        })}
+        {@const sortedIndex = sortedEntries.findIndex(entry => entry.originalIndex === selectedStackTraceIndex)}
         <div class="stack-trace-selector">
           <span class="selector-label"
             >{selectedStackTraceIds.length} matching call stacks</span
           >
           <select
             class="stack-trace-dropdown"
-            value={selectedStackTraceIndex}
-            onchange={(e) =>
-              handleStackTraceIndexChange(
-                parseInt((e.target as HTMLSelectElement).value)
-              )}
+            value={sortedIndex >= 0 ? sortedIndex : 0}
+            onchange={(e) => {
+              const newSortedIndex = parseInt((e.target as HTMLSelectElement).value);
+              const originalIndex = sortedEntries[newSortedIndex]?.originalIndex ?? 0;
+              handleStackTraceIndexChange(originalIndex);
+            }}
           >
-            {#each selectedStackTraceIds as _id, i}
-              <option value={i}>Invocation #{i + 1}</option>
+            {#each sortedEntries as entry, i}
+              <option value={i}>
+                {#if entry.logIndex !== null}
+                  #{entry.logIndex}
+                {:else}
+                  Invocation #{entry.originalIndex + 1}
+                {/if}
+              </option>
             {/each}
           </select>
         </div>

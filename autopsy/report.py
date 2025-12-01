@@ -41,20 +41,28 @@ class Report:
         # Map from CallStack object ID to list of log indices that use it
         self._stack_trace_id_to_log_indices: Dict[int, List[int]] = {}
         # Dashboard data storage
-        # Counts: per call site, value -> list of stack_trace_ids
-        self._counts: Dict[Tuple[str, int], Dict[Any, List[int]]] = {}
+        # Counts: per call site, value -> list of (stack_trace_id, log_index) tuples
+        self._counts: Dict[Tuple[str, int], Dict[Any, List[Tuple[int, int]]]] = {}
         # Counts metadata: per call site, (function_name, class_name)
         self._counts_metadata: Dict[Tuple[str, int], Tuple[str, Optional[str]]] = {}
-        # Histograms: per call site, list of (number, stack_trace_id) tuples
-        self._histograms: Dict[Tuple[str, int], List[Tuple[float, int]]] = {}
+        # Histograms: per call site, list of (number, stack_trace_id, log_index) tuples
+        self._histograms: Dict[Tuple[str, int], List[Tuple[float, int, int]]] = {}
         # Histograms metadata: per call site, (function_name, class_name)
         self._histograms_metadata: Dict[Tuple[str, int], Tuple[str, Optional[str]]] = {}
         # Timeline: global list of events with timestamp, event_name, call_site, stack_trace_id
         self._timeline: List[Dict[str, Any]] = []
-        # Happened: per call site, (count, list of stack_trace_ids, optional message)
-        self._happened: Dict[Tuple[str, int], Tuple[int, List[int], Optional[str]]] = {}
+        # Happened: per call site, (count, list of (stack_trace_id, log_index) tuples, optional message)
+        self._happened: Dict[Tuple[str, int], Tuple[int, List[Tuple[int, int]], Optional[str]]] = {}
         # Happened metadata: per call site, (function_name, class_name)
         self._happened_metadata: Dict[Tuple[str, int], Tuple[str, Optional[str]]] = {}
+        # Dashboard logs: per call site, list of dashboard invocation logs
+        # TODO: Eventually unify dashboard logs with regular log() call sites.
+        # Instead of maintaining separate _dashboard_logs storage, we should store dashboard
+        # visualization metadata (count/hist/timeline/happened) as additional metadata on
+        # call sites in _logs, eliminating the need for separate storage.
+        # Format: Dict[call_site, List[DashboardLogGroup]]
+        # DashboardLogGroup contains: log_index, dashboard_type, stack_trace_id, function_name, class_name, and type-specific data
+        self._dashboard_logs: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
 
     def _ast_node_to_expression(self, node: ast.expr) -> Optional[str]:
         """
@@ -475,6 +483,33 @@ class Report:
             self._get_call_site_and_stack_trace()
         )
 
+        # Assign log index for this invocation
+        log_index = self._log_index
+        self._log_index += 1
+
+        # Associate this log index with the stack trace ID if available
+        if stack_trace_id is not None:
+            if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                self._stack_trace_id_to_log_indices[stack_trace_id] = []
+            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+
+        # Store dashboard log entry
+        if call_site not in self._dashboard_logs:
+            self._dashboard_logs[call_site] = []
+
+        dashboard_log = {
+            "log_index": log_index,
+            "dashboard_type": "count",
+            "function_name": function_name,
+            "value": value,
+        }
+        if class_name is not None:
+            dashboard_log["class_name"] = class_name
+        if stack_trace_id is not None:
+            dashboard_log["stack_trace_id"] = stack_trace_id
+
+        self._dashboard_logs[call_site].append(dashboard_log)
+
         if call_site not in self._counts:
             self._counts[call_site] = {}
             self._counts_metadata[call_site] = (function_name, class_name)
@@ -494,7 +529,7 @@ class Report:
             self._counts[call_site][value_key] = []
 
         if stack_trace_id is not None:
-            self._counts[call_site][value_key].append(stack_trace_id)
+            self._counts[call_site][value_key].append((stack_trace_id, log_index))
 
     def hist(self, num: float):
         """
@@ -507,12 +542,39 @@ class Report:
             self._get_call_site_and_stack_trace()
         )
 
+        # Assign log index for this invocation
+        log_index = self._log_index
+        self._log_index += 1
+
+        # Associate this log index with the stack trace ID if available
+        if stack_trace_id is not None:
+            if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                self._stack_trace_id_to_log_indices[stack_trace_id] = []
+            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+
+        # Store dashboard log entry
+        if call_site not in self._dashboard_logs:
+            self._dashboard_logs[call_site] = []
+
+        dashboard_log = {
+            "log_index": log_index,
+            "dashboard_type": "hist",
+            "function_name": function_name,
+            "value": num,
+        }
+        if class_name is not None:
+            dashboard_log["class_name"] = class_name
+        if stack_trace_id is not None:
+            dashboard_log["stack_trace_id"] = stack_trace_id
+
+        self._dashboard_logs[call_site].append(dashboard_log)
+
         if call_site not in self._histograms:
             self._histograms[call_site] = []
             self._histograms_metadata[call_site] = (function_name, class_name)
 
         self._histograms[call_site].append(
-            (num, stack_trace_id if stack_trace_id is not None else -1)
+            (num, stack_trace_id if stack_trace_id is not None else -1, log_index)
         )
 
     def timeline(self, event_name: str):
@@ -528,11 +590,41 @@ class Report:
             self._get_call_site_and_stack_trace()
         )
 
+        # Assign log index for this invocation
+        log_index = self._log_index
+        self._log_index += 1
+
+        # Associate this log index with the stack trace ID if available
+        if stack_trace_id is not None:
+            if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                self._stack_trace_id_to_log_indices[stack_trace_id] = []
+            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+
+        # Store dashboard log entry
+        if call_site not in self._dashboard_logs:
+            self._dashboard_logs[call_site] = []
+
+        timestamp = time.time()
+        dashboard_log = {
+            "log_index": log_index,
+            "dashboard_type": "timeline",
+            "function_name": function_name,
+            "event_name": event_name,
+            "timestamp": timestamp,
+        }
+        if class_name is not None:
+            dashboard_log["class_name"] = class_name
+        if stack_trace_id is not None:
+            dashboard_log["stack_trace_id"] = stack_trace_id
+
+        self._dashboard_logs[call_site].append(dashboard_log)
+
         event = {
-            "timestamp": time.time(),
+            "timestamp": timestamp,
             "event_name": event_name,
             "call_site": call_site,
             "stack_trace_id": stack_trace_id,
+            "log_index": log_index,
             "function_name": function_name,
             "class_name": class_name,
         }
@@ -549,6 +641,34 @@ class Report:
             self._get_call_site_and_stack_trace()
         )
 
+        # Assign log index for this invocation
+        log_index = self._log_index
+        self._log_index += 1
+
+        # Associate this log index with the stack trace ID if available
+        if stack_trace_id is not None:
+            if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                self._stack_trace_id_to_log_indices[stack_trace_id] = []
+            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+
+        # Store dashboard log entry
+        if call_site not in self._dashboard_logs:
+            self._dashboard_logs[call_site] = []
+
+        dashboard_log = {
+            "log_index": log_index,
+            "dashboard_type": "happened",
+            "function_name": function_name,
+        }
+        if class_name is not None:
+            dashboard_log["class_name"] = class_name
+        if stack_trace_id is not None:
+            dashboard_log["stack_trace_id"] = stack_trace_id
+        if message is not None:
+            dashboard_log["message"] = message
+
+        self._dashboard_logs[call_site].append(dashboard_log)
+
         if call_site not in self._happened:
             self._happened[call_site] = (0, [], message)
             self._happened_metadata[call_site] = (function_name, class_name)
@@ -559,7 +679,7 @@ class Report:
             stored_message = message
 
         if stack_trace_id is not None:
-            stack_trace_ids.append(stack_trace_id)
+            stack_trace_ids.append((stack_trace_id, log_index))
 
         self._happened[call_site] = (count + 1, stack_trace_ids, stored_message)
 
@@ -581,6 +701,7 @@ class Report:
         self._timeline.clear()
         self._happened.clear()
         self._happened_metadata.clear()
+        self._dashboard_logs.clear()
         if config is not None:
             self._config = config
 
@@ -697,6 +818,59 @@ class Report:
                 call_site_data["class_name"] = log_groups[0]["class_name"]
             call_sites.append(call_site_data)
 
+        # Add dashboard call sites to call_sites list
+        for call_site, dashboard_logs in self._dashboard_logs.items():
+            filename, line_number = call_site
+
+            # Process each dashboard log entry
+            json_value_groups = []
+            for dashboard_log in dashboard_logs:
+                dashboard_type = dashboard_log.get("dashboard_type", "unknown")
+
+                # Create value group based on dashboard type
+                value_group_data = {
+                    "log_index": dashboard_log.get("log_index", 0),
+                    "function_name": dashboard_log.get("function_name", "<unknown>"),
+                    "dashboard_type": dashboard_type,
+                }
+                if "class_name" in dashboard_log:
+                    value_group_data["class_name"] = dashboard_log["class_name"]
+                if "stack_trace_id" in dashboard_log:
+                    value_group_data["stack_trace_id"] = str(
+                        dashboard_log["stack_trace_id"]
+                    )
+
+                # Add type-specific data
+                if dashboard_type == "count":
+                    value_group_data["value"] = self._to_json_serializable(
+                        dashboard_log.get("value")
+                    )
+                elif dashboard_type == "hist":
+                    value_group_data["value"] = dashboard_log.get("value")
+                elif dashboard_type == "timeline":
+                    value_group_data["event_name"] = dashboard_log.get("event_name")
+                    value_group_data["timestamp"] = dashboard_log.get("timestamp")
+                elif dashboard_type == "happened":
+                    if "message" in dashboard_log:
+                        value_group_data["message"] = dashboard_log["message"]
+
+                json_value_groups.append(value_group_data)
+
+            call_site_data = {
+                "filename": filename,
+                "line": line_number,
+                "function_name": (
+                    dashboard_logs[0].get("function_name", "<unknown>")
+                    if dashboard_logs
+                    else "<unknown>"
+                ),
+                "value_groups": json_value_groups,
+                "is_dashboard": True,
+            }
+            if dashboard_logs and "class_name" in dashboard_logs[0]:
+                call_site_data["class_name"] = dashboard_logs[0]["class_name"]
+            call_sites.append(call_site_data)
+
         # Convert stack traces to JSON-serializable format
         json_stack_traces = {}
         for trace_id, trace in self._stack_traces.items():
@@ -730,7 +904,11 @@ class Report:
 
             # Convert value_counts to JSON-serializable format
             json_value_counts = {}
-            for value_key, stack_trace_ids in value_counts.items():
+            for value_key, stack_trace_data in value_counts.items():
+                # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
+                stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
+                log_indices = [log_idx for _, log_idx in stack_trace_data]
+                
                 # value_key might already be a JSON string (for unhashable types)
                 # or it might be the original value (for hashable types)
                 # Check if it's already a valid JSON string by trying to parse it
@@ -740,10 +918,9 @@ class Report:
                         json.loads(value_key)
                         # Already a JSON string, use it directly
                         json_value_counts[value_key] = {
-                            "count": len(stack_trace_ids),
-                            "stack_trace_ids": [
-                                str(st_id) for st_id in stack_trace_ids
-                            ],
+                            "count": len(stack_trace_data),
+                            "stack_trace_ids": stack_trace_ids,
+                            "log_indices": log_indices,
                         }
                         continue
                     except (json.JSONDecodeError, ValueError):
@@ -753,8 +930,9 @@ class Report:
                 # Convert value to JSON-serializable format
                 json_value = self._to_json_serializable(value_key)
                 json_value_counts[json.dumps(json_value, sort_keys=True)] = {
-                    "count": len(stack_trace_ids),
-                    "stack_trace_ids": [str(st_id) for st_id in stack_trace_ids],
+                    "count": len(stack_trace_data),
+                    "stack_trace_ids": stack_trace_ids,
+                    "log_indices": log_indices,
                 }
 
             count_entry = {
@@ -779,13 +957,14 @@ class Report:
             )
 
             json_values = []
-            for num, stack_trace_id in values:
+            for num, stack_trace_id, log_index in values:
                 json_values.append(
                     {
                         "value": num,
                         "stack_trace_id": (
                             str(stack_trace_id) if stack_trace_id != -1 else None
                         ),
+                        "log_index": log_index,
                     }
                 )
 
@@ -824,6 +1003,7 @@ class Report:
                     if event["stack_trace_id"] is not None
                     else None
                 ),
+                "log_index": event.get("log_index"),
             }
             if class_name is not None:
                 timeline_entry["call_site"]["class_name"] = class_name
@@ -831,12 +1011,15 @@ class Report:
 
         # Serialize happened
         json_happened = []
-        for call_site, (count, stack_trace_ids, message) in self._happened.items():
+        for call_site, (count, stack_trace_data, message) in self._happened.items():
             filename, line_number = call_site
             # Get function name from stored metadata
             function_name, class_name = self._happened_metadata.get(
                 call_site, ("<unknown>", None)
             )
+            # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
+            stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
+            log_indices = [log_idx for _, log_idx in stack_trace_data]
 
             happened_entry = {
                 "call_site": {
@@ -845,7 +1028,8 @@ class Report:
                     "function_name": function_name,
                 },
                 "count": count,
-                "stack_trace_ids": [str(st_id) for st_id in stack_trace_ids],
+                "stack_trace_ids": stack_trace_ids,
+                "log_indices": log_indices,
             }
             if class_name is not None:
                 happened_entry["call_site"]["class_name"] = class_name

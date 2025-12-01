@@ -371,7 +371,9 @@ def test_dashboard_mixed_with_logs():
     report.log("another log")
 
     data = report.to_json()
-    assert len(data["call_sites"]) == 2  # Two log() calls
+    # call_sites includes both regular log() calls and dashboard call sites
+    # 2 regular log() calls + 4 dashboard calls (count, hist, timeline, happened) = 6 total
+    assert len(data["call_sites"]) == 6
     assert "dashboard" in data
     assert len(data["dashboard"]["counts"]) == 1
     assert len(data["dashboard"]["histograms"]) == 1

@@ -7,22 +7,28 @@
     data: AutopsyData;
     highlightedLogIndex?: number | null;
     selectedLogIndex?: number | null;
+    hiddenCallSites?: Set<string>;
     onShowInHistory?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
+    onHideCallSite?: (callSiteKey: string) => void;
+    onShowCallSite?: (callSiteKey: string) => void;
   }
 
   let {
     data,
     highlightedLogIndex = null,
     selectedLogIndex = null,
+    hiddenCallSites = new Set<string>(),
     onShowInHistory,
     onEntryClick,
+    onHideCallSite,
+    onShowCallSite,
   }: Props = $props();
 
   const collapsedCallSites = $state<Record<string, boolean>>({});
 
   function getCallSiteKey(callSite: CallSite): string {
-    return callSite.filename + callSite.line;
+    return `${callSite.filename}:${callSite.line}`;
   }
 
   function toggleCollapse(callSite: CallSite) {
@@ -34,6 +40,18 @@
     return collapsedCallSites[getCallSiteKey(callSite)] ?? false;
   }
 
+  function handleHideCallSite(callSiteKey: string) {
+    // Auto-collapse when hiding
+    collapsedCallSites[callSiteKey] = true;
+    onHideCallSite?.(callSiteKey);
+  }
+
+  function handleShowCallSite(callSiteKey: string) {
+    // Ensure expanded when showing
+    collapsedCallSites[callSiteKey] = false;
+    onShowCallSite?.(callSiteKey);
+  }
+
   function getFilename(callSite: CallSite): string {
     const parts = callSite.filename.split("/");
     return parts[parts.length - 1];
@@ -43,20 +61,44 @@
   function getColumnNames(callSite: CallSite): string[] {
     const columnNames = new Set<string>();
     for (const valueGroup of callSite.value_groups) {
-      for (const value of valueGroup.values) {
-        if (value.name) {
-          columnNames.add(value.name);
+      if (valueGroup.values) {
+        for (const value of valueGroup.values) {
+          if (value.name) {
+            columnNames.add(value.name);
+          }
         }
       }
     }
     return Array.from(columnNames).sort();
   }
 
+  // Get filtered and sorted call sites (dashboard at bottom)
+  let filteredCallSites = $derived.by(() => {
+    const regular: CallSite[] = [];
+    const dashboard: CallSite[] = [];
+
+    for (const callSite of data.call_sites) {
+      const callSiteKey = getCallSiteKey(callSite);
+      const isHidden = hiddenCallSites.has(callSiteKey);
+      const isDashboard = callSite.is_dashboard ?? false;
+
+      // Include all call sites (even hidden ones) - they'll be collapsed/lowlighted
+      if (isDashboard) {
+        dashboard.push(callSite);
+      } else {
+        regular.push(callSite);
+      }
+    }
+
+    return [...regular, ...dashboard];
+  });
+
   // Get value for a specific column in a value group
   function getValueForColumn(
     valueGroup: ValueGroup,
     columnName: string
   ): unknown | undefined {
+    if (!valueGroup.values) return undefined;
     const value = valueGroup.values.find((v) => v.name === columnName);
     return value?.value;
   }
@@ -85,9 +127,108 @@
   <p class="empty">No report data available.</p>
 {:else}
   <div class="call-sites">
-    {#each data.call_sites as callSite (callSite.filename + callSite.line)}
-      <div class="call-site">
-        {#if getColumnNames(callSite).length > 0}
+    {#each filteredCallSites as callSite (getCallSiteKey(callSite))}
+      {@const callSiteKey = getCallSiteKey(callSite)}
+      {@const isHidden = hiddenCallSites.has(callSiteKey)}
+      {@const isDashboard = callSite.is_dashboard ?? false}
+      <div class="call-site" class:hidden={isHidden}>
+        {#if isDashboard}
+          <!-- Dashboard call site display -->
+          <div
+            class="call-site-header"
+            class:collapsible-header={true}
+            onclick={() => toggleCollapse(callSite)}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                toggleCollapse(callSite);
+              }
+            }}
+          >
+            <div class="header-left">
+              <label class="call-site-checkbox" onclick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={!hiddenCallSites.has(callSiteKey)}
+                  onclick={(e) => e.stopPropagation()}
+                  onchange={(e) => {
+                    e.stopPropagation();
+                    if (e.currentTarget.checked) {
+                      handleShowCallSite(callSiteKey);
+                    } else {
+                      handleHideCallSite(callSiteKey);
+                    }
+                  }}
+                />
+              </label>
+              <span class="filename"
+                >{getFilename(callSite)}<span class="line-number"
+                  >:{callSite.line}</span
+                ></span
+              >
+              <span class="function-name">
+                in <code>
+                  {#if callSite.class_name}
+                    {callSite.class_name}.{callSite.function_name}
+                  {:else}
+                    {callSite.function_name}
+                  {/if}
+                </code>
+              </span>
+              <span class="dashboard-badge">dashboard</span>
+            </div>
+          </div>
+          {#if isCollapsed(callSite)}
+            <div
+              class="collapsed-summary"
+              onclick={() => toggleCollapse(callSite)}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleCollapse(callSite);
+                }
+              }}
+            >
+              ...{callSite.value_groups.length} {callSite.value_groups.length === 1 ? "invocation" : "invocations"}
+            </div>
+          {:else}
+            <div class="value-groups">
+              {#each callSite.value_groups as valueGroup}
+                <div
+                  class="value-group"
+                  class:highlighted={highlightedLogIndex === valueGroup.log_index}
+                  class:selected={selectedLogIndex === valueGroup.log_index}
+                  class:clickable={valueGroup.stack_trace_id !== undefined}
+                  data-log-index={valueGroup.log_index}
+                  onclick={() => handleRowClick(valueGroup)}
+                >
+                  <div class="value-group-row">
+                    <span class="log-number">#{valueGroup.log_index}</span>
+                    {#if valueGroup.dashboard_type === "count"}
+                      <span class="dashboard-label">count:</span>
+                      <TreeView value={valueGroup.value} />
+                    {:else if valueGroup.dashboard_type === "hist"}
+                      <span class="dashboard-label">hist:</span>
+                      <TreeView value={valueGroup.value} />
+                    {:else if valueGroup.dashboard_type === "timeline"}
+                      <span class="dashboard-label">timeline:</span>
+                      <span class="dashboard-text">{valueGroup.event_name}</span>
+                    {:else if valueGroup.dashboard_type === "happened"}
+                      <span class="dashboard-label">happened</span>
+                      {#if valueGroup.message}
+                        <span class="dashboard-text">: {valueGroup.message}</span>
+                      {/if}
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {:else if getColumnNames(callSite).length > 0}
           <table class="value-table">
             <thead class="table-header">
               <tr
@@ -108,6 +249,21 @@
                   class="call-site-info"
                 >
                   <div class="header-left">
+                    <label class="call-site-checkbox" onclick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={!hiddenCallSites.has(callSiteKey)}
+                        onclick={(e) => e.stopPropagation()}
+                        onchange={(e) => {
+                          e.stopPropagation();
+                          if (e.currentTarget.checked) {
+                            handleShowCallSite(callSiteKey);
+                          } else {
+                            handleHideCallSite(callSiteKey);
+                          }
+                        }}
+                      />
+                    </label>
                     <span class="filename"
                       >{getFilename(callSite)}<span class="line-number"
                         >:{callSite.line}</span
@@ -126,6 +282,9 @@
                       <span class="log-name-header"
                         >{callSite.value_groups[0].name}</span
                       >
+                    {/if}
+                    {#if isDashboard}
+                      <span class="dashboard-badge">dashboard</span>
                     {/if}
                   </div>
                 </th>
@@ -242,6 +401,21 @@
             }}
           >
             <div class="header-left">
+              <label class="call-site-checkbox" onclick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={!hiddenCallSites.has(callSiteKey)}
+                  onclick={(e) => e.stopPropagation()}
+                  onchange={(e) => {
+                    e.stopPropagation();
+                    if (e.currentTarget.checked) {
+                      handleShowCallSite(callSiteKey);
+                    } else {
+                      handleHideCallSite(callSiteKey);
+                    }
+                  }}
+                />
+              </label>
               <span class="filename"
                 >{getFilename(callSite)}<span class="line-number"
                   >:{callSite.line}</span
@@ -329,9 +503,9 @@
                       >
                       <span class="log-number-arrow">➡️</span>
                     </span>
-                    {#if valueGroup.values.length === 0 && valueGroup.name}
+                    {#if valueGroup.values && valueGroup.values.length === 0 && valueGroup.name}
                       <span class="log-name-only">{valueGroup.name}</span>
-                    {:else}
+                    {:else if valueGroup.values}
                       <div class="values">
                         {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
                           <span class="function-name-inline">
@@ -379,6 +553,12 @@
     border-radius: 8px;
     padding: 1rem;
     background: #f9f9f9;
+    transition: opacity 0.2s, background-color 0.2s;
+  }
+
+  .call-site.hidden {
+    opacity: 0.5;
+    background: #f3f4f6;
   }
 
   .header-left {
@@ -770,6 +950,19 @@
     color: #881391;
     font-size: 0.85rem;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+  }
+
+  .dashboard-label {
+    font-weight: 600;
+    color: #0369a1;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    font-size: 0.85rem;
+  }
+
+  .dashboard-text {
+    color: #0369a1;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    font-size: 0.85rem;
   }
 
   @media (max-width: 768px) {
