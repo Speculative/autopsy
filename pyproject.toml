@@ -11,9 +11,14 @@ dev = [
     "pytest>=7.0.0",
     "ruff>=0.1.0",
 ]
+live = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+]
 
 [tool.setuptools]
-package-data = {"autopsy" = ["template.html"]}
+packages = ["autopsy"]
+package-data = {"autopsy" = ["template.html", "dist-live/**/*"]}
 
 [tool.pytest]
 testpaths=[

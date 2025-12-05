@@ -5,6 +5,20 @@
   import DashboardView from "./DashboardView.svelte";
   import TreeView from "./TreeView.svelte";
 
+  // Conditional imports for live mode
+  let createWebSocketConnection: any;
+  let mergeIncrementalUpdate: any;
+
+  // Dynamic import for live mode (only if enabled at build time)
+  let liveModeCodeLoaded: Promise<void>;
+  if (typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__) {
+    liveModeCodeLoaded = import('./websocket').then(module => {
+      console.log("Loaded websocket code")
+      createWebSocketConnection = module.createWebSocketConnection;
+      mergeIncrementalUpdate = module.mergeIncrementalUpdate;
+    });
+  }
+
   let data: AutopsyData = $state({
     generated_at: "",
     call_sites: [],
@@ -22,9 +36,60 @@
   let isResizing = $state(false);
   let hiddenCallSites = $state<Set<string>>(new Set());
   let showDashboardCalls = $state(false);
+  let frameFilter = $state<string | null>(null);
+  let menuOpenForFrame = $state<string | null>(null);
+
+  // Live mode state
+  let liveMode = $state(false);
+  let wsConnection = $state<WebSocket | null>(null);
+  let connectionStatus = $state<'connected' | 'disconnected' | 'connecting'>('disconnected');
+  let lastUpdateTime = $state<string>("");
 
   // Load data from the injection point or dev data
   async function loadData(): Promise<void> {
+    // Check for live mode (only if this is a live build)
+    if (typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__) {
+      console.log("Loading live mode data...")
+      const params = new URLSearchParams(window.location.search);
+      const liveModeParam = params.get('live');
+      const wsUrl = params.get('ws') || "ws://localhost:8765/ws";
+
+      await liveModeCodeLoaded;
+
+      if (liveModeParam === 'true' && wsUrl && createWebSocketConnection) {
+        liveMode = true;
+        connectionStatus = 'connecting';
+        console.log("Trying to initialize live mode ws")
+
+        wsConnection = createWebSocketConnection({
+          url: wsUrl,
+          onSnapshot: (snapshotData: AutopsyData) => {
+            data = snapshotData;
+            connectionStatus = 'connected';
+            lastUpdateTime = new Date().toLocaleString();
+          },
+          onUpdate: (update: any) => {
+            if (mergeIncrementalUpdate) {
+              data = mergeIncrementalUpdate(data, update);
+              lastUpdateTime = new Date().toLocaleString();
+            }
+          },
+          onError: (error: Event) => {
+            console.error('WebSocket error:', error);
+            connectionStatus = 'disconnected';
+          },
+          onClose: () => {
+            console.log('WebSocket closed');
+            connectionStatus = 'disconnected';
+            // Attempt reconnect after 2s
+            setTimeout(() => loadData(), 2000);
+          }
+        });
+
+        return;
+      }
+    }
+
     // In development mode, try to load dev-data.json if it exists
     if (import.meta.env.DEV) {
       try {
@@ -263,6 +328,19 @@
     }
   });
 
+  // Close frame menu when clicking outside
+  $effect(() => {
+    if (menuOpenForFrame !== null) {
+      const handler = (e: MouseEvent) => {
+        if (!(e.target as Element)?.closest(".frame-menu-container")) {
+          closeFrameMenu();
+        }
+      };
+      document.addEventListener("click", handler);
+      return () => document.removeEventListener("click", handler);
+    }
+  });
+
   function handleHideCallSite(callSiteKey: string) {
     hiddenCallSites.add(callSiteKey);
     hiddenCallSites = new Set(hiddenCallSites);
@@ -286,13 +364,58 @@
   function handleToggleShowDashboard(show: boolean) {
     showDashboardCalls = show;
   }
+
+  function createFrameKey(filename: string, lineNumber: number, functionName: string): string {
+    return `${filename}:${lineNumber}:${functionName}`;
+  }
+
+  function handleShowFrameOnly(filename: string, lineNumber: number, functionName: string) {
+    frameFilter = createFrameKey(filename, lineNumber, functionName);
+    menuOpenForFrame = null;
+  }
+
+  function handleClearFrameFilter() {
+    frameFilter = null;
+  }
+
+  function toggleFrameMenu(frameKey: string, e: MouseEvent | KeyboardEvent) {
+    e.stopPropagation();
+    menuOpenForFrame = menuOpenForFrame === frameKey ? null : frameKey;
+  }
+
+  function closeFrameMenu() {
+    menuOpenForFrame = null;
+  }
+
+  function stackTraceContainsFrame(stackTraceId: string, frameKey: string): boolean {
+    const trace = data.stack_traces[stackTraceId];
+    if (!trace) return false;
+    return trace.frames.some(frame => 
+      createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
+    );
+  }
 </script>
 
 <div class="app-container">
   <main class="main-panel">
     <div class="header">
-      <h1>Autopsy Report</h1>
-      {#if data.generated_at}
+      <div class="header-top">
+        <h1>Autopsy Report</h1>
+        {#if frameFilter}
+          <div class="filter-indicator">
+            <span class="filter-label">Filtered by frame</span>
+            <button class="filter-clear" onclick={handleClearFrameFilter} title="Clear frame filter">
+              ×
+            </button>
+          </div>
+        {/if}
+      </div>
+      {#if typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__ && liveMode}
+        <div class="timestamp">
+          <span class="live-indicator {connectionStatus}">●</span>
+          <span>Live - Last updated: {lastUpdateTime || 'Connecting...'}</span>
+        </div>
+      {:else if data.generated_at}
         <div class="timestamp">
           Generated: {new Date(data.generated_at).toLocaleString()}
         </div>
@@ -330,6 +453,7 @@
           {highlightedLogIndex}
           {selectedLogIndex}
           hiddenCallSites={hiddenCallSites}
+          {frameFilter}
           onShowInHistory={handleShowInHistory}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
@@ -343,6 +467,7 @@
           hiddenCallSites={hiddenCallSites}
           {showDashboardCalls}
           {activeTab}
+          {frameFilter}
           onShowInStream={handleShowInStream}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
@@ -431,6 +556,7 @@
       <div class="sidebar-body">
         <div class="stack-trace">
           {#each selectedStackTrace.frames as frame, index}
+            {@const frameKey = createFrameKey(frame.filename, frame.line_number, frame.function_name)}
             <div class="stack-frame">
               <div class="frame-header">
                 <span class="frame-number">#{index + 1}</span>
@@ -439,6 +565,35 @@
                   <span class="frame-location">
                     {frame.filename}:{frame.line_number}
                   </span>
+                </div>
+                <div class="frame-menu-container">
+                  <button
+                    class="frame-menu-button"
+                    onclick={(e) => toggleFrameMenu(frameKey, e)}
+                    onkeydown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleFrameMenu(frameKey, e);
+                      }
+                    }}
+                    title="Menu"
+                  >
+                    ⋯
+                  </button>
+                  {#if menuOpenForFrame === frameKey}
+                    <div class="frame-menu-dropdown" onclick={(e) => e.stopPropagation()} role="menu">
+                      <button
+                        class="frame-menu-item"
+                        role="menuitem"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          handleShowFrameOnly(frame.filename, frame.line_number, frame.function_name);
+                        }}
+                      >
+                        Show this frame only
+                      </button>
+                    </div>
+                  {/if}
                 </div>
               </div>
               <div class="frame-code">
@@ -471,6 +626,30 @@
       system-ui,
       -apple-system,
       sans-serif;
+  }
+
+  .live-indicator {
+    font-size: 14px;
+    line-height: 1;
+    margin-right: 4px;
+  }
+
+  .live-indicator.connected {
+    color: #4ade80;
+  }
+
+  .live-indicator.disconnected {
+    color: #f87171;
+  }
+
+  .live-indicator.connecting {
+    color: #fbbf24;
+    animation: pulse 1s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
 
   .main-panel {
@@ -713,6 +892,7 @@
     gap: 0.75rem;
     margin-bottom: 0.75rem;
     font-size: 0.9rem;
+    position: relative;
   }
 
   .frame-number {
@@ -730,6 +910,57 @@
     flex-direction: column;
     gap: 0.25rem;
     flex: 1;
+  }
+
+  .frame-menu-container {
+    margin-left: auto;
+    position: relative;
+  }
+
+  .frame-menu-button {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    color: #666;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    line-height: 1;
+  }
+
+  .frame-menu-button:hover {
+    background-color: #f0f0f0;
+  }
+
+  .frame-menu-dropdown {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 0.25rem;
+    background: white;
+    border: 1px solid #e5e5e5;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    min-width: 180px;
+  }
+
+  .frame-menu-item {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #333;
+    transition: background-color 0.2s;
+  }
+
+  .frame-menu-item:hover {
+    background-color: #f8fafc;
   }
 
   .frame-function {

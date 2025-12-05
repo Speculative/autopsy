@@ -8,6 +8,7 @@
     highlightedLogIndex?: number | null;
     selectedLogIndex?: number | null;
     hiddenCallSites?: Set<string>;
+    frameFilter?: string | null;
     onShowInHistory?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
@@ -19,6 +20,7 @@
     highlightedLogIndex = null,
     selectedLogIndex = null,
     hiddenCallSites = new Set<string>(),
+    frameFilter = null,
     onShowInHistory,
     onEntryClick,
     onHideCallSite,
@@ -29,6 +31,19 @@
 
   function getCallSiteKey(callSite: CallSite): string {
     return `${callSite.filename}:${callSite.line}`;
+  }
+
+  function createFrameKey(filename: string, lineNumber: number, functionName: string): string {
+    return `${filename}:${lineNumber}:${functionName}`;
+  }
+
+  function stackTraceContainsFrame(stackTraceId: string | undefined, frameKey: string): boolean {
+    if (!stackTraceId) return false;
+    const trace = data.stack_traces[stackTraceId];
+    if (!trace) return false;
+    return trace.frames.some(frame => 
+      createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
+    );
   }
 
   function toggleCollapse(callSite: CallSite) {
@@ -82,11 +97,25 @@
       const isHidden = hiddenCallSites.has(callSiteKey);
       const isDashboard = callSite.is_dashboard ?? false;
 
+      // Filter value_groups based on frameFilter if active
+      let filteredValueGroups = callSite.value_groups;
+      if (frameFilter) {
+        filteredValueGroups = callSite.value_groups.filter(valueGroup => 
+          stackTraceContainsFrame(valueGroup.stack_trace_id, frameFilter)
+        );
+      }
+
+      // Create filtered call site
+      const filteredCallSite: CallSite = {
+        ...callSite,
+        value_groups: filteredValueGroups,
+      };
+
       // Include all call sites (even hidden ones) - they'll be collapsed/lowlighted
       if (isDashboard) {
-        dashboard.push(callSite);
+        dashboard.push(filteredCallSite);
       } else {
-        regular.push(callSite);
+        regular.push(filteredCallSite);
       }
     }
 

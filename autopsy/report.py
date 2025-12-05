@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple
 
 from .call_stack import CallStack, StackTrace, call_stack
@@ -16,6 +17,9 @@ class ReportConfiguration:
     """Configuration for Report behavior."""
 
     auto_stack_trace: bool = True
+    live_mode: bool = False
+    live_mode_host: str = "localhost"
+    live_mode_port: int = 8765
 
 
 class Report:
@@ -65,6 +69,9 @@ class Report:
         # Format: Dict[call_site, List[DashboardLogGroup]]
         # DashboardLogGroup contains: log_index, dashboard_type, stack_trace_id, function_name, class_name, and type-specific data
         self._dashboard_logs: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+        # Thread safety
+        self._lock = RLock()  # Reentrant lock for nested calls
+        self._live_mode_enabled = False
 
     def _ast_node_to_expression(self, node: ast.expr) -> Optional[str]:
         """
@@ -303,128 +310,133 @@ class Report:
             name: Optional name for this log entry. If not provided and the first
                   argument is a string literal, it will be inferred as the name.
         """
-        # Get the call site (file path and line number) from the caller's frame
-        stack = inspect.stack()
-        # Skip frames from autopsy module itself
-        caller_frame = None
-        for frame_info in stack[1:]:  # Skip current frame
-            if not frame_info.filename.endswith("autopsy/report.py"):
-                caller_frame = frame_info
-                break
+        with self._lock:
+            # Get the call site (file path and line number) from the caller's frame
+            stack = inspect.stack()
+            # Skip frames from autopsy module itself
+            caller_frame = None
+            for frame_info in stack[1:]:  # Skip current frame
+                if not frame_info.filename.endswith("autopsy/report.py"):
+                    caller_frame = frame_info
+                    break
 
-        if caller_frame is None:
-            # Fallback if we can't find a non-autopsy frame
-            caller_frame = stack[1]
+            if caller_frame is None:
+                # Fallback if we can't find a non-autopsy frame
+                caller_frame = stack[1]
 
-        call_site = (caller_frame.filename, caller_frame.lineno)
+            call_site = (caller_frame.filename, caller_frame.lineno)
 
-        # Get function name and class name (if it's a method)
-        function_name = caller_frame.function
-        class_name = None
-        frame = caller_frame.frame
-        if "self" in frame.f_locals:
-            self_obj = frame.f_locals["self"]
-            class_name = type(self_obj).__name__
+            # Get function name and class name (if it's a method)
+            function_name = caller_frame.function
+            class_name = None
+            frame = caller_frame.frame
+            if "self" in frame.f_locals:
+                self_obj = frame.f_locals["self"]
+                class_name = type(self_obj).__name__
 
-        # Infer name from first argument if not provided and first arg is a string literal constant
-        inferred_name: Optional[str] = None
-        args_to_store = list(args)
-        arg_names_to_store: List[Optional[str]] = []
+            # Infer name from first argument if not provided and first arg is a string literal constant
+            inferred_name: Optional[str] = None
+            args_to_store = list(args)
+            arg_names_to_store: List[Optional[str]] = []
 
-        if name is None and len(args) > 0:
-            inferred_name = self._infer_name_from_first_arg(
-                caller_frame.filename, caller_frame.lineno, args[0]
-            )
-            if inferred_name is not None:
-                # Exclude the first argument from storage
-                args_to_store = list(args[1:])
-                # Extract arg names excluding the first one
-                all_arg_names = self._extract_arg_names(
-                    caller_frame.filename, caller_frame.lineno
+            if name is None and len(args) > 0:
+                inferred_name = self._infer_name_from_first_arg(
+                    caller_frame.filename, caller_frame.lineno, args[0]
                 )
-                arg_names_to_store = all_arg_names[1:] if len(all_arg_names) > 1 else []
+                if inferred_name is not None:
+                    # Exclude the first argument from storage
+                    args_to_store = list(args[1:])
+                    # Extract arg names excluding the first one
+                    all_arg_names = self._extract_arg_names(
+                        caller_frame.filename, caller_frame.lineno
+                    )
+                    arg_names_to_store = all_arg_names[1:] if len(all_arg_names) > 1 else []
+                else:
+                    # No inference, use all args
+                    arg_names_to_store = self._extract_arg_names(
+                        caller_frame.filename, caller_frame.lineno
+                    )
             else:
-                # No inference, use all args
+                # Name provided explicitly, use all args
                 arg_names_to_store = self._extract_arg_names(
                     caller_frame.filename, caller_frame.lineno
                 )
-        else:
-            # Name provided explicitly, use all args
-            arg_names_to_store = self._extract_arg_names(
-                caller_frame.filename, caller_frame.lineno
-            )
 
-        # Use inferred name if available, otherwise use explicit name
-        log_name = inferred_name if inferred_name is not None else name
+            # Use inferred name if available, otherwise use explicit name
+            log_name = inferred_name if inferred_name is not None else name
 
-        # Pad or truncate arg_names to match actual number of arguments to store
-        if len(arg_names_to_store) < len(args_to_store):
-            arg_names_to_store.extend(
-                [None] * (len(args_to_store) - len(arg_names_to_store))
-            )
-        elif len(arg_names_to_store) > len(args_to_store):
-            arg_names_to_store = arg_names_to_store[: len(args_to_store)]
+            # Pad or truncate arg_names to match actual number of arguments to store
+            if len(arg_names_to_store) < len(args_to_store):
+                arg_names_to_store.extend(
+                    [None] * (len(args_to_store) - len(arg_names_to_store))
+                )
+            elif len(arg_names_to_store) > len(args_to_store):
+                arg_names_to_store = arg_names_to_store[: len(args_to_store)]
 
-        # Check if any argument is a CallStack instance, otherwise create one
-        # Always capture stack trace if auto_stack_trace is enabled
-        stack_trace_id: Optional[int] = None
-        call_stack_obj: Optional[CallStack] = None
+            # Check if any argument is a CallStack instance, otherwise create one
+            # Always capture stack trace if auto_stack_trace is enabled
+            stack_trace_id: Optional[int] = None
+            call_stack_obj: Optional[CallStack] = None
 
-        # First, check if a CallStack was passed in args_to_store
-        for value in args_to_store:
-            if isinstance(value, CallStack):
-                call_stack_obj = value
-                break
+            # First, check if a CallStack was passed in args_to_store
+            for value in args_to_store:
+                if isinstance(value, CallStack):
+                    call_stack_obj = value
+                    break
 
-        # If no CallStack was passed and auto_stack_trace is enabled, create one
-        if call_stack_obj is None and self._config.auto_stack_trace:
-            call_stack_obj = call_stack()
+            # If no CallStack was passed and auto_stack_trace is enabled, create one
+            if call_stack_obj is None and self._config.auto_stack_trace:
+                call_stack_obj = call_stack()
 
-        # Capture stack trace if we have a CallStack and auto_stack_trace is enabled
-        if call_stack_obj is not None and self._config.auto_stack_trace:
-            # Capture stack trace lazily (only captures when this is called)
-            trace = call_stack_obj.capture_stack_trace()
-            stack_trace_id = id(call_stack_obj)
-            # Store trace if not already stored (deduplication by object identity)
-            if stack_trace_id not in self._stack_traces:
-                self._stack_traces[stack_trace_id] = trace
-            # Associate this log index with the stack trace ID
-            if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                self._stack_trace_id_to_log_indices[stack_trace_id] = []
-            self._stack_trace_id_to_log_indices[stack_trace_id].append(self._log_index)
+            # Capture stack trace if we have a CallStack and auto_stack_trace is enabled
+            if call_stack_obj is not None and self._config.auto_stack_trace:
+                # Capture stack trace lazily (only captures when this is called)
+                trace = call_stack_obj.capture_stack_trace()
+                stack_trace_id = id(call_stack_obj)
+                # Store trace if not already stored (deduplication by object identity)
+                if stack_trace_id not in self._stack_traces:
+                    self._stack_traces[stack_trace_id] = trace
+                # Associate this log index with the stack trace ID
+                if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
+                self._stack_trace_id_to_log_indices[stack_trace_id].append(self._log_index)
 
-        # Serialize and store the values as a group
-        serialized_values = []
-        for value in args_to_store:
-            try:
-                # Pickle the value for storage
-                pickled = pickle.dumps(value)
-                serialized_values.append(pickled)
-            except Exception as e:
-                # Store error info if pickling fails
-                serialized_values.append(f"<PickleError: {str(e)}>")
+            # Serialize and store the values as a group
+            serialized_values = []
+            for value in args_to_store:
+                try:
+                    # Pickle the value for storage
+                    pickled = pickle.dumps(value)
+                    serialized_values.append(pickled)
+                except Exception as e:
+                    # Store error info if pickling fails
+                    serialized_values.append(f"<PickleError: {str(e)}>")
 
-        # Store the group with metadata including log index for total ordering
-        log_group = {
-            "values": serialized_values,
-            "function_name": function_name,
-            "arg_names": arg_names_to_store,
-            "log_index": self._log_index,
-        }
-        if class_name is not None:
-            log_group["class_name"] = class_name
-        if stack_trace_id is not None:
-            log_group["stack_trace_id"] = stack_trace_id
-        if log_name is not None:
-            log_group["name"] = log_name
+            # Store the group with metadata including log index for total ordering
+            log_group = {
+                "values": serialized_values,
+                "function_name": function_name,
+                "arg_names": arg_names_to_store,
+                "log_index": self._log_index,
+            }
+            if class_name is not None:
+                log_group["class_name"] = class_name
+            if stack_trace_id is not None:
+                log_group["stack_trace_id"] = stack_trace_id
+            if log_name is not None:
+                log_group["name"] = log_name
 
-        # Increment the global log index
-        self._log_index += 1
+            # Increment the global log index
+            self._log_index += 1
 
-        # Append the group to the list for this call site
-        if call_site not in self._logs:
-            self._logs[call_site] = []
-        self._logs[call_site].append(log_group)
+            # Append the group to the list for this call site
+            if call_site not in self._logs:
+                self._logs[call_site] = []
+            self._logs[call_site].append(log_group)
+
+            # Broadcast update in live mode
+            if self._live_mode_enabled:
+                self._broadcast_log_update(call_site, log_group, stack_trace_id)
 
     def _get_call_site_and_stack_trace(
         self,
@@ -481,57 +493,62 @@ class Report:
         Args:
             value: The value to count occurrences of
         """
-        call_site, stack_trace_id, function_name, class_name = (
-            self._get_call_site_and_stack_trace()
-        )
+        with self._lock:
+            call_site, stack_trace_id, function_name, class_name = (
+                self._get_call_site_and_stack_trace()
+            )
 
-        # Assign log index for this invocation
-        log_index = self._log_index
-        self._log_index += 1
+            # Assign log index for this invocation
+            log_index = self._log_index
+            self._log_index += 1
 
-        # Associate this log index with the stack trace ID if available
-        if stack_trace_id is not None:
-            if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                self._stack_trace_id_to_log_indices[stack_trace_id] = []
-            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Associate this log index with the stack trace ID if available
+            if stack_trace_id is not None:
+                if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
+                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
 
-        # Store dashboard log entry
-        if call_site not in self._dashboard_logs:
-            self._dashboard_logs[call_site] = []
+            # Store dashboard log entry
+            if call_site not in self._dashboard_logs:
+                self._dashboard_logs[call_site] = []
 
-        dashboard_log = {
-            "log_index": log_index,
-            "dashboard_type": "count",
-            "function_name": function_name,
-            "value": value,
-        }
-        if class_name is not None:
-            dashboard_log["class_name"] = class_name
-        if stack_trace_id is not None:
-            dashboard_log["stack_trace_id"] = stack_trace_id
+            dashboard_log = {
+                "log_index": log_index,
+                "dashboard_type": "count",
+                "function_name": function_name,
+                "value": value,
+            }
+            if class_name is not None:
+                dashboard_log["class_name"] = class_name
+            if stack_trace_id is not None:
+                dashboard_log["stack_trace_id"] = stack_trace_id
 
-        self._dashboard_logs[call_site].append(dashboard_log)
+            self._dashboard_logs[call_site].append(dashboard_log)
 
-        if call_site not in self._counts:
-            self._counts[call_site] = {}
-            self._counts_metadata[call_site] = (function_name, class_name)
+            # Broadcast update in live mode
+            if self._live_mode_enabled:
+                self._broadcast_dashboard_update(call_site, dashboard_log)
 
-        # For unhashable types, use JSON string representation as key
-        # This matches how we serialize in to_json()
-        try:
-            # Try to use value directly as dict key (works for hashable types)
-            hash(value)  # Test if hashable
-            value_key = value
-        except TypeError:
-            # For unhashable types, use JSON string representation
-            json_value = self._to_json_serializable(value)
-            value_key = json.dumps(json_value, sort_keys=True)
+            if call_site not in self._counts:
+                self._counts[call_site] = {}
+                self._counts_metadata[call_site] = (function_name, class_name)
 
-        if value_key not in self._counts[call_site]:
-            self._counts[call_site][value_key] = []
+            # For unhashable types, use JSON string representation as key
+            # This matches how we serialize in to_json()
+            try:
+                # Try to use value directly as dict key (works for hashable types)
+                hash(value)  # Test if hashable
+                value_key = value
+            except TypeError:
+                # For unhashable types, use JSON string representation
+                json_value = self._to_json_serializable(value)
+                value_key = json.dumps(json_value, sort_keys=True)
 
-        if stack_trace_id is not None:
-            self._counts[call_site][value_key].append((stack_trace_id, log_index))
+            if value_key not in self._counts[call_site]:
+                self._counts[call_site][value_key] = []
+
+            if stack_trace_id is not None:
+                self._counts[call_site][value_key].append((stack_trace_id, log_index))
 
     def hist(self, num: float):
         """
@@ -540,44 +557,49 @@ class Report:
         Args:
             num: The number to add to the histogram
         """
-        call_site, stack_trace_id, function_name, class_name = (
-            self._get_call_site_and_stack_trace()
-        )
+        with self._lock:
+            call_site, stack_trace_id, function_name, class_name = (
+                self._get_call_site_and_stack_trace()
+            )
 
-        # Assign log index for this invocation
-        log_index = self._log_index
-        self._log_index += 1
+            # Assign log index for this invocation
+            log_index = self._log_index
+            self._log_index += 1
 
-        # Associate this log index with the stack trace ID if available
-        if stack_trace_id is not None:
-            if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                self._stack_trace_id_to_log_indices[stack_trace_id] = []
-            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Associate this log index with the stack trace ID if available
+            if stack_trace_id is not None:
+                if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
+                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
 
-        # Store dashboard log entry
-        if call_site not in self._dashboard_logs:
-            self._dashboard_logs[call_site] = []
+            # Store dashboard log entry
+            if call_site not in self._dashboard_logs:
+                self._dashboard_logs[call_site] = []
 
-        dashboard_log = {
-            "log_index": log_index,
-            "dashboard_type": "hist",
-            "function_name": function_name,
-            "value": num,
-        }
-        if class_name is not None:
-            dashboard_log["class_name"] = class_name
-        if stack_trace_id is not None:
-            dashboard_log["stack_trace_id"] = stack_trace_id
+            dashboard_log = {
+                "log_index": log_index,
+                "dashboard_type": "hist",
+                "function_name": function_name,
+                "value": num,
+            }
+            if class_name is not None:
+                dashboard_log["class_name"] = class_name
+            if stack_trace_id is not None:
+                dashboard_log["stack_trace_id"] = stack_trace_id
 
-        self._dashboard_logs[call_site].append(dashboard_log)
+            self._dashboard_logs[call_site].append(dashboard_log)
 
-        if call_site not in self._histograms:
-            self._histograms[call_site] = []
-            self._histograms_metadata[call_site] = (function_name, class_name)
+            # Broadcast update in live mode
+            if self._live_mode_enabled:
+                self._broadcast_dashboard_update(call_site, dashboard_log)
 
-        self._histograms[call_site].append(
-            (num, stack_trace_id if stack_trace_id is not None else -1, log_index)
-        )
+            if call_site not in self._histograms:
+                self._histograms[call_site] = []
+                self._histograms_metadata[call_site] = (function_name, class_name)
+
+            self._histograms[call_site].append(
+                (num, stack_trace_id if stack_trace_id is not None else -1, log_index)
+            )
 
     def timeline(self, event_name: str):
         """
@@ -586,51 +608,56 @@ class Report:
         Args:
             event_name: Name of the event to record
         """
-        import time
+        with self._lock:
+            import time
 
-        call_site, stack_trace_id, function_name, class_name = (
-            self._get_call_site_and_stack_trace()
-        )
+            call_site, stack_trace_id, function_name, class_name = (
+                self._get_call_site_and_stack_trace()
+            )
 
-        # Assign log index for this invocation
-        log_index = self._log_index
-        self._log_index += 1
+            # Assign log index for this invocation
+            log_index = self._log_index
+            self._log_index += 1
 
-        # Associate this log index with the stack trace ID if available
-        if stack_trace_id is not None:
-            if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                self._stack_trace_id_to_log_indices[stack_trace_id] = []
-            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Associate this log index with the stack trace ID if available
+            if stack_trace_id is not None:
+                if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
+                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
 
-        # Store dashboard log entry
-        if call_site not in self._dashboard_logs:
-            self._dashboard_logs[call_site] = []
+            # Store dashboard log entry
+            if call_site not in self._dashboard_logs:
+                self._dashboard_logs[call_site] = []
 
-        timestamp = time.time()
-        dashboard_log = {
-            "log_index": log_index,
-            "dashboard_type": "timeline",
-            "function_name": function_name,
-            "event_name": event_name,
-            "timestamp": timestamp,
-        }
-        if class_name is not None:
-            dashboard_log["class_name"] = class_name
-        if stack_trace_id is not None:
-            dashboard_log["stack_trace_id"] = stack_trace_id
+            timestamp = time.time()
+            dashboard_log = {
+                "log_index": log_index,
+                "dashboard_type": "timeline",
+                "function_name": function_name,
+                "event_name": event_name,
+                "timestamp": timestamp,
+            }
+            if class_name is not None:
+                dashboard_log["class_name"] = class_name
+            if stack_trace_id is not None:
+                dashboard_log["stack_trace_id"] = stack_trace_id
 
-        self._dashboard_logs[call_site].append(dashboard_log)
+            self._dashboard_logs[call_site].append(dashboard_log)
 
-        event = {
-            "timestamp": timestamp,
-            "event_name": event_name,
-            "call_site": call_site,
-            "stack_trace_id": stack_trace_id,
-            "log_index": log_index,
-            "function_name": function_name,
-            "class_name": class_name,
-        }
-        self._timeline.append(event)
+            # Broadcast update in live mode
+            if self._live_mode_enabled:
+                self._broadcast_dashboard_update(call_site, dashboard_log)
+
+            event = {
+                "timestamp": timestamp,
+                "event_name": event_name,
+                "call_site": call_site,
+                "stack_trace_id": stack_trace_id,
+                "log_index": log_index,
+                "function_name": function_name,
+                "class_name": class_name,
+            }
+            self._timeline.append(event)
 
     def happened(self, message: Optional[str] = None):
         """
@@ -639,51 +666,56 @@ class Report:
         Args:
             message: Optional message to associate with this call site
         """
-        call_site, stack_trace_id, function_name, class_name = (
-            self._get_call_site_and_stack_trace()
-        )
+        with self._lock:
+            call_site, stack_trace_id, function_name, class_name = (
+                self._get_call_site_and_stack_trace()
+            )
 
-        # Assign log index for this invocation
-        log_index = self._log_index
-        self._log_index += 1
+            # Assign log index for this invocation
+            log_index = self._log_index
+            self._log_index += 1
 
-        # Associate this log index with the stack trace ID if available
-        if stack_trace_id is not None:
-            if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                self._stack_trace_id_to_log_indices[stack_trace_id] = []
-            self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Associate this log index with the stack trace ID if available
+            if stack_trace_id is not None:
+                if stack_trace_id not in self._stack_trace_id_to_log_indices:
+                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
+                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
 
-        # Store dashboard log entry
-        if call_site not in self._dashboard_logs:
-            self._dashboard_logs[call_site] = []
+            # Store dashboard log entry
+            if call_site not in self._dashboard_logs:
+                self._dashboard_logs[call_site] = []
 
-        dashboard_log = {
-            "log_index": log_index,
-            "dashboard_type": "happened",
-            "function_name": function_name,
-        }
-        if class_name is not None:
-            dashboard_log["class_name"] = class_name
-        if stack_trace_id is not None:
-            dashboard_log["stack_trace_id"] = stack_trace_id
-        if message is not None:
-            dashboard_log["message"] = message
+            dashboard_log = {
+                "log_index": log_index,
+                "dashboard_type": "happened",
+                "function_name": function_name,
+            }
+            if class_name is not None:
+                dashboard_log["class_name"] = class_name
+            if stack_trace_id is not None:
+                dashboard_log["stack_trace_id"] = stack_trace_id
+            if message is not None:
+                dashboard_log["message"] = message
 
-        self._dashboard_logs[call_site].append(dashboard_log)
+            self._dashboard_logs[call_site].append(dashboard_log)
 
-        if call_site not in self._happened:
-            self._happened[call_site] = (0, [], message)
-            self._happened_metadata[call_site] = (function_name, class_name)
+            # Broadcast update in live mode
+            if self._live_mode_enabled:
+                self._broadcast_dashboard_update(call_site, dashboard_log)
 
-        count, stack_trace_ids, stored_message = self._happened[call_site]
-        # Update message if provided (use first non-None message)
-        if stored_message is None and message is not None:
-            stored_message = message
+            if call_site not in self._happened:
+                self._happened[call_site] = (0, [], message)
+                self._happened_metadata[call_site] = (function_name, class_name)
 
-        if stack_trace_id is not None:
-            stack_trace_ids.append((stack_trace_id, log_index))
+            count, stack_trace_ids, stored_message = self._happened[call_site]
+            # Update message if provided (use first non-None message)
+            if stored_message is None and message is not None:
+                stored_message = message
 
-        self._happened[call_site] = (count + 1, stack_trace_ids, stored_message)
+            if stack_trace_id is not None:
+                stack_trace_ids.append((stack_trace_id, log_index))
+
+            self._happened[call_site] = (count + 1, stack_trace_ids, stored_message)
 
     def init(self, config: Optional[ReportConfiguration] = None):
         """
@@ -692,20 +724,35 @@ class Report:
         Args:
             config: Optional configuration object. If None, keeps existing config.
         """
-        self._logs.clear()
-        self._log_index = 0
-        self._stack_traces.clear()
-        self._stack_trace_id_to_log_indices.clear()
-        self._counts.clear()
-        self._counts_metadata.clear()
-        self._histograms.clear()
-        self._histograms_metadata.clear()
-        self._timeline.clear()
-        self._happened.clear()
-        self._happened_metadata.clear()
-        self._dashboard_logs.clear()
-        if config is not None:
-            self._config = config
+        with self._lock:
+            self._logs.clear()
+            self._log_index = 0
+            self._stack_traces.clear()
+            self._stack_trace_id_to_log_indices.clear()
+            self._counts.clear()
+            self._counts_metadata.clear()
+            self._histograms.clear()
+            self._histograms_metadata.clear()
+            self._timeline.clear()
+            self._happened.clear()
+            self._happened_metadata.clear()
+            self._dashboard_logs.clear()
+            if config is not None:
+                self._config = config
+
+            # Start live server if enabled
+            if self._config.live_mode and not self._live_mode_enabled:
+                self._live_mode_enabled = True
+                try:
+                    from autopsy import live_server
+                    live_server.start_server(
+                        self._config.live_mode_host,
+                        self._config.live_mode_port
+                    )
+                except Exception as e:
+                    print(f"Warning: Failed to start live server: {type(e).__name__}: {e}")
+                    print("Install dependencies with: uv pip install -e '.[live]'")
+                    self._live_mode_enabled = False
 
     def get_logs(self) -> Dict[Tuple[str, int], List[Dict[str, Any]]]:
         """
@@ -751,313 +798,314 @@ class Report:
             list of call site data. Each call site has 'filename', 'line', and 'value_groups' keys.
             Each value_group is a list of values from one log() call.
         """
-        call_sites = []
+        with self._lock:
+            call_sites = []
 
-        for call_site, log_groups in self._logs.items():
-            filename, line_number = call_site
+            for call_site, log_groups in self._logs.items():
+                filename, line_number = call_site
 
-            # Process each group of values from a single log() call
-            json_value_groups = []
-            for log_group in log_groups:
-                json_group = []
-                pickled_values = log_group["values"]
-                arg_names = log_group.get("arg_names", [])
+                # Process each group of values from a single log() call
+                json_value_groups = []
+                for log_group in log_groups:
+                    json_group = []
+                    pickled_values = log_group["values"]
+                    arg_names = log_group.get("arg_names", [])
 
-                for idx, pickled_value in enumerate(pickled_values):
-                    value_data = {}
+                    for idx, pickled_value in enumerate(pickled_values):
+                        value_data = {}
 
-                    # Add argument name if available
-                    if idx < len(arg_names) and arg_names[idx] is not None:
-                        value_data["name"] = arg_names[idx]
+                        # Add argument name if available
+                        if idx < len(arg_names) and arg_names[idx] is not None:
+                            value_data["name"] = arg_names[idx]
 
-                    # Unpickle and convert value
-                    if isinstance(pickled_value, str) and pickled_value.startswith(
-                        "<PickleError"
-                    ):
-                        value_data["value"] = pickled_value
-                    elif isinstance(pickled_value, bytes):
-                        try:
-                            # Unpickle the value
-                            unpickled = pickle.loads(pickled_value)
-                            # Try to convert to JSON-serializable format
-                            value_data["value"] = self._to_json_serializable(unpickled)
-                        except Exception as e:
-                            # If unpickling fails, store error info
-                            value_data["value"] = f"<UnpickleError: {str(e)}>"
-                    else:
-                        # Not bytes, try to serialize directly
-                        value_data["value"] = self._to_json_serializable(pickled_value)
+                        # Unpickle and convert value
+                        if isinstance(pickled_value, str) and pickled_value.startswith(
+                            "<PickleError"
+                        ):
+                            value_data["value"] = pickled_value
+                        elif isinstance(pickled_value, bytes):
+                            try:
+                                # Unpickle the value
+                                unpickled = pickle.loads(pickled_value)
+                                # Try to convert to JSON-serializable format
+                                value_data["value"] = self._to_json_serializable(unpickled)
+                            except Exception as e:
+                                # If unpickling fails, store error info
+                                value_data["value"] = f"<UnpickleError: {str(e)}>"
+                        else:
+                            # Not bytes, try to serialize directly
+                            value_data["value"] = self._to_json_serializable(pickled_value)
 
-                    json_group.append(value_data)
+                        json_group.append(value_data)
 
-                value_group_data = {
-                    "values": json_group,
-                    "function_name": log_group.get("function_name", "<unknown>"),
-                    "log_index": log_group.get("log_index", 0),
-                }
-                if "class_name" in log_group:
-                    value_group_data["class_name"] = log_group["class_name"]
-                if "stack_trace_id" in log_group:
-                    # Convert to string to match stack_traces dictionary keys
-                    value_group_data["stack_trace_id"] = str(
-                        log_group["stack_trace_id"]
-                    )
-                if "name" in log_group:
-                    value_group_data["name"] = log_group["name"]
-                json_value_groups.append(value_group_data)
-
-            call_site_data = {
-                "filename": filename,
-                "line": line_number,
-                "function_name": (
-                    log_groups[0].get("function_name", "<unknown>")
-                    if log_groups
-                    else "<unknown>"
-                ),
-                "value_groups": json_value_groups,
-            }
-            if log_groups and "class_name" in log_groups[0]:
-                call_site_data["class_name"] = log_groups[0]["class_name"]
-            call_sites.append(call_site_data)
-
-        # Add dashboard call sites to call_sites list
-        for call_site, dashboard_logs in self._dashboard_logs.items():
-            filename, line_number = call_site
-
-            # Process each dashboard log entry
-            json_value_groups = []
-            for dashboard_log in dashboard_logs:
-                dashboard_type = dashboard_log.get("dashboard_type", "unknown")
-
-                # Create value group based on dashboard type
-                value_group_data = {
-                    "log_index": dashboard_log.get("log_index", 0),
-                    "function_name": dashboard_log.get("function_name", "<unknown>"),
-                    "dashboard_type": dashboard_type,
-                }
-                if "class_name" in dashboard_log:
-                    value_group_data["class_name"] = dashboard_log["class_name"]
-                if "stack_trace_id" in dashboard_log:
-                    value_group_data["stack_trace_id"] = str(
-                        dashboard_log["stack_trace_id"]
-                    )
-
-                # Add type-specific data
-                if dashboard_type == "count":
-                    value_group_data["value"] = self._to_json_serializable(
-                        dashboard_log.get("value")
-                    )
-                elif dashboard_type == "hist":
-                    value_group_data["value"] = dashboard_log.get("value")
-                elif dashboard_type == "timeline":
-                    value_group_data["event_name"] = dashboard_log.get("event_name")
-                    value_group_data["timestamp"] = dashboard_log.get("timestamp")
-                elif dashboard_type == "happened":
-                    if "message" in dashboard_log:
-                        value_group_data["message"] = dashboard_log["message"]
-
-                json_value_groups.append(value_group_data)
-
-            call_site_data = {
-                "filename": filename,
-                "line": line_number,
-                "function_name": (
-                    dashboard_logs[0].get("function_name", "<unknown>")
-                    if dashboard_logs
-                    else "<unknown>"
-                ),
-                "value_groups": json_value_groups,
-                "is_dashboard": True,
-            }
-            if dashboard_logs and "class_name" in dashboard_logs[0]:
-                call_site_data["class_name"] = dashboard_logs[0]["class_name"]
-            call_sites.append(call_site_data)
-
-        # Convert stack traces to JSON-serializable format
-        json_stack_traces = {}
-        for trace_id, trace in self._stack_traces.items():
-            json_frames = []
-            for frame in trace.frames:
-                json_frames.append(
-                    {
-                        "filename": frame.filename,
-                        "function_name": frame.function_name,
-                        "line_number": frame.line_number,
-                        "code_context": frame.code_context,
-                        "local_variables": frame.local_variables,
+                    value_group_data = {
+                        "values": json_group,
+                        "function_name": log_group.get("function_name", "<unknown>"),
+                        "log_index": log_group.get("log_index", 0),
                     }
+                    if "class_name" in log_group:
+                        value_group_data["class_name"] = log_group["class_name"]
+                    if "stack_trace_id" in log_group:
+                        # Convert to string to match stack_traces dictionary keys
+                        value_group_data["stack_trace_id"] = str(
+                            log_group["stack_trace_id"]
+                        )
+                    if "name" in log_group:
+                        value_group_data["name"] = log_group["name"]
+                    json_value_groups.append(value_group_data)
+
+                call_site_data = {
+                    "filename": filename,
+                    "line": line_number,
+                    "function_name": (
+                        log_groups[0].get("function_name", "<unknown>")
+                        if log_groups
+                        else "<unknown>"
+                    ),
+                    "value_groups": json_value_groups,
+                }
+                if log_groups and "class_name" in log_groups[0]:
+                    call_site_data["class_name"] = log_groups[0]["class_name"]
+                call_sites.append(call_site_data)
+
+            # Add dashboard call sites to call_sites list
+            for call_site, dashboard_logs in self._dashboard_logs.items():
+                filename, line_number = call_site
+
+                # Process each dashboard log entry
+                json_value_groups = []
+                for dashboard_log in dashboard_logs:
+                    dashboard_type = dashboard_log.get("dashboard_type", "unknown")
+
+                    # Create value group based on dashboard type
+                    value_group_data = {
+                        "log_index": dashboard_log.get("log_index", 0),
+                        "function_name": dashboard_log.get("function_name", "<unknown>"),
+                        "dashboard_type": dashboard_type,
+                    }
+                    if "class_name" in dashboard_log:
+                        value_group_data["class_name"] = dashboard_log["class_name"]
+                    if "stack_trace_id" in dashboard_log:
+                        value_group_data["stack_trace_id"] = str(
+                            dashboard_log["stack_trace_id"]
+                        )
+
+                    # Add type-specific data
+                    if dashboard_type == "count":
+                        value_group_data["value"] = self._to_json_serializable(
+                            dashboard_log.get("value")
+                        )
+                    elif dashboard_type == "hist":
+                        value_group_data["value"] = dashboard_log.get("value")
+                    elif dashboard_type == "timeline":
+                        value_group_data["event_name"] = dashboard_log.get("event_name")
+                        value_group_data["timestamp"] = dashboard_log.get("timestamp")
+                    elif dashboard_type == "happened":
+                        if "message" in dashboard_log:
+                            value_group_data["message"] = dashboard_log["message"]
+
+                    json_value_groups.append(value_group_data)
+
+                call_site_data = {
+                    "filename": filename,
+                    "line": line_number,
+                    "function_name": (
+                        dashboard_logs[0].get("function_name", "<unknown>")
+                        if dashboard_logs
+                        else "<unknown>"
+                    ),
+                    "value_groups": json_value_groups,
+                    "is_dashboard": True,
+                }
+                if dashboard_logs and "class_name" in dashboard_logs[0]:
+                    call_site_data["class_name"] = dashboard_logs[0]["class_name"]
+                call_sites.append(call_site_data)
+
+            # Convert stack traces to JSON-serializable format
+            json_stack_traces = {}
+            for trace_id, trace in self._stack_traces.items():
+                json_frames = []
+                for frame in trace.frames:
+                    json_frames.append(
+                        {
+                            "filename": frame.filename,
+                            "function_name": frame.function_name,
+                            "line_number": frame.line_number,
+                            "code_context": frame.code_context,
+                            "local_variables": frame.local_variables,
+                        }
+                    )
+                json_stack_traces[str(trace_id)] = {
+                    "frames": json_frames,
+                    "timestamp": trace.timestamp,
+                }
+
+            # Serialize dashboard data
+            dashboard_data = {}
+
+            # Serialize counts
+            json_counts = []
+            for call_site, value_counts in self._counts.items():
+                filename, line_number = call_site
+                # Get function name from stored metadata
+                function_name, class_name = self._counts_metadata.get(
+                    call_site, ("<unknown>", None)
                 )
-            json_stack_traces[str(trace_id)] = {
-                "frames": json_frames,
-                "timestamp": trace.timestamp,
-            }
 
-        # Serialize dashboard data
-        dashboard_data = {}
+                # Convert value_counts to JSON-serializable format
+                json_value_counts = {}
+                for value_key, stack_trace_data in value_counts.items():
+                    # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
+                    stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
+                    log_indices = [log_idx for _, log_idx in stack_trace_data]
 
-        # Serialize counts
-        json_counts = []
-        for call_site, value_counts in self._counts.items():
-            filename, line_number = call_site
-            # Get function name from stored metadata
-            function_name, class_name = self._counts_metadata.get(
-                call_site, ("<unknown>", None)
-            )
+                    # value_key might already be a JSON string (for unhashable types)
+                    # or it might be the original value (for hashable types)
+                    # Check if it's already a valid JSON string by trying to parse it
+                    if isinstance(value_key, str):
+                        try:
+                            # Try to parse as JSON - if it succeeds, it's already a JSON string
+                            json.loads(value_key)
+                            # Already a JSON string, use it directly
+                            json_value_counts[value_key] = {
+                                "count": len(stack_trace_data),
+                                "stack_trace_ids": stack_trace_ids,
+                                "log_indices": log_indices,
+                            }
+                            continue
+                        except (json.JSONDecodeError, ValueError):
+                            # Not a JSON string, treat as regular string value
+                            pass
 
-            # Convert value_counts to JSON-serializable format
-            json_value_counts = {}
-            for value_key, stack_trace_data in value_counts.items():
+                    # Convert value to JSON-serializable format
+                    json_value = self._to_json_serializable(value_key)
+                    json_value_counts[json.dumps(json_value, sort_keys=True)] = {
+                        "count": len(stack_trace_data),
+                        "stack_trace_ids": stack_trace_ids,
+                        "log_indices": log_indices,
+                    }
+
+                count_entry = {
+                    "call_site": {
+                        "filename": filename,
+                        "line": line_number,
+                        "function_name": function_name,
+                    },
+                    "value_counts": json_value_counts,
+                }
+                if class_name is not None:
+                    count_entry["call_site"]["class_name"] = class_name
+                json_counts.append(count_entry)
+
+            # Serialize histograms
+            json_histograms = []
+            for call_site, values in self._histograms.items():
+                filename, line_number = call_site
+                # Get function name from stored metadata
+                function_name, class_name = self._histograms_metadata.get(
+                    call_site, ("<unknown>", None)
+                )
+
+                json_values = []
+                for num, stack_trace_id, log_index in values:
+                    json_values.append(
+                        {
+                            "value": num,
+                            "stack_trace_id": (
+                                str(stack_trace_id) if stack_trace_id != -1 else None
+                            ),
+                            "log_index": log_index,
+                        }
+                    )
+
+                hist_entry = {
+                    "call_site": {
+                        "filename": filename,
+                        "line": line_number,
+                        "function_name": function_name,
+                    },
+                    "values": json_values,
+                }
+                if class_name is not None:
+                    hist_entry["call_site"]["class_name"] = class_name
+                json_histograms.append(hist_entry)
+
+            # Serialize timeline (sort by timestamp)
+            json_timeline = []
+            sorted_timeline = sorted(self._timeline, key=lambda x: x["timestamp"])
+            for event in sorted_timeline:
+                call_site = event["call_site"]
+                filename, line_number = call_site
+                # Get function name from stored metadata in event
+                function_name = event.get("function_name", "<unknown>")
+                class_name = event.get("class_name")
+
+                timeline_entry = {
+                    "timestamp": event["timestamp"],
+                    "event_name": event["event_name"],
+                    "call_site": {
+                        "filename": filename,
+                        "line": line_number,
+                        "function_name": function_name,
+                    },
+                    "stack_trace_id": (
+                        str(event["stack_trace_id"])
+                        if event["stack_trace_id"] is not None
+                        else None
+                    ),
+                    "log_index": event.get("log_index"),
+                }
+                if class_name is not None:
+                    timeline_entry["call_site"]["class_name"] = class_name
+                json_timeline.append(timeline_entry)
+
+            # Serialize happened
+            json_happened = []
+            for call_site, (count, stack_trace_data, message) in self._happened.items():
+                filename, line_number = call_site
+                # Get function name from stored metadata
+                function_name, class_name = self._happened_metadata.get(
+                    call_site, ("<unknown>", None)
+                )
                 # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
                 stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
                 log_indices = [log_idx for _, log_idx in stack_trace_data]
 
-                # value_key might already be a JSON string (for unhashable types)
-                # or it might be the original value (for hashable types)
-                # Check if it's already a valid JSON string by trying to parse it
-                if isinstance(value_key, str):
-                    try:
-                        # Try to parse as JSON - if it succeeds, it's already a JSON string
-                        json.loads(value_key)
-                        # Already a JSON string, use it directly
-                        json_value_counts[value_key] = {
-                            "count": len(stack_trace_data),
-                            "stack_trace_ids": stack_trace_ids,
-                            "log_indices": log_indices,
-                        }
-                        continue
-                    except (json.JSONDecodeError, ValueError):
-                        # Not a JSON string, treat as regular string value
-                        pass
-
-                # Convert value to JSON-serializable format
-                json_value = self._to_json_serializable(value_key)
-                json_value_counts[json.dumps(json_value, sort_keys=True)] = {
-                    "count": len(stack_trace_data),
+                happened_entry = {
+                    "call_site": {
+                        "filename": filename,
+                        "line": line_number,
+                        "function_name": function_name,
+                    },
+                    "count": count,
                     "stack_trace_ids": stack_trace_ids,
                     "log_indices": log_indices,
                 }
+                if class_name is not None:
+                    happened_entry["call_site"]["class_name"] = class_name
+                if message is not None:
+                    happened_entry["message"] = message
+                json_happened.append(happened_entry)
 
-            count_entry = {
-                "call_site": {
-                    "filename": filename,
-                    "line": line_number,
-                    "function_name": function_name,
-                },
-                "value_counts": json_value_counts,
-            }
-            if class_name is not None:
-                count_entry["call_site"]["class_name"] = class_name
-            json_counts.append(count_entry)
+            # Only include dashboard if there's any data
+            if json_counts or json_histograms or json_timeline or json_happened:
+                dashboard_data = {
+                    "counts": json_counts,
+                    "histograms": json_histograms,
+                    "timeline": json_timeline,
+                    "happened": json_happened,
+                }
 
-        # Serialize histograms
-        json_histograms = []
-        for call_site, values in self._histograms.items():
-            filename, line_number = call_site
-            # Get function name from stored metadata
-            function_name, class_name = self._histograms_metadata.get(
-                call_site, ("<unknown>", None)
-            )
-
-            json_values = []
-            for num, stack_trace_id, log_index in values:
-                json_values.append(
-                    {
-                        "value": num,
-                        "stack_trace_id": (
-                            str(stack_trace_id) if stack_trace_id != -1 else None
-                        ),
-                        "log_index": log_index,
-                    }
-                )
-
-            hist_entry = {
-                "call_site": {
-                    "filename": filename,
-                    "line": line_number,
-                    "function_name": function_name,
-                },
-                "values": json_values,
-            }
-            if class_name is not None:
-                hist_entry["call_site"]["class_name"] = class_name
-            json_histograms.append(hist_entry)
-
-        # Serialize timeline (sort by timestamp)
-        json_timeline = []
-        sorted_timeline = sorted(self._timeline, key=lambda x: x["timestamp"])
-        for event in sorted_timeline:
-            call_site = event["call_site"]
-            filename, line_number = call_site
-            # Get function name from stored metadata in event
-            function_name = event.get("function_name", "<unknown>")
-            class_name = event.get("class_name")
-
-            timeline_entry = {
-                "timestamp": event["timestamp"],
-                "event_name": event["event_name"],
-                "call_site": {
-                    "filename": filename,
-                    "line": line_number,
-                    "function_name": function_name,
-                },
-                "stack_trace_id": (
-                    str(event["stack_trace_id"])
-                    if event["stack_trace_id"] is not None
-                    else None
-                ),
-                "log_index": event.get("log_index"),
-            }
-            if class_name is not None:
-                timeline_entry["call_site"]["class_name"] = class_name
-            json_timeline.append(timeline_entry)
-
-        # Serialize happened
-        json_happened = []
-        for call_site, (count, stack_trace_data, message) in self._happened.items():
-            filename, line_number = call_site
-            # Get function name from stored metadata
-            function_name, class_name = self._happened_metadata.get(
-                call_site, ("<unknown>", None)
-            )
-            # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
-            stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
-            log_indices = [log_idx for _, log_idx in stack_trace_data]
-
-            happened_entry = {
-                "call_site": {
-                    "filename": filename,
-                    "line": line_number,
-                    "function_name": function_name,
-                },
-                "count": count,
-                "stack_trace_ids": stack_trace_ids,
-                "log_indices": log_indices,
-            }
-            if class_name is not None:
-                happened_entry["call_site"]["class_name"] = class_name
-            if message is not None:
-                happened_entry["message"] = message
-            json_happened.append(happened_entry)
-
-        # Only include dashboard if there's any data
-        if json_counts or json_histograms or json_timeline or json_happened:
-            dashboard_data = {
-                "counts": json_counts,
-                "histograms": json_histograms,
-                "timeline": json_timeline,
-                "happened": json_happened,
+            result = {
+                "generated_at": datetime.now().isoformat(),
+                "call_sites": call_sites,
+                "stack_traces": json_stack_traces,
             }
 
-        result = {
-            "generated_at": datetime.now().isoformat(),
-            "call_sites": call_sites,
-            "stack_traces": json_stack_traces,
-        }
+            if dashboard_data:
+                result["dashboard"] = dashboard_data
 
-        if dashboard_data:
-            result["dashboard"] = dashboard_data
-
-        return result
+            return result
 
     def _to_json_serializable(self, value: Any) -> Any:
         """
@@ -1087,6 +1135,173 @@ class Report:
                     return f"<{type(value).__name__}: {repr(value)}>"
                 except Exception:
                     return f"<{type(value).__name__}: (unable to represent)>"
+
+    def _broadcast_log_update(
+        self, call_site: Tuple[str, int], log_group: dict, stack_trace_id: Optional[int]
+    ):
+        """Broadcast a log update to all WebSocket clients."""
+        if not self._live_mode_enabled:
+            return
+
+        try:
+            from autopsy import live_server
+
+            filename, line = call_site
+
+            # Prepare value group for JSON serialization - must match to_json format
+            pickled_values = log_group.get("values", [])
+            arg_names = log_group.get("arg_names", [])
+            json_values = []
+
+            # Build values array matching the snapshot format
+            for idx, pickled_value in enumerate(pickled_values):
+                value_data = {}
+
+                # Add argument name if available
+                if idx < len(arg_names) and arg_names[idx] is not None:
+                    value_data["name"] = arg_names[idx]
+
+                # Deserialize and convert value
+                if isinstance(pickled_value, str) and pickled_value.startswith("<PickleError:"):
+                    value_data["value"] = pickled_value
+                elif isinstance(pickled_value, bytes):
+                    try:
+                        unpickled = pickle.loads(pickled_value)
+                        value_data["value"] = self._to_json_serializable(unpickled)
+                    except Exception as e:
+                        value_data["value"] = f"<UnpickleError: {str(e)}>"
+                else:
+                    value_data["value"] = self._to_json_serializable(pickled_value)
+
+                json_values.append(value_data)
+
+            # Build value_group matching the snapshot format
+            value_group = {
+                "values": json_values,
+                "function_name": log_group.get("function_name", "<unknown>"),
+                "log_index": log_group.get("log_index", 0),
+            }
+
+            if "class_name" in log_group:
+                value_group["class_name"] = log_group["class_name"]
+            if "stack_trace_id" in log_group:
+                value_group["stack_trace_id"] = str(log_group["stack_trace_id"])
+            if "name" in log_group:
+                value_group["name"] = log_group["name"]
+
+            # Prepare incremental update
+            update = {
+                "type": "log",
+                "call_site": {
+                    "filename": filename,
+                    "line": line,
+                    "function_name": log_group.get("function_name"),
+                    "class_name": log_group.get("class_name"),
+                },
+                "value_group": value_group,
+            }
+
+            # Add stack trace if present
+            if stack_trace_id is not None and stack_trace_id in self._stack_traces:
+                stack_trace = self._stack_traces[stack_trace_id]
+                update["stack_trace"] = {
+                    str(stack_trace_id): {
+                        "frames": [
+                            {
+                                "filename": frame.filename,
+                                "line_number": frame.line_number,
+                                "function_name": frame.function_name,
+                                "code_context": frame.code_context,
+                                "local_variables": frame.local_variables,
+                            }
+                            for frame in stack_trace.frames
+                        ],
+                        "timestamp": stack_trace.timestamp,
+                    }
+                }
+
+            # Queue broadcast
+            live_server.queue_broadcast(update)
+        except Exception as e:
+            # Silently fail if broadcast fails
+            print(f"Warning: Failed to broadcast log update: {e}")
+
+    def _broadcast_dashboard_update(
+        self, call_site: Tuple[str, int], dashboard_log: dict
+    ):
+        """Broadcast a dashboard update (count/hist/timeline/happened) to all WebSocket clients."""
+        if not self._live_mode_enabled:
+            return
+
+        try:
+            from autopsy import live_server
+
+            filename, line = call_site
+            dashboard_type = dashboard_log.get("dashboard_type", "unknown")
+
+            # Build value_group matching the snapshot format for dashboard items
+            value_group_data = {
+                "log_index": dashboard_log.get("log_index", 0),
+                "function_name": dashboard_log.get("function_name", "<unknown>"),
+                "dashboard_type": dashboard_type,
+            }
+
+            if "class_name" in dashboard_log:
+                value_group_data["class_name"] = dashboard_log["class_name"]
+            if "stack_trace_id" in dashboard_log:
+                value_group_data["stack_trace_id"] = str(dashboard_log["stack_trace_id"])
+
+            # Add type-specific data
+            if dashboard_type == "count":
+                value_group_data["value"] = self._to_json_serializable(
+                    dashboard_log.get("value")
+                )
+            elif dashboard_type == "hist":
+                value_group_data["value"] = dashboard_log.get("value")
+            elif dashboard_type == "timeline":
+                value_group_data["event_name"] = dashboard_log.get("event_name")
+                value_group_data["timestamp"] = dashboard_log.get("timestamp")
+            elif dashboard_type == "happened":
+                if "message" in dashboard_log:
+                    value_group_data["message"] = dashboard_log["message"]
+
+            # Prepare incremental update
+            update = {
+                "type": dashboard_type,
+                "call_site": {
+                    "filename": filename,
+                    "line": line,
+                    "function_name": dashboard_log.get("function_name"),
+                    "class_name": dashboard_log.get("class_name"),
+                },
+                "value_group": value_group_data,
+            }
+
+            # Add stack trace if present
+            stack_trace_id = dashboard_log.get("stack_trace_id")
+            if stack_trace_id is not None and stack_trace_id in self._stack_traces:
+                stack_trace = self._stack_traces[stack_trace_id]
+                update["stack_trace"] = {
+                    str(stack_trace_id): {
+                        "frames": [
+                            {
+                                "filename": frame.filename,
+                                "line_number": frame.line_number,
+                                "function_name": frame.function_name,
+                                "code_context": frame.code_context,
+                                "local_variables": frame.local_variables,
+                            }
+                            for frame in stack_trace.frames
+                        ],
+                        "timestamp": stack_trace.timestamp,
+                    }
+                }
+
+            # Queue broadcast
+            live_server.queue_broadcast(update)
+        except Exception as e:
+            # Silently fail if broadcast fails
+            print(f"Warning: Failed to broadcast dashboard update: {e}")
 
 
 # Global singleton instance

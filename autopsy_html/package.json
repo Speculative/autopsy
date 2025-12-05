@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && mv ../autopsy/index.html ../autopsy/template.html",
+    "dev:live": "vite --mode live",
+    "build": "vite build && mv dist/index.html ../autopsy/template.html",
+    "build:live": "vite build --mode live && mv dist/index.html ../autopsy/live.html",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },

@@ -10,6 +10,7 @@
     hiddenCallSites?: Set<string>;
     showDashboardCalls?: boolean;
     activeTab?: "streams" | "history" | "dashboard";
+    frameFilter?: string | null;
     onShowInStream?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
@@ -23,6 +24,7 @@
     hiddenCallSites = new Set<string>(),
     showDashboardCalls = true,
     activeTab = "history",
+    frameFilter = null,
     onShowInStream,
     onEntryClick,
     onHideCallSite,
@@ -54,11 +56,20 @@
       const isHidden = hiddenCallSites.has(callSiteKey) || (isDashboard && !showDashboardCalls);
 
       for (const valueGroup of callSite.value_groups) {
+        // Apply frame filter if active
+        let matchesFrameFilter = true;
+        if (frameFilter) {
+          matchesFrameFilter = stackTraceContainsFrame(valueGroup.stack_trace_id, frameFilter);
+        }
+        
+        // Entry is hidden if it's explicitly hidden OR doesn't match frame filter
+        const entryIsHidden = isHidden || !matchesFrameFilter;
+        
         allEntries.push({
           log_index: valueGroup.log_index,
           callSite,
           valueGroup,
-          isHidden,
+          isHidden: entryIsHidden,
         });
       }
     }
@@ -116,6 +127,19 @@
 
   function getCallSiteKey(callSite: CallSite): string {
     return `${callSite.filename}:${callSite.line}`;
+  }
+
+  function createFrameKey(filename: string, lineNumber: number, functionName: string): string {
+    return `${filename}:${lineNumber}:${functionName}`;
+  }
+
+  function stackTraceContainsFrame(stackTraceId: string | undefined, frameKey: string): boolean {
+    if (!stackTraceId) return false;
+    const trace = data.stack_traces[stackTraceId];
+    if (!trace) return false;
+    return trace.frames.some(frame => 
+      createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
+    );
   }
 
   function handleEntryClick(entry: HistoryEntry) {
