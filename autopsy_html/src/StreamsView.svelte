@@ -10,6 +10,7 @@
     hiddenCallSites?: Set<string>;
     frameFilter?: string | null;
     columnOrders?: Record<string, string[]>;
+    collapsedCallSites?: Record<string, boolean>;
     onShowInHistory?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
@@ -24,14 +25,13 @@
     hiddenCallSites = new Set<string>(),
     frameFilter = null,
     columnOrders = {},
+    collapsedCallSites = $bindable({}),
     onShowInHistory,
     onEntryClick,
     onHideCallSite,
     onShowCallSite,
     onColumnOrderChange,
   }: Props = $props();
-
-  const collapsedCallSites = $state<Record<string, boolean>>({});
 
   // Sort state: array of {columnName, direction} where direction is 'asc' or 'desc'
   // The order in the array determines priority (first = primary sort)
@@ -62,11 +62,20 @@
 
   function toggleCollapse(callSite: CallSite) {
     const key = getCallSiteKey(callSite);
-    collapsedCallSites[key] = !collapsedCallSites[key];
+    // If the key is undefined, initialize it to the opposite of the default
+    if (collapsedCallSites[key] === undefined) {
+      const isDashboard = callSite.is_dashboard ?? false;
+      collapsedCallSites[key] = !isDashboard;
+    } else {
+      collapsedCallSites[key] = !collapsedCallSites[key];
+    }
   }
 
   function isCollapsed(callSite: CallSite): boolean {
-    return collapsedCallSites[getCallSiteKey(callSite)] ?? false;
+    const key = getCallSiteKey(callSite);
+    // Dashboard call sites are collapsed by default
+    const isDashboard = callSite.is_dashboard ?? false;
+    return collapsedCallSites[key] ?? isDashboard;
   }
 
   function handleHideCallSite(callSiteKey: string) {

@@ -43,6 +43,10 @@
   // Column order state: maps callSiteKey -> array of column names in order
   let columnOrders = $state<Record<string, string[]>>({});
 
+  // View state that persists across tab changes
+  let hideSkippedLogs = $state(false);
+  let collapsedCallSites = $state<Record<string, boolean>>({});
+
   // Live mode state
   let liveMode = $state(false);
   let wsConnection = $state<WebSocket | null>(null);
@@ -482,6 +486,7 @@
           hiddenCallSites={hiddenCallSites}
           {frameFilter}
           {columnOrders}
+          bind:collapsedCallSites
           onShowInHistory={handleShowInHistory}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
@@ -498,6 +503,7 @@
           {activeTab}
           {frameFilter}
           {columnOrders}
+          bind:hideSkippedLogs
           onShowInStream={handleShowInStream}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
