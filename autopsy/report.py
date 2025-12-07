@@ -1,4 +1,6 @@
 import ast
+import base64
+import gzip
 import inspect
 import json
 import pickle
@@ -1353,10 +1355,20 @@ def generate_html(
     report_data = report.to_json()
     json_str = json.dumps(report_data, indent=2)
 
-    # Inject JSON into the template
+    # Compress JSON data with gzip and encode as base64
+    json_bytes = json_str.encode("utf-8")
+    compressed_bytes = gzip.compress(json_bytes, compresslevel=9)
+    compressed_base64 = base64.b64encode(compressed_bytes).decode("ascii")
+
+    # Inject compressed JSON into the template
     # Find and replace the content of the <script id="autopsy-data"> tag
+    # Change type to indicate compression
     pattern = r'(<script id="autopsy-data" type="application/json">)(.*?)(</script>)'
-    replacement = r"\1" + json_str + r"\3"
+    replacement = (
+        r'<script id="autopsy-data" type="application/json" data-compressed="gzip">'
+        + compressed_base64
+        + r"</script>"
+    )
     html_content = re.sub(pattern, replacement, template_content, flags=re.DOTALL)
 
     # Write to file if output_path is provided

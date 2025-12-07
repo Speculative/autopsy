@@ -4,6 +4,7 @@
   import HistoryView from "./HistoryView.svelte";
   import DashboardView from "./DashboardView.svelte";
   import TreeView from "./TreeView.svelte";
+  import * as pako from "pako";
 
   // Conditional imports for live mode
   let createWebSocketConnection: any;
@@ -114,9 +115,27 @@
     const dataElement = document.getElementById("autopsy-data");
     if (dataElement && dataElement.textContent) {
       try {
-        const parsed = JSON.parse(
-          dataElement.textContent
-        ) as Partial<AutopsyData>;
+        let jsonString: string;
+
+        // Check if data is compressed
+        const isCompressed = dataElement.getAttribute("data-compressed") === "gzip";
+
+        if (isCompressed) {
+          // Decompress base64-encoded gzipped data
+          const base64Data = dataElement.textContent.trim();
+          const binaryString = atob(base64Data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const decompressed = pako.inflate(bytes, { to: "string" });
+          jsonString = decompressed;
+        } else {
+          // Use uncompressed data directly
+          jsonString = dataElement.textContent;
+        }
+
+        const parsed = JSON.parse(jsonString) as Partial<AutopsyData>;
         data = {
           generated_at: parsed.generated_at ?? "",
           call_sites: parsed.call_sites ?? [],
