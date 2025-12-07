@@ -3,6 +3,10 @@
   import TreeView from "./TreeView.svelte";
   import { tick } from "svelte";
 
+  // Sort state types (must be defined before Props interface)
+  type SortDirection = 'asc' | 'desc';
+  type ColumnSort = { columnName: string; direction: SortDirection };
+
   interface Props {
     data: AutopsyData;
     highlightedLogIndex?: number | null;
@@ -11,6 +15,7 @@
     frameFilter?: string | null;
     columnOrders?: Record<string, string[]>;
     collapsedCallSites?: Record<string, boolean>;
+    columnSorts?: Record<string, ColumnSort[]>;
     onShowInHistory?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
@@ -26,18 +31,13 @@
     frameFilter = null,
     columnOrders = {},
     collapsedCallSites = $bindable({}),
+    columnSorts = $bindable({}),
     onShowInHistory,
     onEntryClick,
     onHideCallSite,
     onShowCallSite,
     onColumnOrderChange,
   }: Props = $props();
-
-  // Sort state: array of {columnName, direction} where direction is 'asc' or 'desc'
-  // The order in the array determines priority (first = primary sort)
-  type SortDirection = 'asc' | 'desc';
-  type ColumnSort = { columnName: string; direction: SortDirection };
-  const columnSorts = $state<Record<string, ColumnSort[]>>({});
 
   // Drag-and-drop state
   let draggedColumn = $state<{ callSiteKey: string; columnName: string } | null>(null);

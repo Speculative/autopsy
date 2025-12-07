@@ -47,6 +47,11 @@
   let hideSkippedLogs = $state(false);
   let collapsedCallSites = $state<Record<string, boolean>>({});
 
+  // Sort state for Streams view: maps callSiteKey -> array of {columnName, direction}
+  type SortDirection = 'asc' | 'desc';
+  type ColumnSort = { columnName: string; direction: SortDirection };
+  let columnSorts = $state<Record<string, ColumnSort[]>>({});
+
   // Live mode state
   let liveMode = $state(false);
   let wsConnection = $state<WebSocket | null>(null);
@@ -487,6 +492,7 @@
           {frameFilter}
           {columnOrders}
           bind:collapsedCallSites
+          bind:columnSorts
           onShowInHistory={handleShowInHistory}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
