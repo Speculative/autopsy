@@ -29,6 +29,12 @@
 
   const collapsedCallSites = $state<Record<string, boolean>>({});
 
+  // Sort state: array of {columnName, direction} where direction is 'asc' or 'desc'
+  // The order in the array determines priority (first = primary sort)
+  type SortDirection = 'asc' | 'desc';
+  type ColumnSort = { columnName: string; direction: SortDirection };
+  const columnSorts = $state<Record<string, ColumnSort[]>>({});
+
   function getCallSiteKey(callSite: CallSite): string {
     return `${callSite.filename}:${callSite.line}`;
   }
@@ -87,6 +93,70 @@
     return Array.from(columnNames).sort();
   }
 
+  // Check if a value is a primitive type that can be sorted
+  function isSortable(value: unknown): boolean {
+    if (value === null || value === undefined) return true;
+    const type = typeof value;
+    return type === 'string' || type === 'number' || type === 'boolean';
+  }
+
+  // Check if a column is sortable (all non-undefined values are primitives)
+  function isColumnSortable(callSite: CallSite, columnName: string): boolean {
+    for (const valueGroup of callSite.value_groups) {
+      const value = getValueForColumn(valueGroup, columnName);
+      if (value !== undefined && !isSortable(value)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Get the current sort state for a column
+  function getColumnSortState(callSite: CallSite, columnName: string): SortDirection | null {
+    const callSiteKey = getCallSiteKey(callSite);
+    const sorts = columnSorts[callSiteKey] || [];
+    const sort = sorts.find(s => s.columnName === columnName);
+    return sort?.direction || null;
+  }
+
+  // Toggle sort for a column: null -> desc -> asc -> null
+  function toggleSort(callSite: CallSite, columnName: string) {
+    const callSiteKey = getCallSiteKey(callSite);
+    const sorts = columnSorts[callSiteKey] || [];
+    const existingIndex = sorts.findIndex(s => s.columnName === columnName);
+
+    if (existingIndex === -1) {
+      // Not sorted, add as descending
+      columnSorts[callSiteKey] = [...sorts, { columnName, direction: 'desc' }];
+    } else {
+      const currentDirection = sorts[existingIndex].direction;
+      if (currentDirection === 'desc') {
+        // Change to ascending
+        const newSorts = [...sorts];
+        newSorts[existingIndex] = { columnName, direction: 'asc' };
+        columnSorts[callSiteKey] = newSorts;
+      } else {
+        // Remove sort
+        columnSorts[callSiteKey] = sorts.filter((_, i) => i !== existingIndex);
+      }
+    }
+  }
+
+  // Get the icon for a column's sort state
+  function getSortIcon(direction: SortDirection | null): string {
+    if (direction === 'desc') return '▼';
+    if (direction === 'asc') return '▲';
+    return '─';
+  }
+
+  // Get the sort priority number (1-indexed) for display
+  function getSortPriority(callSite: CallSite, columnName: string): number | null {
+    const callSiteKey = getCallSiteKey(callSite);
+    const sorts = columnSorts[callSiteKey] || [];
+    const index = sorts.findIndex(s => s.columnName === columnName);
+    return index === -1 ? null : index + 1;
+  }
+
   // Get filtered and sorted call sites (dashboard at bottom)
   let filteredCallSites = $derived.by(() => {
     const regular: CallSite[] = [];
@@ -100,9 +170,51 @@
       // Filter value_groups based on frameFilter if active
       let filteredValueGroups = callSite.value_groups;
       if (frameFilter) {
-        filteredValueGroups = callSite.value_groups.filter(valueGroup => 
+        filteredValueGroups = callSite.value_groups.filter(valueGroup =>
           stackTraceContainsFrame(valueGroup.stack_trace_id, frameFilter)
         );
+      }
+
+      // Apply sorting if configured
+      const sorts = columnSorts[callSiteKey] || [];
+      if (sorts.length > 0) {
+        filteredValueGroups = [...filteredValueGroups].sort((a, b) => {
+          // Compare by each sort column in priority order
+          for (const sort of sorts) {
+            const aVal = getValueForColumn(a, sort.columnName);
+            const bVal = getValueForColumn(b, sort.columnName);
+
+            // Handle undefined values (always sort to end)
+            if (aVal === undefined && bVal === undefined) continue;
+            if (aVal === undefined) return 1;
+            if (bVal === undefined) return -1;
+
+            // Handle null values (sort after defined values but before undefined)
+            if (aVal === null && bVal === null) continue;
+            if (aVal === null) return 1;
+            if (bVal === null) return -1;
+
+            // Compare primitive values
+            let comparison = 0;
+            if (typeof aVal === 'string' && typeof bVal === 'string') {
+              comparison = aVal.localeCompare(bVal);
+            } else if (typeof aVal === 'number' && typeof bVal === 'number') {
+              comparison = aVal - bVal;
+            } else if (typeof aVal === 'boolean' && typeof bVal === 'boolean') {
+              comparison = (aVal === bVal) ? 0 : (aVal ? 1 : -1);
+            } else {
+              // Mixed types - convert to string for comparison
+              comparison = String(aVal).localeCompare(String(bVal));
+            }
+
+            if (comparison !== 0) {
+              return sort.direction === 'asc' ? comparison : -comparison;
+            }
+          }
+
+          // If all sort columns are equal, fall back to log_index
+          return a.log_index - b.log_index;
+        });
       }
 
       // Create filtered call site
@@ -321,7 +433,34 @@
               <tr>
                 <th class="log-number-header">#</th>
                 {#each getColumnNames(callSite) as columnName}
-                  <th class="column-header">{columnName}</th>
+                  {@const sortable = isColumnSortable(callSite, columnName)}
+                  {@const sortState = getColumnSortState(callSite, columnName)}
+                  {@const sortPriority = getSortPriority(callSite, columnName)}
+                  <th class="column-header">
+                    <div class="column-header-content">
+                      <span class="column-name">{columnName}</span>
+                      {#if sortable}
+                        <button
+                          class="sort-button"
+                          class:sorted={sortState !== null}
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            toggleSort(callSite, columnName);
+                          }}
+                          title={sortState === null
+                            ? 'Click to sort descending'
+                            : sortState === 'desc'
+                              ? 'Click to sort ascending'
+                              : 'Click to remove sort'}
+                        >
+                          {getSortIcon(sortState)}
+                          {#if sortPriority !== null && (columnSorts[getCallSiteKey(callSite)]?.length ?? 0) > 1}
+                            <span class="sort-priority">{sortPriority}</span>
+                          {/if}
+                        </button>
+                      {/if}
+                    </div>
+                  </th>
                 {/each}
               </tr>
             </thead>
@@ -717,6 +856,57 @@
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     border-bottom: 2px solid #e5e5e5;
     white-space: nowrap;
+  }
+
+  .column-header-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .column-name {
+    flex: 0 0 auto;
+  }
+
+  .sort-button {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 1px solid #cbd5e1;
+    border-radius: 3px;
+    padding: 2px 6px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: #64748b;
+    transition: all 0.2s;
+    font-family: monospace;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 1.5rem;
+    justify-content: center;
+  }
+
+  .sort-button:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #475569;
+  }
+
+  .sort-button.sorted {
+    background: #881391;
+    border-color: #881391;
+    color: white;
+  }
+
+  .sort-button.sorted:hover {
+    background: #6b0f73;
+    border-color: #6b0f73;
+  }
+
+  .sort-priority {
+    font-size: 0.65rem;
+    font-weight: 600;
+    margin-left: 1px;
   }
 
   .log-number-header {
