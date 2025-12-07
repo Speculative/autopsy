@@ -9,10 +9,12 @@
     selectedLogIndex?: number | null;
     hiddenCallSites?: Set<string>;
     frameFilter?: string | null;
+    columnOrders?: Record<string, string[]>;
     onShowInHistory?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
     onShowCallSite?: (callSiteKey: string) => void;
+    onColumnOrderChange?: (callSiteKey: string, newOrder: string[]) => void;
   }
 
   let {
@@ -21,10 +23,12 @@
     selectedLogIndex = null,
     hiddenCallSites = new Set<string>(),
     frameFilter = null,
+    columnOrders = {},
     onShowInHistory,
     onEntryClick,
     onHideCallSite,
     onShowCallSite,
+    onColumnOrderChange,
   }: Props = $props();
 
   const collapsedCallSites = $state<Record<string, boolean>>({});
@@ -34,6 +38,10 @@
   type SortDirection = 'asc' | 'desc';
   type ColumnSort = { columnName: string; direction: SortDirection };
   const columnSorts = $state<Record<string, ColumnSort[]>>({});
+
+  // Drag-and-drop state
+  let draggedColumn = $state<{ callSiteKey: string; columnName: string } | null>(null);
+  let dropTarget = $state<{ callSiteKey: string; index: number } | null>(null);
 
   function getCallSiteKey(callSite: CallSite): string {
     return `${callSite.filename}:${callSite.line}`;
@@ -80,6 +88,7 @@
 
   // Get all unique column names (argument names) for a call site
   function getColumnNames(callSite: CallSite): string[] {
+    const callSiteKey = getCallSiteKey(callSite);
     const columnNames = new Set<string>();
     for (const valueGroup of callSite.value_groups) {
       if (valueGroup.values) {
@@ -90,7 +99,21 @@
         }
       }
     }
-    return Array.from(columnNames).sort();
+
+    const allColumns = Array.from(columnNames);
+
+    // If we have a stored order, use it and append any new columns
+    const storedOrder = columnOrders[callSiteKey];
+    if (storedOrder) {
+      // Filter stored order to only include columns that still exist
+      const orderedCols = storedOrder.filter(col => allColumns.includes(col));
+      // Add any new columns not in stored order (preserve original order)
+      const newCols = allColumns.filter(col => !storedOrder.includes(col));
+      return [...orderedCols, ...newCols];
+    }
+
+    // Return columns in their natural order from the data (matches call site order)
+    return allColumns;
   }
 
   // Check if a value is a primitive type that can be sorted
@@ -246,6 +269,75 @@
 
   function handleRowClick(valueGroup: ValueGroup) {
     onEntryClick?.(valueGroup.log_index, valueGroup.stack_trace_id);
+  }
+
+  // Drag-and-drop handlers
+  function handleDragStart(callSite: CallSite, columnName: string, e: DragEvent) {
+    const callSiteKey = getCallSiteKey(callSite);
+    draggedColumn = { callSiteKey, columnName };
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', columnName);
+    }
+  }
+
+  function handleDragOver(callSite: CallSite, index: number, e: DragEvent) {
+    e.preventDefault();
+    const callSiteKey = getCallSiteKey(callSite);
+    if (draggedColumn && draggedColumn.callSiteKey === callSiteKey) {
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+
+      // Adjust the drop target index to account for the dragged column's removal
+      const columns = getColumnNames(callSite);
+      const draggedIndex = columns.indexOf(draggedColumn.columnName);
+
+      // If dragging from left to right, the visual indicator should be one position ahead
+      // because the dragged column will be removed first
+      const adjustedIndex = draggedIndex < index ? index + 1 : index;
+
+      dropTarget = { callSiteKey, index: adjustedIndex };
+    }
+  }
+
+  function handleDragLeave() {
+    dropTarget = null;
+  }
+
+  function handleDrop(callSite: CallSite, targetIndex: number, e: DragEvent) {
+    e.preventDefault();
+    const callSiteKey = getCallSiteKey(callSite);
+
+    if (!draggedColumn || draggedColumn.callSiteKey !== callSiteKey) {
+      draggedColumn = null;
+      dropTarget = null;
+      return;
+    }
+
+    const columns = getColumnNames(callSite);
+    const draggedIndex = columns.indexOf(draggedColumn.columnName);
+
+    if (draggedIndex === -1) {
+      draggedColumn = null;
+      dropTarget = null;
+      return;
+    }
+
+    // Create new order
+    const newOrder = [...columns];
+    newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, draggedColumn.columnName);
+
+    onColumnOrderChange?.(callSiteKey, newOrder);
+
+    draggedColumn = null;
+    dropTarget = null;
+  }
+
+  function handleDragEnd() {
+    draggedColumn = null;
+    dropTarget = null;
   }
 
   // Effect to scroll to and highlight the entry when highlightedLogIndex changes
@@ -432,11 +524,23 @@
               </tr>
               <tr>
                 <th class="log-number-header">#</th>
-                {#each getColumnNames(callSite) as columnName}
+                {#each getColumnNames(callSite) as columnName, columnIndex}
                   {@const sortable = isColumnSortable(callSite, columnName)}
                   {@const sortState = getColumnSortState(callSite, columnName)}
                   {@const sortPriority = getSortPriority(callSite, columnName)}
-                  <th class="column-header">
+                  {@const isDragging = draggedColumn?.callSiteKey === getCallSiteKey(callSite) && draggedColumn?.columnName === columnName}
+                  {@const isDropTarget = dropTarget?.callSiteKey === getCallSiteKey(callSite) && dropTarget?.index === columnIndex}
+                  <th
+                    class="column-header"
+                    class:dragging={isDragging}
+                    class:drop-target-before={isDropTarget}
+                    draggable="true"
+                    ondragstart={(e) => handleDragStart(callSite, columnName, e)}
+                    ondragover={(e) => handleDragOver(callSite, columnIndex, e)}
+                    ondragleave={handleDragLeave}
+                    ondrop={(e) => handleDrop(callSite, columnIndex, e)}
+                    ondragend={handleDragEnd}
+                  >
                     <div class="column-header-content">
                       <span class="column-name">{columnName}</span>
                       {#if sortable}
@@ -462,6 +566,9 @@
                     </div>
                   </th>
                 {/each}
+                {#if dropTarget?.callSiteKey === getCallSiteKey(callSite) && dropTarget?.index === getColumnNames(callSite).length}
+                  <th class="drop-target-after"></th>
+                {/if}
               </tr>
             </thead>
             {#if isCollapsed(callSite)}
@@ -856,6 +963,39 @@
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     border-bottom: 2px solid #e5e5e5;
     white-space: nowrap;
+    position: relative;
+  }
+
+  .column-header {
+    cursor: grab;
+    transition: background-color 0.2s, opacity 0.2s;
+  }
+
+  .column-header:active {
+    cursor: grabbing;
+  }
+
+  .column-header.dragging {
+    opacity: 0.5;
+    background-color: #f0f0f0;
+  }
+
+  .column-header.drop-target-before::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background-color: #2563eb;
+    z-index: 100;
+  }
+
+  .drop-target-after {
+    padding: 0 !important;
+    width: 3px !important;
+    background-color: #2563eb;
+    position: relative;
   }
 
   .column-header-content {

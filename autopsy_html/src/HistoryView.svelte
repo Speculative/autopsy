@@ -11,6 +11,7 @@
     showDashboardCalls?: boolean;
     activeTab?: "streams" | "history" | "dashboard";
     frameFilter?: string | null;
+    columnOrders?: Record<string, string[]>;
     onShowInStream?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
@@ -25,6 +26,7 @@
     showDashboardCalls = true,
     activeTab = "history",
     frameFilter = null,
+    columnOrders = {},
     onShowInStream,
     onEntryClick,
     onHideCallSite,
@@ -137,9 +139,42 @@
     if (!stackTraceId) return false;
     const trace = data.stack_traces[stackTraceId];
     if (!trace) return false;
-    return trace.frames.some(frame => 
+    return trace.frames.some(frame =>
       createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
     );
+  }
+
+  // Get ordered values for a value group based on column order
+  function getOrderedValues(valueGroup: ValueGroup, callSite: CallSite) {
+    if (!valueGroup.values) return [];
+
+    const callSiteKey = getCallSiteKey(callSite);
+    const storedOrder = columnOrders[callSiteKey];
+
+    if (!storedOrder) {
+      // No stored order, return as-is
+      return valueGroup.values;
+    }
+
+    // Create a map for quick lookup
+    const valueMap = new Map(valueGroup.values.map(v => [v.name, v]));
+
+    // Order according to stored order, then add any values not in the order
+    const ordered = [];
+    for (const name of storedOrder) {
+      const value = valueMap.get(name);
+      if (value) {
+        ordered.push(value);
+        valueMap.delete(name);
+      }
+    }
+
+    // Add remaining values (not in stored order)
+    for (const value of valueMap.values()) {
+      ordered.push(value);
+    }
+
+    return ordered;
   }
 
   function handleEntryClick(entry: HistoryEntry) {
@@ -348,7 +383,7 @@
                       {#if skippedEntry.valueGroup.name}
                         <span class="log-name-inline">{skippedEntry.valueGroup.name}</span>
                       {/if}
-                      {#each skippedEntry.valueGroup.values as valueWithName}
+                      {#each getOrderedValues(skippedEntry.valueGroup, skippedEntry.callSite) as valueWithName}
                         <div class="value-item">
                           {#if valueWithName.name}
                             <div class="value-label">{valueWithName.name}:</div>
@@ -463,7 +498,7 @@
               {#if entry.valueGroup.name}
                 <span class="log-name-inline">{entry.valueGroup.name}</span>
               {/if}
-              {#each entry.valueGroup.values as valueWithName}
+              {#each getOrderedValues(entry.valueGroup, entry.callSite) as valueWithName}
                 <div class="value-item">
                   {#if valueWithName.name}
                     <div class="value-label">{valueWithName.name}:</div>

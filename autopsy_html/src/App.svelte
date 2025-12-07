@@ -40,6 +40,9 @@
   let frameFilter = $state<string | null>(null);
   let menuOpenForFrame = $state<string | null>(null);
 
+  // Column order state: maps callSiteKey -> array of column names in order
+  let columnOrders = $state<Record<string, string[]>>({});
+
   // Live mode state
   let liveMode = $state(false);
   let wsConnection = $state<WebSocket | null>(null);
@@ -409,9 +412,14 @@
   function stackTraceContainsFrame(stackTraceId: string, frameKey: string): boolean {
     const trace = data.stack_traces[stackTraceId];
     if (!trace) return false;
-    return trace.frames.some(frame => 
+    return trace.frames.some(frame =>
       createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
     );
+  }
+
+  function handleColumnOrderChange(callSiteKey: string, newOrder: string[]) {
+    columnOrders[callSiteKey] = newOrder;
+    columnOrders = { ...columnOrders };
   }
 </script>
 
@@ -473,10 +481,12 @@
           {selectedLogIndex}
           hiddenCallSites={hiddenCallSites}
           {frameFilter}
+          {columnOrders}
           onShowInHistory={handleShowInHistory}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
           onShowCallSite={handleShowCallSite}
+          onColumnOrderChange={handleColumnOrderChange}
         />
       {:else if activeTab === "history"}
         <HistoryView
@@ -487,6 +497,7 @@
           {showDashboardCalls}
           {activeTab}
           {frameFilter}
+          {columnOrders}
           onShowInStream={handleShowInStream}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
