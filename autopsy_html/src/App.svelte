@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { AutopsyData, StackTrace } from "./types";
+  import type { AutopsyData, StackTrace, CallSite, ComputedColumn } from "./types";
   import StreamsView from "./StreamsView.svelte";
   import HistoryView from "./HistoryView.svelte";
   import DashboardView from "./DashboardView.svelte";
   import TreeView from "./TreeView.svelte";
+  import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import * as pako from "pako";
 
   // Conditional imports for live mode
@@ -51,6 +52,14 @@
   type SortDirection = 'asc' | 'desc';
   type ColumnSort = { columnName: string; direction: SortDirection };
   let columnSorts = $state<Record<string, ColumnSort[]>>({});
+
+  // Computed columns state: maps callSiteKey -> array of computed columns
+  let computedColumns = $state<Record<string, ComputedColumn[]>>({});
+  let computedColumnModalOpen = $state<{
+    callSite: CallSite;
+    callSiteKey: string;
+    existingColumn?: ComputedColumn;
+  } | null>(null);
 
   // Live mode state
   let liveMode = $state(false);
@@ -430,6 +439,48 @@
     columnOrders[callSiteKey] = newOrder;
     columnOrders = { ...columnOrders };
   }
+
+  function handleOpenComputedColumnModal(callSite: CallSite, existingColumn?: ComputedColumn) {
+    const callSiteKey = getCallSiteKey(callSite);
+    computedColumnModalOpen = { callSite, callSiteKey, existingColumn };
+  }
+
+  function handleSaveComputedColumn(column: ComputedColumn) {
+    const { callSiteKey } = column;
+    const existing = computedColumns[callSiteKey] || [];
+    const index = existing.findIndex(c => c.id === column.id);
+
+    if (index >= 0) {
+      existing[index] = column;
+    } else {
+      existing.push(column);
+    }
+
+    computedColumns[callSiteKey] = existing;
+    computedColumns = { ...computedColumns };
+    computedColumnModalOpen = null;
+  }
+
+  function handleDeleteComputedColumn() {
+    if (!computedColumnModalOpen?.existingColumn) return;
+    const { callSiteKey, existingColumn } = computedColumnModalOpen;
+
+    computedColumns[callSiteKey] = (computedColumns[callSiteKey] || [])
+      .filter(c => c.id !== existingColumn.id);
+    computedColumns = { ...computedColumns };
+
+    const order = columnOrders[callSiteKey];
+    if (order) {
+      columnOrders[callSiteKey] = order.filter(name => name !== `computed:${existingColumn.id}`);
+      columnOrders = { ...columnOrders };
+    }
+
+    computedColumnModalOpen = null;
+  }
+
+  function getCallSiteKey(callSite: CallSite): string {
+    return `${callSite.filename}:${callSite.line}`;
+  }
 </script>
 
 <div class="app-container">
@@ -491,6 +542,7 @@
           hiddenCallSites={hiddenCallSites}
           {frameFilter}
           {columnOrders}
+          {computedColumns}
           bind:collapsedCallSites
           bind:columnSorts
           onShowInHistory={handleShowInHistory}
@@ -498,6 +550,7 @@
           onHideCallSite={handleHideCallSite}
           onShowCallSite={handleShowCallSite}
           onColumnOrderChange={handleColumnOrderChange}
+          onOpenComputedColumnModal={handleOpenComputedColumnModal}
         />
       {:else if activeTab === "history"}
         <HistoryView
@@ -509,6 +562,7 @@
           {activeTab}
           {frameFilter}
           {columnOrders}
+          {computedColumns}
           bind:hideSkippedLogs
           onShowInStream={handleShowInStream}
           onEntryClick={handleEntryClick}
@@ -656,6 +710,18 @@
         </div>
       </div>
     </aside>
+  {/if}
+
+  {#if computedColumnModalOpen}
+    <ComputedColumnModal
+      {data}
+      callSite={computedColumnModalOpen.callSite}
+      callSiteKey={computedColumnModalOpen.callSiteKey}
+      existingColumn={computedColumnModalOpen.existingColumn}
+      onSave={handleSaveComputedColumn}
+      onDelete={handleDeleteComputedColumn}
+      onClose={() => computedColumnModalOpen = null}
+    />
   {/if}
 </div>
 

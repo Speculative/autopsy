@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite, ValueGroup } from "./types";
+  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
   import TreeView from "./TreeView.svelte";
   import { tick } from "svelte";
+  import { evaluateComputedColumn, isComputedColumnSortable, getComputedColumnDisplayName } from "./computedColumns";
 
   // Sort state types (must be defined before Props interface)
   type SortDirection = 'asc' | 'desc';
@@ -14,6 +15,7 @@
     hiddenCallSites?: Set<string>;
     frameFilter?: string | null;
     columnOrders?: Record<string, string[]>;
+    computedColumns?: Record<string, ComputedColumn[]>;
     collapsedCallSites?: Record<string, boolean>;
     columnSorts?: Record<string, ColumnSort[]>;
     onShowInHistory?: (logIndex: number) => void;
@@ -21,6 +23,7 @@
     onHideCallSite?: (callSiteKey: string) => void;
     onShowCallSite?: (callSiteKey: string) => void;
     onColumnOrderChange?: (callSiteKey: string, newOrder: string[]) => void;
+    onOpenComputedColumnModal?: (callSite: CallSite, existingColumn?: ComputedColumn) => void;
   }
 
   let {
@@ -30,6 +33,7 @@
     hiddenCallSites = new Set<string>(),
     frameFilter = null,
     columnOrders = {},
+    computedColumns = {},
     collapsedCallSites = $bindable({}),
     columnSorts = $bindable({}),
     onShowInHistory,
@@ -37,6 +41,7 @@
     onHideCallSite,
     onShowCallSite,
     onColumnOrderChange,
+    onOpenComputedColumnModal,
   }: Props = $props();
 
   // Drag-and-drop state
@@ -98,6 +103,8 @@
   // Get all unique column names (argument names) for a call site
   function getColumnNames(callSite: CallSite): string[] {
     const callSiteKey = getCallSiteKey(callSite);
+
+    // Get regular columns
     const columnNames = new Set<string>();
     for (const valueGroup of callSite.value_groups) {
       if (valueGroup.values) {
@@ -109,7 +116,13 @@
       }
     }
 
-    const allColumns = Array.from(columnNames);
+    const regularColumns = Array.from(columnNames);
+
+    // Get computed columns for this call site
+    const computed = computedColumns[callSiteKey] || [];
+    const computedColumnNames = computed.map(col => `computed:${col.id}`);
+
+    const allColumns = [...regularColumns, ...computedColumnNames];
 
     // If we have a stored order, use it and append any new columns
     const storedOrder = columnOrders[callSiteKey];
@@ -134,8 +147,23 @@
 
   // Check if a column is sortable (all non-undefined values are primitives)
   function isColumnSortable(callSite: CallSite, columnName: string): boolean {
+    // Check if computed column
+    if (columnName.startsWith('computed:')) {
+      const columnId = columnName.substring('computed:'.length);
+      const callSiteKey = getCallSiteKey(callSite);
+      const computedCol = computedColumns[callSiteKey]?.find(c => c.id === columnId);
+      if (!computedCol) return false;
+
+      // Evaluate for all rows and check sortability
+      const results = callSite.value_groups.map(vg =>
+        evaluateComputedColumn(computedCol.expression, vg, data)
+      );
+      return isComputedColumnSortable(results);
+    }
+
+    // Regular column check
     for (const valueGroup of callSite.value_groups) {
-      const value = getValueForColumn(valueGroup, columnName);
+      const value = getValueForColumn(valueGroup, columnName, callSite);
       if (value !== undefined && !isSortable(value)) {
         return false;
       }
@@ -213,8 +241,8 @@
         filteredValueGroups = [...filteredValueGroups].sort((a, b) => {
           // Compare by each sort column in priority order
           for (const sort of sorts) {
-            const aVal = getValueForColumn(a, sort.columnName);
-            const bVal = getValueForColumn(b, sort.columnName);
+            const aVal = getValueForColumn(a, sort.columnName, callSite);
+            const bVal = getValueForColumn(b, sort.columnName, callSite);
 
             // Handle undefined values (always sort to end)
             if (aVal === undefined && bVal === undefined) continue;
@@ -269,8 +297,22 @@
   // Get value for a specific column in a value group
   function getValueForColumn(
     valueGroup: ValueGroup,
-    columnName: string
+    columnName: string,
+    callSite: CallSite
   ): unknown | undefined {
+    // Check if this is a computed column
+    if (columnName.startsWith('computed:')) {
+      const columnId = columnName.substring('computed:'.length);
+      const callSiteKey = getCallSiteKey(callSite);
+      const computedCol = computedColumns[callSiteKey]?.find(c => c.id === columnId);
+      if (computedCol) {
+        const result = evaluateComputedColumn(computedCol.expression, valueGroup, data);
+        return result.error ? { __error: result.error } : result.value;
+      }
+      return undefined;
+    }
+
+    // Regular column
     if (!valueGroup.values) return undefined;
     const value = valueGroup.values.find((v) => v.name === columnName);
     return value?.value;
@@ -278,6 +320,22 @@
 
   function handleRowClick(valueGroup: ValueGroup) {
     onEntryClick?.(valueGroup.log_index, valueGroup.stack_trace_id);
+  }
+
+  function getComputedColumn(callSite: CallSite, columnName: string): ComputedColumn | undefined {
+    if (!columnName.startsWith('computed:')) return undefined;
+    const columnId = columnName.substring('computed:'.length);
+    const callSiteKey = getCallSiteKey(callSite);
+    return computedColumns[callSiteKey]?.find(c => c.id === columnId);
+  }
+
+  function handleColumnDoubleClick(callSite: CallSite, columnName: string) {
+    if (columnName.startsWith('computed:')) {
+      const column = getComputedColumn(callSite, columnName);
+      if (column && onOpenComputedColumnModal) {
+        onOpenComputedColumnModal(callSite, column);
+      }
+    }
   }
 
   // Drag-and-drop handlers
@@ -487,7 +545,7 @@
                 }}
               >
                 <th
-                  colspan={getColumnNames(callSite).length + 1}
+                  colspan={getColumnNames(callSite).length + 2}
                   class="call-site-info"
                 >
                   <div class="header-left">
@@ -539,8 +597,12 @@
                   {@const sortPriority = getSortPriority(callSite, columnName)}
                   {@const isDragging = draggedColumn?.callSiteKey === getCallSiteKey(callSite) && draggedColumn?.columnName === columnName}
                   {@const isDropTarget = dropTarget?.callSiteKey === getCallSiteKey(callSite) && dropTarget?.index === columnIndex}
+                  {@const isComputed = columnName.startsWith('computed:')}
+                  {@const computedCol = isComputed ? getComputedColumn(callSite, columnName) : undefined}
+                  {@const displayName = isComputed && computedCol ? getComputedColumnDisplayName(computedCol) : columnName}
                   <th
                     class="column-header"
+                    class:computed-column={isComputed}
                     class:dragging={isDragging}
                     class:drop-target-before={isDropTarget}
                     draggable="true"
@@ -549,9 +611,14 @@
                     ondragleave={handleDragLeave}
                     ondrop={(e) => handleDrop(callSite, columnIndex, e)}
                     ondragend={handleDragEnd}
+                    ondblclick={() => handleColumnDoubleClick(callSite, columnName)}
+                    title={isComputed && computedCol ? `Expression: ${computedCol.expression}` : ''}
                   >
                     <div class="column-header-content">
-                      <span class="column-name">{columnName}</span>
+                      {#if isComputed}
+                        <span class="computed-icon">ƒ</span>
+                      {/if}
+                      <span class="column-name">{displayName}</span>
                       {#if sortable}
                         <button
                           class="sort-button"
@@ -578,6 +645,18 @@
                 {#if dropTarget?.callSiteKey === getCallSiteKey(callSite) && dropTarget?.index === getColumnNames(callSite).length}
                   <th class="drop-target-after"></th>
                 {/if}
+                <th class="add-column-header">
+                  <button
+                    class="add-column-button"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      onOpenComputedColumnModal?.(callSite);
+                    }}
+                    title="Add computed column"
+                  >
+                    +
+                  </button>
+                </th>
               </tr>
             </thead>
             {#if isCollapsed(callSite)}
@@ -595,7 +674,7 @@
                   }}
                 >
                   <td
-                    colspan={getColumnNames(callSite).length + 1}
+                    colspan={getColumnNames(callSite).length + 2}
                     class="collapsed-summary"
                   >
                     ...{callSite.value_groups.length}
@@ -655,11 +734,14 @@
                       </span>
                     </td>
                     {#each getColumnNames(callSite) as columnName}
+                      {@const cellValue = getValueForColumn(valueGroup, columnName, callSite)}
                       <td class="value-cell">
-                        {#if getValueForColumn(valueGroup, columnName) !== undefined}
-                          <TreeView
-                            value={getValueForColumn(valueGroup, columnName)}
-                          />
+                        {#if cellValue !== undefined}
+                          {#if typeof cellValue === 'object' && cellValue !== null && '__error' in cellValue}
+                            <span class="computed-error">{cellValue.__error}</span>
+                          {:else}
+                            <TreeView value={cellValue} />
+                          {/if}
                         {:else}
                           <span class="empty-cell">—</span>
                         {/if}
@@ -1031,7 +1113,7 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    min-width: 1.5rem;
+    min-width: 1.9rem;
     justify-content: center;
   }
 
@@ -1341,5 +1423,56 @@
     .value-item {
       width: 100%;
     }
+  }
+
+  /* Computed column styles */
+  .computed-column {
+    background: #faf5ff !important;
+    cursor: pointer;
+  }
+
+  .computed-column:hover {
+    background: #f3e8ff !important;
+  }
+
+  .computed-icon {
+    color: #9333ea;
+    font-weight: bold;
+    font-size: 0.9rem;
+    margin-right: 0.25rem;
+  }
+
+  .add-column-header {
+    padding: 0.5rem;
+    border-bottom: 2px solid #e5e5e5;
+    width: 3rem;
+    background: #f9f9f9;
+  }
+
+  .add-column-button {
+    background: #f3f4f6;
+    border: 1px dashed #9ca3af;
+    border-radius: 4px;
+    width: 2rem;
+    height: 2rem;
+    font-size: 1.2rem;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .add-column-button:hover {
+    background: #e5e7eb;
+    border-color: #6b7280;
+    color: #374151;
+  }
+
+  .computed-error {
+    color: #dc2626;
+    font-style: italic;
+    font-size: 0.85rem;
   }
 </style>

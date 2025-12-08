@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite, ValueGroup } from "./types";
+  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
   import TreeView from "./TreeView.svelte";
   import { tick } from "svelte";
+  import { evaluateComputedColumn, getComputedColumnDisplayName } from "./computedColumns";
 
   interface Props {
     data: AutopsyData;
@@ -12,6 +13,7 @@
     activeTab?: "streams" | "history" | "dashboard";
     frameFilter?: string | null;
     columnOrders?: Record<string, string[]>;
+    computedColumns?: Record<string, ComputedColumn[]>;
     hideSkippedLogs?: boolean;
     onShowInStream?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
@@ -28,6 +30,7 @@
     activeTab = "history",
     frameFilter = null,
     columnOrders = {},
+    computedColumns = {},
     hideSkippedLogs = $bindable(false),
     onShowInStream,
     onEntryClick,
@@ -148,31 +151,68 @@
 
   // Get ordered values for a value group based on column order
   function getOrderedValues(valueGroup: ValueGroup, callSite: CallSite) {
-    if (!valueGroup.values) return [];
-
     const callSiteKey = getCallSiteKey(callSite);
     const storedOrder = columnOrders[callSiteKey];
 
+    // Start with regular values
+    const regularValues = valueGroup.values || [];
+
     if (!storedOrder) {
-      // No stored order, return as-is
-      return valueGroup.values;
+      // No stored order, return regular values plus computed columns
+      const computed = computedColumns[callSiteKey] || [];
+      const computedValues = computed.map(col => {
+        const result = evaluateComputedColumn(col.expression, valueGroup, data);
+        return {
+          name: getComputedColumnDisplayName(col),
+          value: result.error ? { __error: result.error } : result.value
+        };
+      });
+      return [...regularValues, ...computedValues];
     }
 
-    // Create a map for quick lookup
-    const valueMap = new Map(valueGroup.values.map(v => [v.name, v]));
+    // Create a map for regular values
+    const valueMap = new Map(regularValues.map(v => [v.name, v]));
 
-    // Order according to stored order, then add any values not in the order
+    // Create a map for computed values
+    const computed = computedColumns[callSiteKey] || [];
+    const computedMap = new Map(
+      computed.map(col => {
+        const result = evaluateComputedColumn(col.expression, valueGroup, data);
+        return [
+          `computed:${col.id}`,
+          {
+            name: getComputedColumnDisplayName(col),
+            value: result.error ? { __error: result.error } : result.value
+          }
+        ];
+      })
+    );
+
+    // Order according to stored order (including computed columns)
     const ordered = [];
     for (const name of storedOrder) {
-      const value = valueMap.get(name);
-      if (value) {
-        ordered.push(value);
-        valueMap.delete(name);
+      if (name.startsWith('computed:')) {
+        const computedValue = computedMap.get(name);
+        if (computedValue) {
+          ordered.push(computedValue);
+          computedMap.delete(name);
+        }
+      } else {
+        const value = valueMap.get(name);
+        if (value) {
+          ordered.push(value);
+          valueMap.delete(name);
+        }
       }
     }
 
-    // Add remaining values (not in stored order)
+    // Add remaining regular values (not in stored order)
     for (const value of valueMap.values()) {
+      ordered.push(value);
+    }
+
+    // Add remaining computed values (not in stored order)
+    for (const value of computedMap.values()) {
       ordered.push(value);
     }
 
@@ -399,7 +439,11 @@
                             {#if valueWithName.name}
                               <div class="value-label">{valueWithName.name}:</div>
                             {/if}
-                            <TreeView value={valueWithName.value} />
+                            {#if typeof valueWithName.value === 'object' && valueWithName.value !== null && '__error' in valueWithName.value}
+                              <span class="computed-error">{valueWithName.value.__error}</span>
+                            {:else}
+                              <TreeView value={valueWithName.value} />
+                            {/if}
                           </div>
                         {/each}
                       </div>
@@ -515,7 +559,11 @@
                   {#if valueWithName.name}
                     <div class="value-label">{valueWithName.name}:</div>
                   {/if}
-                  <TreeView value={valueWithName.value} />
+                  {#if typeof valueWithName.value === 'object' && valueWithName.value !== null && '__error' in valueWithName.value}
+                    <span class="computed-error">{valueWithName.value.__error}</span>
+                  {:else}
+                    <TreeView value={valueWithName.value} />
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -908,5 +956,11 @@
     .value-item {
       width: 100%;
     }
+  }
+
+  .computed-error {
+    color: #dc2626;
+    font-style: italic;
+    font-size: 0.85rem;
   }
 </style>

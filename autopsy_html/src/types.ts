@@ -102,3 +102,11 @@ export interface AutopsyData {
   dashboard?: DashboardData
 }
 
+// Computed column definition
+export interface ComputedColumn {
+  id: string;              // Unique identifier
+  title?: string;          // Optional display name
+  expression: string;      // JMESPath expression
+  callSiteKey: string;     // Which call site this belongs to
+}
+
