@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as path from 'path';
 
 export class AutopsyPanel {
   public static currentPanel: AutopsyPanel | undefined;
@@ -10,24 +9,24 @@ export class AutopsyPanel {
   private _disposables: vscode.Disposable[] = [];
 
   public static createOrShow(extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
-    const column = vscode.window.activeTextEditor
-      ? vscode.window.activeTextEditor.viewColumn
-      : undefined;
-
     // If panel exists, reveal it
     if (AutopsyPanel.currentPanel) {
       outputChannel.appendLine('Panel already exists, revealing it');
-      AutopsyPanel.currentPanel._panel.reveal(column);
+      AutopsyPanel.currentPanel._panel.reveal();
       return;
     }
 
     outputChannel.appendLine('Creating new webview panel');
 
+    // Determine the best column for the autopsy viewer
+    // Strategy: Open beside the active editor to create a side-by-side view
+    const targetColumn = this.getInitialColumn();
+
     // Create new panel
     const panel = vscode.window.createWebviewPanel(
       'autopsyViewer',
       'Autopsy Viewer',
-      column || vscode.ViewColumn.One,
+      targetColumn,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -37,6 +36,33 @@ export class AutopsyPanel {
 
     outputChannel.appendLine('Webview panel created, initializing AutopsyPanel');
     AutopsyPanel.currentPanel = new AutopsyPanel(panel, extensionUri, outputChannel);
+
+    // Lock the editor group to prevent new files from opening in it
+    // This keeps the autopsy viewer visible when opening files elsewhere in VS Code
+    vscode.commands.executeCommand('workbench.action.lockEditorGroup').then(
+      () => outputChannel.appendLine('Editor group locked successfully'),
+      (error) => outputChannel.appendLine(`Failed to lock editor group: ${error}`)
+    );
+  }
+
+  private static getInitialColumn(): vscode.ViewColumn {
+    // If there's an active editor, open beside it to create a split view
+    if (vscode.window.activeTextEditor) {
+      const activeColumn = vscode.window.activeTextEditor.viewColumn;
+
+      // Open in the opposite column to create side-by-side view
+      if (activeColumn === vscode.ViewColumn.One) {
+        return vscode.ViewColumn.Two;
+      } else if (activeColumn === vscode.ViewColumn.Two) {
+        return vscode.ViewColumn.One;
+      } else {
+        // For other columns, use ViewColumn.Beside to open next to it
+        return vscode.ViewColumn.Beside;
+      }
+    }
+
+    // No active editor - default to Column Two to leave Column One for code
+    return vscode.ViewColumn.Two;
   }
 
   public reveal() {
@@ -215,9 +241,18 @@ export class AutopsyPanel {
         return;
       }
 
-      // Open the file
+      // Open the file in a different editor group than the autopsy viewer
+      // to maintain side-by-side view
       const document = await vscode.workspace.openTextDocument(uri);
-      const editor = await vscode.window.showTextDocument(document);
+
+      // Determine the best column to open the file in
+      // Strategy: Open beside the autopsy panel to ensure it's in a different group
+      const targetColumn = this._getTargetColumn();
+
+      const editor = await vscode.window.showTextDocument(document, {
+        viewColumn: targetColumn,
+        preserveFocus: true  // Keep focus on autopsy viewer to prevent file tree from opening in autopsy column
+      });
 
       // Move cursor to line (VS Code uses 0-indexed lines)
       const position = new vscode.Position(Math.max(0, line - 1), column);
@@ -228,6 +263,24 @@ export class AutopsyPanel {
       );
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to open file: ${error}`);
+    }
+  }
+
+  private _getTargetColumn(): vscode.ViewColumn {
+    // Get the current panel's view column
+    const panelColumn = this._panel.viewColumn;
+
+    if (panelColumn === undefined) {
+      // If panel column is undefined, default to opening in Column Two
+      return vscode.ViewColumn.Two;
+    }
+
+    // Open in a different column than the autopsy panel
+    // This works for both horizontal and vertical splits
+    if (panelColumn === vscode.ViewColumn.One) {
+      return vscode.ViewColumn.Two;
+    } else {
+      return vscode.ViewColumn.One;
     }
   }
 
