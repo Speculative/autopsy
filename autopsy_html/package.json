@@ -8,6 +8,7 @@
     "dev:live": "vite --mode live",
     "build": "vite build && mv dist/index.html ../autopsy/template.html",
     "build:live": "vite build --mode live && mv dist/index.html ../autopsy/live.html",
+    "build:vscode": "vite build --mode vscode && cp dist/index.html ../autopsy_vscode/media/webview.html",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },

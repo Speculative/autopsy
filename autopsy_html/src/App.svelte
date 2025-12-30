@@ -6,6 +6,7 @@
   import TreeView from "./TreeView.svelte";
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import * as pako from "pako";
+  import { isVSCodeWebview, openFileInVSCode } from "./vscodeApi";
 
   // Conditional imports for live mode
   let createWebSocketConnection: any;
@@ -78,7 +79,10 @@
 
       await liveModeCodeLoaded;
 
-      if (liveModeParam === 'true' && wsUrl && createWebSocketConnection) {
+      // In VS Code mode, auto-enable live mode without requiring URL param
+      const shouldEnableLiveMode = (typeof __VSCODE_MODE__ !== 'undefined' && __VSCODE_MODE__) || liveModeParam === 'true';
+
+      if (shouldEnableLiveMode && wsUrl && createWebSocketConnection) {
         liveMode = true;
         connectionStatus = 'connecting';
         console.log("Trying to initialize live mode ws")
@@ -658,9 +662,22 @@
                 <span class="frame-number">#{index + 1}</span>
                 <div class="frame-info">
                   <span class="frame-function">{frame.function_name}</span>
-                  <span class="frame-location">
-                    {frame.filename}:{frame.line_number}
-                  </span>
+                  {#if isVSCodeWebview()}
+                    <button
+                      class="frame-location clickable"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        openFileInVSCode(frame.filename, frame.line_number);
+                      }}
+                      title="Open in editor: {frame.filename}:{frame.line_number}"
+                    >
+                      {frame.filename}:{frame.line_number}
+                    </button>
+                  {:else}
+                    <span class="frame-location">
+                      {frame.filename}:{frame.line_number}
+                    </span>
+                  {/if}
                 </div>
                 <div class="frame-menu-container">
                   <button
@@ -1080,6 +1097,20 @@
   .frame-location {
     color: #64748b;
     font-size: 0.85rem;
+  }
+
+  .frame-location.clickable {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .frame-location.clickable:hover {
+    color: #2563eb;
+    text-decoration: underline;
   }
 
   .frame-code {

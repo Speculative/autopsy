@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Autopsy VSCode Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/autopsy_vscode",
+        "--workspaceFolder=${workspaceFolder}"
+      ],
+      "outFiles": ["${workspaceFolder}/autopsy_vscode/out/**/*.js"],
+      "preLaunchTask": "npm: watch - autopsy_vscode"
+    },
+    {
+      "name": "Run Autopsy VSCode Extension (No Build)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/autopsy_vscode",
+        "--workspaceFolder=${workspaceFolder}"
+      ],
+      "outFiles": ["${workspaceFolder}/autopsy_vscode/out/**/*.js"]
+    }
+  ]
+}

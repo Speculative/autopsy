@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
   import TreeView from "./TreeView.svelte";
+  import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumn, isComputedColumnSortable, getComputedColumnDisplayName } from "./computedColumns";
 
@@ -463,20 +464,12 @@
                   }}
                 />
               </label>
-              <span class="filename"
-                >{getFilename(callSite)}<span class="line-number"
-                  >:{callSite.line}</span
-                ></span
-              >
-              <span class="function-name">
-                in <code>
-                  {#if callSite.class_name}
-                    {callSite.class_name}.{callSite.function_name}
-                  {:else}
-                    {callSite.function_name}
-                  {/if}
-                </code>
-              </span>
+              <CodeLocation
+                filename={callSite.filename}
+                line={callSite.line}
+                functionName={callSite.function_name}
+                className={callSite.class_name}
+              />
               <span class="dashboard-badge">dashboard</span>
             </div>
           </div>
@@ -564,20 +557,12 @@
                         }}
                       />
                     </label>
-                    <span class="filename"
-                      >{getFilename(callSite)}<span class="line-number"
-                        >:{callSite.line}</span
-                      ></span
-                    >
-                    <span class="function-name">
-                      in <code>
-                        {#if callSite.class_name}
-                          {callSite.class_name}.{callSite.function_name}
-                        {:else}
-                          {callSite.function_name}
-                        {/if}
-                      </code>
-                    </span>
+                    <CodeLocation
+                      filename={callSite.filename}
+                      line={callSite.line}
+                      functionName={callSite.function_name}
+                      className={callSite.class_name}
+                    />
                     {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
                       <span class="log-name-header"
                         >{callSite.value_groups[0].name}</span
@@ -782,20 +767,12 @@
                   }}
                 />
               </label>
-              <span class="filename"
-                >{getFilename(callSite)}<span class="line-number"
-                  >:{callSite.line}</span
-                ></span
-              >
-              <span class="function-name">
-                in <code>
-                  {#if callSite.class_name}
-                    {callSite.class_name}.{callSite.function_name}
-                  {:else}
-                    {callSite.function_name}
-                  {/if}
-                </code>
-              </span>
+              <CodeLocation
+                filename={callSite.filename}
+                line={callSite.line}
+                functionName={callSite.function_name}
+                className={callSite.class_name}
+              />
               {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
                 <span class="log-name-header"
                   >{callSite.value_groups[0].name}</span

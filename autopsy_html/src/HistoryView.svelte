@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
   import TreeView from "./TreeView.svelte";
+  import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumn, getComputedColumnDisplayName } from "./computedColumns";
 
@@ -486,19 +487,12 @@
               <span class="log-number-arrow">⬅️</span>
               <span class="log-number-text">#{entry.log_index}</span>
             </span>
-            <span class="location">
-              <span class="filename">{getFilename(entry.callSite)}</span>
-              <span class="separator">:</span>
-              <span class="line">{entry.callSite.line}</span>
-            </span>
-            <span class="separator">in</span>
-            <span class="function">
-              {#if entry.valueGroup.class_name}
-                {entry.valueGroup.class_name}.{entry.valueGroup.function_name}
-              {:else}
-                {entry.valueGroup.function_name}
-              {/if}
-            </span>
+            <CodeLocation
+              filename={entry.callSite.filename}
+              line={entry.callSite.line}
+              functionName={entry.valueGroup.function_name}
+              className={entry.valueGroup.class_name}
+            />
             <div class="entry-menu-container">
               <button
                 class="menu-button"

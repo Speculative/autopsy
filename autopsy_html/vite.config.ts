@@ -4,7 +4,8 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const isLiveBuild = mode === 'live';
+  const isLiveBuild = mode === 'live' || mode === 'vscode';
+  const isVSCodeBuild = mode === 'vscode';
 
   return {
     plugins: [svelte(), viteSingleFile()],
@@ -23,6 +24,7 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       __LIVE_MODE_ENABLED__: isLiveBuild,
+      __VSCODE_MODE__: isVSCodeBuild,
     },
   }
 })
