@@ -3,6 +3,7 @@
   import { evaluateComputedColumnBatch, generateColumnId } from "./computedColumns";
   import { pythonExecutor } from "./pythonExecutor";
   import TreeView from "./TreeView.svelte";
+  import CodeEditor from "./CodeEditor.svelte";
 
   interface Props {
     data: AutopsyData;
@@ -20,11 +21,30 @@
   let title = $state(existingColumn?.title || '');
   let expression = $state(existingColumn?.expression || '');
   let previewResults = $state<Map<number, {value: unknown, error?: string}>>(new Map());
+  let lastValidResults = $state<Map<number, {value: unknown, error?: string}>>(new Map());
+  let lastValidExpression = $state(existingColumn?.expression || '');
+  let currentError = $state<string | null>(null);
   let isEvaluating = $state(false);
   let loadingPyodide = $state(false);
   let showAllPreview = $state(false);
 
   const isEditMode = existingColumn !== undefined;
+
+  // Check if all results are errors
+  const allResultsAreErrors = $derived(
+    previewResults.size > 0 &&
+    Array.from(previewResults.values()).every(r => r.error !== undefined)
+  );
+
+  // Determine which results to display
+  const displayResults = $derived(
+    allResultsAreErrors ? lastValidResults : previewResults
+  );
+
+  // Determine if we're showing fallback results
+  const showingFallback = $derived(
+    allResultsAreErrors && lastValidResults.size > 0
+  );
 
   // Real-time preview evaluation (debounced, async for Python)
   let evaluationTimeout: number | null = null;
@@ -33,6 +53,7 @@
 
     if (!expression.trim()) {
       previewResults = new Map();
+      currentError = null;
       return;
     }
 
@@ -55,8 +76,22 @@
           resultsMap.set(vg.log_index, results[i]);
         });
         previewResults = resultsMap;
+
+        // Check if all results are errors
+        const hasAnySuccess = results.some(r => !r.error);
+        if (hasAnySuccess) {
+          // Store as last valid results
+          lastValidResults = new Map(resultsMap);
+          lastValidExpression = expression;
+          currentError = null;
+        } else {
+          // All errors - capture the first error message
+          const firstError = results.find(r => r.error)?.error;
+          currentError = firstError || 'All rows returned errors';
+        }
       } catch (error) {
         console.error('Python evaluation error:', error);
+        currentError = error instanceof Error ? error.message : String(error);
       } finally {
         loadingPyodide = false;
         isEvaluating = false;
@@ -78,6 +113,10 @@
     if (onDelete) onDelete();
   }
 
+  function handleReset() {
+    expression = lastValidExpression;
+  }
+
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) {
       onClose();
@@ -86,8 +125,8 @@
 
   const previewEntries = $derived(
     showAllPreview
-      ? Array.from(previewResults.entries())
-      : Array.from(previewResults.entries()).slice(0, 10)
+      ? Array.from(displayResults.entries())
+      : Array.from(displayResults.entries()).slice(0, 10)
   );
 </script>
 
@@ -112,12 +151,10 @@
 
       <div class="form-group">
         <label for="expression">Python Code</label>
-        <textarea
-          id="expression"
+        <CodeEditor
           bind:value={expression}
+          onchange={(newValue) => expression = newValue}
           placeholder="e.g., trace['frames'][0]['filename']"
-          rows="8"
-          class="form-textarea python-code"
         />
         <div class="expression-help">
           Python code with access to <code>trace</code> variable (StackTrace object).
@@ -126,7 +163,12 @@
       </div>
 
       <div class="preview-section">
-        <h3>Preview ({callSite.value_groups.length} rows)</h3>
+        <div class="preview-header">
+          <h3>Preview ({callSite.value_groups.length} rows)</h3>
+          {#if showingFallback}
+            <button class="reset-button" onclick={handleReset}>Reset to last valid</button>
+          {/if}
+        </div>
         {#if loadingPyodide}
           <div class="pyodide-loading">
             <div class="loading-spinner"></div>
@@ -134,10 +176,10 @@
           </div>
         {:else if isEvaluating}
           <div class="preview-loading">Evaluating...</div>
-        {:else if previewResults.size === 0}
+        {:else if displayResults.size === 0}
           <div class="preview-empty">Enter an expression to see preview</div>
         {:else}
-          <div class="preview-table-container">
+          <div class="preview-table-container" class:error-state={showingFallback}>
             <table class="preview-table">
               <thead>
                 <tr>
@@ -163,6 +205,11 @@
               </tbody>
             </table>
           </div>
+          {#if showingFallback && currentError}
+            <div class="error-message">
+              <strong>Error:</strong> {currentError}
+            </div>
+          {/if}
           {#if callSite.value_groups.length > 10 && !showAllPreview}
             <button class="show-all-button" onclick={() => showAllPreview = true}>
               Show all {callSite.value_groups.length} rows
@@ -270,7 +317,7 @@
     font-size: 0.9rem;
   }
 
-  .form-input, .form-textarea {
+  .form-input {
     width: 100%;
     padding: 0.75rem;
     border: 1px solid #d1d5db;
@@ -278,15 +325,6 @@
     font-size: 0.9rem;
     font-family: inherit;
     transition: border-color 0.2s;
-  }
-
-  .form-textarea {
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    resize: vertical;
-  }
-
-  .form-textarea.python-code {
-    line-height: 1.5;
   }
 
   .expression-help code {
@@ -297,7 +335,7 @@
     font-size: 0.85em;
   }
 
-  .form-input:focus, .form-textarea:focus {
+  .form-input:focus {
     outline: none;
     border-color: #2563eb;
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
@@ -312,12 +350,38 @@
 
   .preview-section {
     margin-top: 2rem;
+    height: 400px;
+    display: flex;
+    flex-direction: column;
   }
 
-  .preview-section h3 {
-    margin: 0 0 1rem 0;
+  .preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+
+  .preview-header h3 {
+    margin: 0;
     font-size: 1.1rem;
     color: #333;
+  }
+
+  .reset-button {
+    padding: 0.5rem 1rem;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f59e0b;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: background-color 0.2s;
+  }
+
+  .reset-button:hover {
+    background: #fde68a;
   }
 
   .preview-loading, .preview-empty {
@@ -325,12 +389,21 @@
     padding: 2rem;
     color: #666;
     font-style: italic;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .pyodide-loading {
     text-align: center;
     padding: 2rem;
     color: #2563eb;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
   }
 
   .loading-spinner {
@@ -352,7 +425,13 @@
     border: 1px solid #e5e5e5;
     border-radius: 4px;
     overflow: auto;
-    max-height: 300px;
+    flex: 1;
+    transition: border-color 0.2s;
+  }
+
+  .preview-table-container.error-state {
+    border: 2px solid #dc2626;
+    border-radius: 4px;
   }
 
   .preview-table {
@@ -402,6 +481,20 @@
   .undefined-value {
     color: #9ca3af;
     font-style: italic;
+  }
+
+  .error-message {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background: #fee2e2;
+    border: 1px solid #dc2626;
+    border-radius: 4px;
+    color: #991b1b;
+    font-size: 0.85rem;
+  }
+
+  .error-message strong {
+    font-weight: 700;
   }
 
   .show-all-button {
