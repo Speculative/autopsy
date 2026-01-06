@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
+  import type { EvaluationResult } from "./computedColumns";
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
-  import { evaluateComputedColumn, getComputedColumnDisplayName } from "./computedColumns";
+  import { evaluateComputedColumnBatch, getComputedColumnDisplayName } from "./computedColumns";
 
   interface Props {
     data: AutopsyData;
@@ -38,6 +39,48 @@
     onHideCallSite,
     onToggleShowDashboard,
   }: Props = $props();
+
+  // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
+  let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
+
+  // Pre-compute all computed columns when data or columns change
+  $effect(() => {
+    // Trigger reactivity on data and computedColumns
+    const _ = [data, computedColumns];
+
+    // Async function to recompute all computed columns
+    (async () => {
+      const newCache = new Map<string, Map<number, EvaluationResult>>();
+
+      for (const callSite of data.call_sites) {
+        const callSiteKey = getCallSiteKey(callSite);
+        const columns = computedColumns[callSiteKey] || [];
+
+        for (const column of columns) {
+          const cacheKey = `${callSiteKey}:${column.id}`;
+
+          try {
+            // Batch evaluate Python
+            const results = await evaluateComputedColumnBatch(
+              column.expression,
+              callSite.value_groups,
+              data
+            );
+
+            const resultMap = new Map<number, EvaluationResult>();
+            callSite.value_groups.forEach((vg, i) => {
+              resultMap.set(vg.log_index, results[i]);
+            });
+            newCache.set(cacheKey, resultMap);
+          } catch (error) {
+            console.error(`Error evaluating computed column ${column.id}:`, error);
+          }
+        }
+      }
+
+      computedColumnCache = newCache;
+    })();
+  });
 
   // Create a flattened list of all log entries with their context
   interface HistoryEntry {
@@ -162,7 +205,9 @@
       // No stored order, return regular values plus computed columns
       const computed = computedColumns[callSiteKey] || [];
       const computedValues = computed.map(col => {
-        const result = evaluateComputedColumn(col.expression, valueGroup, data);
+        const cacheKey = `${callSiteKey}:${col.id}`;
+        const cachedResults = computedColumnCache.get(cacheKey);
+        const result = cachedResults?.get(valueGroup.log_index) || { value: undefined };
         return {
           name: getComputedColumnDisplayName(col),
           value: result.error ? { __error: result.error } : result.value
@@ -178,7 +223,9 @@
     const computed = computedColumns[callSiteKey] || [];
     const computedMap = new Map(
       computed.map(col => {
-        const result = evaluateComputedColumn(col.expression, valueGroup, data);
+        const cacheKey = `${callSiteKey}:${col.id}`;
+        const cachedResults = computedColumnCache.get(cacheKey);
+        const result = cachedResults?.get(valueGroup.log_index) || { value: undefined };
         return [
           `computed:${col.id}`,
           {

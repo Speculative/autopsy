@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
+  import type { EvaluationResult } from "./computedColumns";
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
-  import { evaluateComputedColumn, isComputedColumnSortable, getComputedColumnDisplayName } from "./computedColumns";
+  import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName } from "./computedColumns";
 
   // Sort state types (must be defined before Props interface)
   type SortDirection = 'asc' | 'desc';
@@ -48,6 +49,48 @@
   // Drag-and-drop state
   let draggedColumn = $state<{ callSiteKey: string; columnName: string } | null>(null);
   let dropTarget = $state<{ callSiteKey: string; index: number } | null>(null);
+
+  // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
+  let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
+
+  // Pre-compute all computed columns when data or columns change
+  $effect(() => {
+    // Trigger reactivity on data and computedColumns
+    const _ = [data, computedColumns];
+
+    // Async function to recompute all computed columns
+    (async () => {
+      const newCache = new Map<string, Map<number, EvaluationResult>>();
+
+      for (const callSite of data.call_sites) {
+        const callSiteKey = getCallSiteKey(callSite);
+        const columns = computedColumns[callSiteKey] || [];
+
+        for (const column of columns) {
+          const cacheKey = `${callSiteKey}:${column.id}`;
+
+          try {
+            // Batch evaluate Python
+            const results = await evaluateComputedColumnBatch(
+              column.expression,
+              callSite.value_groups,
+              data
+            );
+
+            const resultMap = new Map<number, EvaluationResult>();
+            callSite.value_groups.forEach((vg, i) => {
+              resultMap.set(vg.log_index, results[i]);
+            });
+            newCache.set(cacheKey, resultMap);
+          } catch (error) {
+            console.error(`Error evaluating computed column ${column.id}:`, error);
+          }
+        }
+      }
+
+      computedColumnCache = newCache;
+    })();
+  });
 
   function getCallSiteKey(callSite: CallSite): string {
     return `${callSite.filename}:${callSite.line}`;
@@ -152,12 +195,14 @@
     if (columnName.startsWith('computed:')) {
       const columnId = columnName.substring('computed:'.length);
       const callSiteKey = getCallSiteKey(callSite);
-      const computedCol = computedColumns[callSiteKey]?.find(c => c.id === columnId);
-      if (!computedCol) return false;
+      const cacheKey = `${callSiteKey}:${columnId}`;
 
-      // Evaluate for all rows and check sortability
+      // Use cached results for sortability check
+      const cachedResults = computedColumnCache.get(cacheKey);
+      if (!cachedResults) return false;
+
       const results = callSite.value_groups.map(vg =>
-        evaluateComputedColumn(computedCol.expression, vg, data)
+        cachedResults.get(vg.log_index) || { value: undefined }
       );
       return isComputedColumnSortable(results);
     }
@@ -305,10 +350,15 @@
     if (columnName.startsWith('computed:')) {
       const columnId = columnName.substring('computed:'.length);
       const callSiteKey = getCallSiteKey(callSite);
-      const computedCol = computedColumns[callSiteKey]?.find(c => c.id === columnId);
-      if (computedCol) {
-        const result = evaluateComputedColumn(computedCol.expression, valueGroup, data);
-        return result.error ? { __error: result.error } : result.value;
+      const cacheKey = `${callSiteKey}:${columnId}`;
+
+      // Use cached value
+      const cachedResults = computedColumnCache.get(cacheKey);
+      if (cachedResults) {
+        const result = cachedResults.get(valueGroup.log_index);
+        if (result) {
+          return result.error ? { __error: result.error } : result.value;
+        }
       }
       return undefined;
     }

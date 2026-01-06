@@ -7,7 +7,7 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/autopsy_vscode",
-        "--workspaceFolder=${workspaceFolder}"
+        "${workspaceFolder}/autopsy.code-workspace"
       ],
       "outFiles": ["${workspaceFolder}/autopsy_vscode/out/**/*.js"],
       "preLaunchTask": "npm: watch - autopsy_vscode"
@@ -18,7 +18,7 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}/autopsy_vscode",
-        "--workspaceFolder=${workspaceFolder}"
+        "${workspaceFolder}/autopsy.code-workspace"
       ],
       "outFiles": ["${workspaceFolder}/autopsy_vscode/out/**/*.js"]
     }

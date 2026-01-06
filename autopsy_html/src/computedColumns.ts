@@ -1,4 +1,4 @@
-import jmespath from 'jmespath';
+import { pythonExecutor } from './pythonExecutor';
 import type { AutopsyData, ValueGroup, ComputedColumn } from './types';
 
 export interface EvaluationResult {
@@ -7,35 +7,65 @@ export interface EvaluationResult {
 }
 
 /**
- * Evaluate a JMESPath expression for a specific row (ValueGroup)
- * The expression operates on the StackTrace.frames array
+ * Evaluate Python code for a single ValueGroup
+ * This is a wrapper around the batch function for convenience
  */
-export function evaluateComputedColumn(
-  expression: string,
+export async function evaluateComputedColumn(
+  pythonCode: string,
   valueGroup: ValueGroup,
   data: AutopsyData
-): EvaluationResult {
+): Promise<EvaluationResult> {
+  const results = await evaluateComputedColumnBatch(
+    pythonCode,
+    [valueGroup],
+    data
+  );
+  return results[0];
+}
+
+/**
+ * Evaluate Python code for multiple ValueGroups in batch (efficient)
+ * The Python code has access to a 'trace' variable containing the StackTrace object
+ */
+export async function evaluateComputedColumnBatch(
+  pythonCode: string,
+  valueGroups: ValueGroup[],
+  data: AutopsyData
+): Promise<EvaluationResult[]> {
   try {
-    // Get stack trace frames array
-    const stackTraceId = valueGroup.stack_trace_id;
-    if (!stackTraceId) {
-      return { value: undefined };
+    // Ensure Pyodide is initialized
+    if (!pythonExecutor.isReady()) {
+      await pythonExecutor.initialize();
     }
 
-    const stackTrace = data.stack_traces[stackTraceId];
-    if (!stackTrace) {
-      return { value: undefined };
-    }
+    // Prepare StackTrace objects for each ValueGroup
+    const traces = valueGroups.map(vg => {
+      const stackTraceId = vg.stack_trace_id;
+      if (!stackTraceId) {
+        return null;
+      }
+      const stackTrace = data.stack_traces[stackTraceId];
+      if (!stackTrace) {
+        return null;
+      }
+      return {
+        frames: stackTrace.frames,
+        timestamp: stackTrace.timestamp
+      };
+    });
 
-    // Evaluate JMESPath on frames array
-    const result = jmespath.search(stackTrace.frames, expression);
-    return { value: result };
+    // Execute Python code in batch
+    const results = await pythonExecutor.executeBatch(
+      pythonCode,
+      traces,
+      'trace'
+    );
+
+    return results;
   } catch (error) {
-    // Return error type name (e.g., "SyntaxError", "TypeError")
-    return {
-      value: undefined,
-      error: error instanceof Error ? error.name : 'Error'
-    };
+    // Global error (e.g., syntax error)
+    const errorName = error instanceof Error ? error.name : 'Error';
+    return valueGroups.map(() => ({ value: undefined, error: errorName }));
   }
 }
 

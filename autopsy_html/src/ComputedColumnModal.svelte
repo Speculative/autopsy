@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AutopsyData, CallSite, ComputedColumn } from "./types";
-  import { evaluateComputedColumn, generateColumnId } from "./computedColumns";
+  import { evaluateComputedColumnBatch, generateColumnId } from "./computedColumns";
+  import { pythonExecutor } from "./pythonExecutor";
   import TreeView from "./TreeView.svelte";
 
   interface Props {
@@ -20,11 +21,12 @@
   let expression = $state(existingColumn?.expression || '');
   let previewResults = $state<Map<number, {value: unknown, error?: string}>>(new Map());
   let isEvaluating = $state(false);
+  let loadingPyodide = $state(false);
   let showAllPreview = $state(false);
 
   const isEditMode = existingColumn !== undefined;
 
-  // Real-time preview evaluation (debounced)
+  // Real-time preview evaluation (debounced, async for Python)
   let evaluationTimeout: number | null = null;
   $effect(() => {
     if (evaluationTimeout) clearTimeout(evaluationTimeout);
@@ -35,14 +37,30 @@
     }
 
     isEvaluating = true;
-    evaluationTimeout = setTimeout(() => {
-      const results = new Map();
-      for (const vg of callSite.value_groups) {
-        const result = evaluateComputedColumn(expression, vg, data);
-        results.set(vg.log_index, result);
+    evaluationTimeout = setTimeout(async () => {
+      // Check if Pyodide needs loading
+      if (!pythonExecutor.isReady() && pythonExecutor.getStatus() === 'uninitialized') {
+        loadingPyodide = true;
       }
-      previewResults = results;
-      isEvaluating = false;
+
+      try {
+        const results = await evaluateComputedColumnBatch(
+          expression,
+          callSite.value_groups,
+          data
+        );
+
+        const resultsMap = new Map();
+        callSite.value_groups.forEach((vg, i) => {
+          resultsMap.set(vg.log_index, results[i]);
+        });
+        previewResults = resultsMap;
+      } catch (error) {
+        console.error('Python evaluation error:', error);
+      } finally {
+        loadingPyodide = false;
+        isEvaluating = false;
+      }
     }, 300) as unknown as number;
   });
 
@@ -93,23 +111,28 @@
       </div>
 
       <div class="form-group">
-        <label for="expression">JMESPath Expression</label>
+        <label for="expression">Python Code</label>
         <textarea
           id="expression"
           bind:value={expression}
-          placeholder="e.g., [0].filename"
-          rows="3"
-          class="form-textarea"
+          placeholder="e.g., trace['frames'][0]['filename']"
+          rows="8"
+          class="form-textarea python-code"
         />
         <div class="expression-help">
-          Expression operates on StackTrace.frames array.
-          <a href="https://jmespath.org/tutorial.html" target="_blank">JMESPath tutorial</a>
+          Python code with access to <code>trace</code> variable (StackTrace object).
+          You can write multiple statements. The last expression is returned.
         </div>
       </div>
 
       <div class="preview-section">
         <h3>Preview ({callSite.value_groups.length} rows)</h3>
-        {#if isEvaluating}
+        {#if loadingPyodide}
+          <div class="pyodide-loading">
+            <div class="loading-spinner"></div>
+            <div>Loading Python interpreter (first time only, ~10s)...</div>
+          </div>
+        {:else if isEvaluating}
           <div class="preview-loading">Evaluating...</div>
         {:else if previewResults.size === 0}
           <div class="preview-empty">Enter an expression to see preview</div>
@@ -262,6 +285,18 @@
     resize: vertical;
   }
 
+  .form-textarea.python-code {
+    line-height: 1.5;
+  }
+
+  .expression-help code {
+    background: #f3f4f6;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    font-size: 0.85em;
+  }
+
   .form-input:focus, .form-textarea:focus {
     outline: none;
     border-color: #2563eb;
@@ -274,14 +309,6 @@
     color: #666;
   }
 
-  .expression-help a {
-    color: #2563eb;
-    text-decoration: none;
-  }
-
-  .expression-help a:hover {
-    text-decoration: underline;
-  }
 
   .preview-section {
     margin-top: 2rem;
@@ -298,6 +325,27 @@
     padding: 2rem;
     color: #666;
     font-style: italic;
+  }
+
+  .pyodide-loading {
+    text-align: center;
+    padding: 2rem;
+    color: #2563eb;
+  }
+
+  .loading-spinner {
+    border: 3px solid #f3f4f6;
+    border-top: 3px solid #2563eb;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 1rem;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
   }
 
   .preview-table-container {
