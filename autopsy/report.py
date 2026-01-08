@@ -42,10 +42,8 @@ class Report:
         self._log_index: int = 0
         # Configuration
         self._config = config if config is not None else ReportConfiguration()
-        # Stack traces stored by CallStack object ID
+        # Stack traces stored by log index (each log has its own unique stack trace)
         self._stack_traces: Dict[int, StackTrace] = {}
-        # Map from CallStack object ID to list of log indices that use it
-        self._stack_trace_id_to_log_indices: Dict[int, List[int]] = {}
         # Dashboard data storage
         # Counts: per call site, value -> list of (stack_trace_id, log_index) tuples
         self._counts: Dict[Tuple[str, int], Dict[Any, List[Tuple[int, int]]]] = {}
@@ -394,14 +392,10 @@ class Report:
             if call_stack_obj is not None and self._config.auto_stack_trace:
                 # Capture stack trace lazily (only captures when this is called)
                 trace = call_stack_obj.capture_stack_trace()
-                stack_trace_id = id(call_stack_obj)
-                # Store trace if not already stored (deduplication by object identity)
-                if stack_trace_id not in self._stack_traces:
-                    self._stack_traces[stack_trace_id] = trace
-                # Associate this log index with the stack trace ID
-                if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
-                self._stack_trace_id_to_log_indices[stack_trace_id].append(self._log_index)
+                # Use the current log index as the stack trace ID
+                stack_trace_id = self._log_index
+                # Store the trace
+                self._stack_traces[stack_trace_id] = trace
 
             # Serialize and store the values as a group
             serialized_values = []
@@ -476,15 +470,9 @@ class Report:
             self_obj = frame.f_locals["self"]
             class_name = type(self_obj).__name__
 
-        # Capture stack trace if auto_stack_trace is enabled
+        # Note: Stack trace will be captured by the caller using the log_index
+        # We return None here and let the caller capture it with the proper log_index
         stack_trace_id: Optional[int] = None
-        if self._config.auto_stack_trace:
-            call_stack_obj = call_stack()
-            trace = call_stack_obj.capture_stack_trace()
-            stack_trace_id = id(call_stack_obj)
-            # Store trace if not already stored (deduplication by object identity)
-            if stack_trace_id not in self._stack_traces:
-                self._stack_traces[stack_trace_id] = trace
 
         return call_site, stack_trace_id, function_name, class_name
 
@@ -496,7 +484,7 @@ class Report:
             value: The value to count occurrences of
         """
         with self._lock:
-            call_site, stack_trace_id, function_name, class_name = (
+            call_site, _, function_name, class_name = (
                 self._get_call_site_and_stack_trace()
             )
 
@@ -504,11 +492,15 @@ class Report:
             log_index = self._log_index
             self._log_index += 1
 
-            # Associate this log index with the stack trace ID if available
-            if stack_trace_id is not None:
-                if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
-                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Capture stack trace if auto_stack_trace is enabled
+            stack_trace_id: Optional[int] = None
+            if self._config.auto_stack_trace:
+                call_stack_obj = call_stack()
+                trace = call_stack_obj.capture_stack_trace()
+                # Use the log index as the stack trace ID
+                stack_trace_id = log_index
+                # Store the trace
+                self._stack_traces[stack_trace_id] = trace
 
             # Store dashboard log entry
             if call_site not in self._dashboard_logs:
@@ -560,7 +552,7 @@ class Report:
             num: The number to add to the histogram
         """
         with self._lock:
-            call_site, stack_trace_id, function_name, class_name = (
+            call_site, _, function_name, class_name = (
                 self._get_call_site_and_stack_trace()
             )
 
@@ -568,11 +560,15 @@ class Report:
             log_index = self._log_index
             self._log_index += 1
 
-            # Associate this log index with the stack trace ID if available
-            if stack_trace_id is not None:
-                if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
-                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Capture stack trace if auto_stack_trace is enabled
+            stack_trace_id: Optional[int] = None
+            if self._config.auto_stack_trace:
+                call_stack_obj = call_stack()
+                trace = call_stack_obj.capture_stack_trace()
+                # Use the log index as the stack trace ID
+                stack_trace_id = log_index
+                # Store the trace
+                self._stack_traces[stack_trace_id] = trace
 
             # Store dashboard log entry
             if call_site not in self._dashboard_logs:
@@ -613,7 +609,7 @@ class Report:
         with self._lock:
             import time
 
-            call_site, stack_trace_id, function_name, class_name = (
+            call_site, _, function_name, class_name = (
                 self._get_call_site_and_stack_trace()
             )
 
@@ -621,11 +617,15 @@ class Report:
             log_index = self._log_index
             self._log_index += 1
 
-            # Associate this log index with the stack trace ID if available
-            if stack_trace_id is not None:
-                if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
-                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Capture stack trace if auto_stack_trace is enabled
+            stack_trace_id: Optional[int] = None
+            if self._config.auto_stack_trace:
+                call_stack_obj = call_stack()
+                trace = call_stack_obj.capture_stack_trace()
+                # Use the log index as the stack trace ID
+                stack_trace_id = log_index
+                # Store the trace
+                self._stack_traces[stack_trace_id] = trace
 
             # Store dashboard log entry
             if call_site not in self._dashboard_logs:
@@ -669,7 +669,7 @@ class Report:
             message: Optional message to associate with this call site
         """
         with self._lock:
-            call_site, stack_trace_id, function_name, class_name = (
+            call_site, _, function_name, class_name = (
                 self._get_call_site_and_stack_trace()
             )
 
@@ -677,11 +677,15 @@ class Report:
             log_index = self._log_index
             self._log_index += 1
 
-            # Associate this log index with the stack trace ID if available
-            if stack_trace_id is not None:
-                if stack_trace_id not in self._stack_trace_id_to_log_indices:
-                    self._stack_trace_id_to_log_indices[stack_trace_id] = []
-                self._stack_trace_id_to_log_indices[stack_trace_id].append(log_index)
+            # Capture stack trace if auto_stack_trace is enabled
+            stack_trace_id: Optional[int] = None
+            if self._config.auto_stack_trace:
+                call_stack_obj = call_stack()
+                trace = call_stack_obj.capture_stack_trace()
+                # Use the log index as the stack trace ID
+                stack_trace_id = log_index
+                # Store the trace
+                self._stack_traces[stack_trace_id] = trace
 
             # Store dashboard log entry
             if call_site not in self._dashboard_logs:
@@ -730,7 +734,6 @@ class Report:
             self._logs.clear()
             self._log_index = 0
             self._stack_traces.clear()
-            self._stack_trace_id_to_log_indices.clear()
             self._counts.clear()
             self._counts_metadata.clear()
             self._histograms.clear()
@@ -785,11 +788,8 @@ class Report:
         Returns:
             StackTrace if found, None otherwise
         """
-        # Find which stack trace ID this log index belongs to
-        for stack_trace_id, log_indices in self._stack_trace_id_to_log_indices.items():
-            if log_index in log_indices:
-                return self._stack_traces.get(stack_trace_id)
-        return None
+        # Stack trace ID is the same as log index
+        return self._stack_traces.get(log_index)
 
     def to_json(self) -> Dict[str, Any]:
         """
