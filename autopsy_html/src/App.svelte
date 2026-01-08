@@ -555,6 +555,7 @@
           onShowCallSite={handleShowCallSite}
           onColumnOrderChange={handleColumnOrderChange}
           onOpenComputedColumnModal={handleOpenComputedColumnModal}
+          onSaveComputedColumn={handleSaveComputedColumn}
         />
       {:else if activeTab === "history"}
         <HistoryView
@@ -717,7 +718,16 @@
                   <div class="variables-header">Local Variables:</div>
                   <div class="variables-list">
                     {#each Object.entries(frame.local_variables) as [name, value]}
-                      <TreeView {value} key={name} />
+                      <TreeView
+                        {value}
+                        key={name}
+                        enableDrag={true}
+                        frameIndex={index}
+                        sourceLogIndex={selectedLogIndex}
+                        frameFunctionName={frame.function_name}
+                        frameFilename={frame.filename}
+                        frameLineNumber={frame.line_number}
+                      />
                     {/each}
                   </div>
                 </div>

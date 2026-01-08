@@ -4,7 +4,24 @@
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
-  import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName } from "./computedColumns";
+  import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId } from "./computedColumns";
+
+  // Drag-and-drop types for stack variables
+  interface PathSegment {
+    key: string | number;
+    type: 'object' | 'array';
+  }
+
+  interface StackVariableDragPayload {
+    type: 'stack-variable';
+    frameIndex: number;
+    path: PathSegment[];
+    sourceLogIndex: number;
+    frameFunctionName?: string;
+    frameFilename?: string;
+    frameLineNumber?: number;
+    baseExpression?: string;
+  }
 
   // Sort state types (must be defined before Props interface)
   type SortDirection = 'asc' | 'desc';
@@ -26,6 +43,7 @@
     onShowCallSite?: (callSiteKey: string) => void;
     onColumnOrderChange?: (callSiteKey: string, newOrder: string[]) => void;
     onOpenComputedColumnModal?: (callSite: CallSite, existingColumn?: ComputedColumn) => void;
+    onSaveComputedColumn?: (column: ComputedColumn) => void;
   }
 
   let {
@@ -44,6 +62,7 @@
     onShowCallSite,
     onColumnOrderChange,
     onOpenComputedColumnModal,
+    onSaveComputedColumn,
   }: Props = $props();
 
   // Drag-and-drop state
@@ -402,6 +421,18 @@
   function handleDragOver(callSite: CallSite, index: number, e: DragEvent) {
     e.preventDefault();
     const callSiteKey = getCallSiteKey(callSite);
+
+    console.log("handleDragOver", { types: e.dataTransfer?.types, callSiteKey, index });
+
+    // Check for stack variable drag (external)
+    if (e.dataTransfer?.types.includes('application/json')) {
+      console.log("Detected stack variable drag");
+      e.dataTransfer.dropEffect = 'copy';
+      dropTarget = { callSiteKey, index };
+      return;
+    }
+
+    // Existing column reorder logic
     if (draggedColumn && draggedColumn.callSiteKey === callSiteKey) {
       if (e.dataTransfer) {
         e.dataTransfer.dropEffect = 'move';
@@ -427,6 +458,27 @@
     e.preventDefault();
     const callSiteKey = getCallSiteKey(callSite);
 
+    console.log("handleDrop", { callSiteKey, targetIndex });
+
+    // Check for stack variable drag (external)
+    const jsonData = e.dataTransfer?.getData('application/json');
+    console.log("Drop JSON data:", jsonData);
+    if (jsonData) {
+      try {
+        const payload: StackVariableDragPayload = JSON.parse(jsonData);
+        console.log("Parsed payload:", payload);
+        if (payload.type === 'stack-variable') {
+          console.log("Calling handleStackVariableDrop");
+          handleStackVariableDrop(callSite, callSiteKey, targetIndex, payload);
+          dropTarget = null;
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to parse drag payload:', err);
+      }
+    }
+
+    // Existing column reorder logic
     if (!draggedColumn || draggedColumn.callSiteKey !== callSiteKey) {
       draggedColumn = null;
       dropTarget = null;
@@ -456,6 +508,135 @@
   function handleDragEnd() {
     draggedColumn = null;
     dropTarget = null;
+  }
+
+  function handleStackVariableDrop(
+    callSite: CallSite,
+    callSiteKey: string,
+    targetIndex: number,
+    payload: StackVariableDragPayload
+  ) {
+    console.log("handleStackVariableDrop called", { callSiteKey, targetIndex, payload });
+
+    // Validate: check that sourceLogIndex belongs to this call site
+    const belongsToCallSite = callSite.value_groups.some(
+      vg => vg.log_index === payload.sourceLogIndex
+    );
+
+    console.log("Validation result:", { belongsToCallSite, sourceLogIndex: payload.sourceLogIndex, valueGroups: callSite.value_groups.map(vg => vg.log_index) });
+
+    if (!belongsToCallSite) {
+      console.warn('Cannot drop: stack trace is from a different call site');
+      return;
+    }
+
+    // Validate payload
+    if (!payload.path || payload.path.length === 0) {
+      console.warn('Invalid drag payload: empty path');
+      return;
+    }
+
+    // Generate expression and title
+    const expression = generatePythonExpression(payload);
+    const title = generateColumnTitle(payload);
+
+    console.log("Generated expression:", expression);
+    console.log("Generated title:", title);
+
+    // Create computed column
+    const column: ComputedColumn = {
+      id: generateColumnId(),
+      title,
+      expression,
+      callSiteKey,
+    };
+
+    console.log("Created column:", column);
+
+    // Get current column order BEFORE saving (so it doesn't include the new column yet)
+    const columns = getColumnNames(callSite);
+    const newColumnName = `computed:${column.id}`;
+    const newOrder = [...columns];
+    newOrder.splice(targetIndex, 0, newColumnName);
+    console.log("Updating column order:", { newOrder, targetIndex });
+
+    // Save the column (this makes it available in computedColumns)
+    onSaveComputedColumn?.(column);
+    console.log("Called onSaveComputedColumn");
+
+    // Update column order to insert at target position
+    onColumnOrderChange?.(callSiteKey, newOrder);
+    console.log("Done with handleStackVariableDrop");
+  }
+
+  function generatePythonExpression(payload: StackVariableDragPayload): string {
+    const { frameIndex, path, frameFunctionName, frameFilename, frameLineNumber, baseExpression } = payload;
+
+    let expr: string;
+
+    if (baseExpression) {
+      // Append to existing expression
+      expr = baseExpression;
+    } else {
+      // Generate new expression from frame context
+      let frameAccessExpr: string;
+
+      if (frameFunctionName) {
+        // Try to use function name-based search for more robust access
+        // First, generate a search expression to find the frame
+        const functionNameEscaped = escapeForPython(frameFunctionName);
+
+        // Use next() with a generator expression to find the first matching frame
+        frameAccessExpr = `next((f for f in trace['frames'] if f['function_name'] == "${functionNameEscaped}"), trace['frames'][${frameIndex}])`;
+      } else {
+        // Fallback to direct index access
+        frameAccessExpr = `trace['frames'][${frameIndex}]`;
+      }
+
+      // Start with local_variables access
+      expr = `(${frameAccessExpr})['local_variables']`;
+    }
+
+    // Append the dragged path
+    for (const segment of path) {
+      if (segment.type === 'array') {
+        expr += `[${segment.key}]`;
+      } else {
+        const escapedKey = escapeForPython(String(segment.key));
+        expr += `["${escapedKey}"]`;
+      }
+    }
+
+    return expr;
+  }
+
+  function escapeForPython(str: string): string {
+    return str
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+  }
+
+  function generateColumnTitle(payload: StackVariableDragPayload): string {
+    const { frameIndex, path, frameFunctionName, baseExpression } = payload;
+
+    if (path.length === 0) {
+      return frameFunctionName ? frameFunctionName : `frame[${frameIndex}]`;
+    }
+
+    const leafSegment = path[path.length - 1];
+    const leafKey = String(leafSegment.key);
+
+    if (baseExpression) {
+      // When appending to an existing expression, just use the leaf key
+      return leafKey;
+    }
+
+    // Use function name if available, otherwise fall back to frame index
+    const frameLabel = frameFunctionName || `frame ${frameIndex}`;
+    return `${leafKey} (${frameLabel})`;
   }
 
   // Effect to scroll to and highlight the entry when highlightedLogIndex changes
@@ -770,12 +951,31 @@
                     </td>
                     {#each getColumnNames(callSite) as columnName}
                       {@const cellValue = getValueForColumn(valueGroup, columnName, callSite)}
+                      {@const stackTrace = valueGroup.stack_trace_id ? data.stack_traces[valueGroup.stack_trace_id] : undefined}
+                      {@const firstFrame = stackTrace?.frames[0]}
+                      {@const isComputedColumn = columnName.startsWith('computed:')}
+                      {@const isSimpleVariable = !isComputedColumn && firstFrame && columnName in firstFrame.local_variables}
+                      {@const canDrag = !!firstFrame && (isComputedColumn || isSimpleVariable)}
+                      {@const baseExpr = isComputedColumn
+                        ? getComputedColumn(callSite, columnName)?.expression
+                        : isSimpleVariable
+                          ? `next((f for f in trace['frames'] if f['function_name'] == "${escapeForPython(firstFrame.function_name)}"), trace['frames'][0])['local_variables']["${escapeForPython(columnName)}"]`
+                          : undefined}
                       <td class="value-cell">
                         {#if cellValue !== undefined}
                           {#if typeof cellValue === 'object' && cellValue !== null && '__error' in cellValue}
                             <span class="computed-error">{cellValue.__error}</span>
                           {:else}
-                            <TreeView value={cellValue} />
+                            <TreeView
+                              value={cellValue}
+                              enableDrag={canDrag}
+                              frameIndex={0}
+                              sourceLogIndex={valueGroup.log_index}
+                              frameFunctionName={firstFrame?.function_name}
+                              frameFilename={firstFrame?.filename}
+                              frameLineNumber={firstFrame?.line_number}
+                              baseExpression={baseExpr}
+                            />
                           {/if}
                         {:else}
                           <span class="empty-cell">—</span>

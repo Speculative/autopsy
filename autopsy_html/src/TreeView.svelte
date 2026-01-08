@@ -1,17 +1,52 @@
 <script lang="ts">
   import TreeView from "./TreeView.svelte";
 
+  interface PathSegment {
+    key: string | number;
+    type: 'object' | 'array';
+  }
+
   interface Props {
     value: unknown;
     key?: string | number;
     depth?: number;
+    enableDrag?: boolean;
+    frameIndex?: number;
+    pathPrefix?: PathSegment[];
+    sourceLogIndex?: number;
+    frameFunctionName?: string;
+    frameFilename?: string;
+    frameLineNumber?: number;
+    baseExpression?: string; // The base expression to prepend to the dragged path
   }
 
-  export let value: unknown;
-  export let key: string | number | undefined = undefined;
-  export let depth: number = 0;
+  let {
+    value,
+    key = undefined,
+    depth = 0,
+    enableDrag = false,
+    frameIndex = undefined,
+    pathPrefix = [],
+    sourceLogIndex = undefined,
+    frameFunctionName = undefined,
+    frameFilename = undefined,
+    frameLineNumber = undefined,
+    baseExpression = undefined,
+  }: Props = $props();
 
-  let expanded = false; // Collapsed by default
+  let expanded = $state(false); // Collapsed by default
+
+  // Compute current path by appending current key to pathPrefix
+  const currentPath = $derived.by(() => {
+    if (!enableDrag || key === undefined) return [];
+
+    const segment: PathSegment = {
+      key,
+      type: isArray(value) ? 'array' : 'object'
+    };
+
+    return [...pathPrefix, segment];
+  });
 
   function isObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -54,9 +89,11 @@
   }
 
   function toggle(event: MouseEvent | KeyboardEvent) {
+    console.log("toggle called", { isExpandable: isObject(value) || isArray(value), expanded, value });
     event.stopPropagation();
     if (isObject(value) || isArray(value)) {
       expanded = !expanded;
+      console.log("toggled to", expanded);
     }
   }
 
@@ -65,6 +102,46 @@
       event.preventDefault();
       toggle(event);
     }
+  }
+
+  function handleDragStart(event: DragEvent) {
+    console.log("Drag started", { enableDrag, frameIndex, sourceLogIndex, path: currentPath });
+
+    if (!enableDrag || !event.dataTransfer || frameIndex === undefined || sourceLogIndex === undefined) {
+      return;
+    }
+
+    const payload = {
+      type: 'stack-variable',
+      frameIndex,
+      path: currentPath,
+      sourceLogIndex,
+      frameFunctionName,
+      frameFilename,
+      frameLineNumber,
+      baseExpression,
+    };
+
+    // Set drag data
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData('application/json', JSON.stringify(payload));
+
+    // Create visual ghost showing the path
+    const ghostText = generatePathPreview(currentPath);
+    const ghost = document.createElement('div');
+    ghost.textContent = ghostText;
+    ghost.style.cssText = 'position: absolute; top: -1000px; background: #f3f4f6; padding: 6px 12px; border-radius: 4px; font-family: monospace; font-size: 12px; border: 1px solid #d1d5db; box-shadow: 0 1px 3px rgba(0,0,0,0.1);';
+    document.body.appendChild(ghost);
+    event.dataTransfer.setDragImage(ghost, 0, 0);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+  }
+
+  function generatePathPreview(path: PathSegment[]): string {
+    if (path.length === 0) return '';
+    return path.map(seg => {
+      if (typeof seg.key === 'number') return `[${seg.key}]`;
+      return seg.key;
+    }).join('.');
   }
 
   function getTypeColor(type: string): string {
@@ -93,8 +170,17 @@
     {#if key !== undefined}
       <span
         class="key"
-        on:click={(e) => toggle(e)}
-        on:keydown={handleKeydown}
+        class:draggable={enableDrag && key !== undefined}
+        draggable={enableDrag && key !== undefined}
+        ondragstart={(e) => {
+          console.log("Drag start event")
+          handleDragStart(e)
+        }}
+        onclick={(e) => {
+          console.log("Clicked")
+          toggle(e);
+        }}
+        onkeydown={handleKeydown}
         role="button"
         tabindex="0"
       >
@@ -109,8 +195,8 @@
     <span
       class="value-wrapper"
       class:expandable={isObject(value) || isArray(value)}
-      on:click={(e) => (isObject(value) || isArray(value)) && toggle(e)}
-      on:keydown={(e) =>
+      onclick={(e) => (isObject(value) || isArray(value)) && toggle(e)}
+      onkeydown={(e) =>
         (isObject(value) || isArray(value)) && handleKeydown(e)}
       {...isObject(value) || isArray(value)
         ? { role: "button", tabindex: 0 }
@@ -144,11 +230,35 @@
     <div class="children">
       {#if isObject(value)}
         {#each Object.entries(value) as [k, v]}
-          <TreeView value={v} key={k} depth={depth + 1} />
+          <TreeView
+            value={v}
+            key={k}
+            depth={depth + 1}
+            enableDrag={enableDrag}
+            frameIndex={frameIndex}
+            pathPrefix={currentPath}
+            sourceLogIndex={sourceLogIndex}
+            frameFunctionName={frameFunctionName}
+            frameFilename={frameFilename}
+            frameLineNumber={frameLineNumber}
+            baseExpression={baseExpression}
+          />
         {/each}
       {:else if isArray(value)}
         {#each value as item, index}
-          <TreeView value={item} key={index} depth={depth + 1} />
+          <TreeView
+            value={item}
+            key={index}
+            depth={depth + 1}
+            enableDrag={enableDrag}
+            frameIndex={frameIndex}
+            pathPrefix={currentPath}
+            sourceLogIndex={sourceLogIndex}
+            frameFunctionName={frameFunctionName}
+            frameFilename={frameFilename}
+            frameLineNumber={frameLineNumber}
+            baseExpression={baseExpression}
+          />
         {/each}
       {/if}
     </div>
@@ -188,6 +298,21 @@
   .key:focus {
     outline: 1px solid #2563eb;
     outline-offset: 1px;
+  }
+
+  .key.draggable {
+    cursor: grab;
+    transition: background-color 0.2s;
+  }
+
+  .key.draggable:hover {
+    background-color: #e0f2fe;
+    box-shadow: 0 0 0 1px #bae6fd;
+  }
+
+  .key.draggable:active {
+    cursor: grabbing;
+    background-color: #bae6fd;
   }
 
   .expand-icon,
