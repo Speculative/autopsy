@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import { AutopsyData, LogLocation } from './types';
 
 export class AutopsyPanel {
   public static currentPanel: AutopsyPanel | undefined;
@@ -7,8 +8,20 @@ export class AutopsyPanel {
   private readonly _extensionUri: vscode.Uri;
   private readonly _outputChannel: vscode.OutputChannel;
   private _disposables: vscode.Disposable[] = [];
+  private _onLogDataUpdate = new vscode.EventEmitter<LogLocation[]>();
+  public readonly onLogDataUpdate = this._onLogDataUpdate.event;
+  private static _logDataUpdateCallback?: (locations: LogLocation[]) => void;
 
-  public static createOrShow(extensionUri: vscode.Uri, outputChannel: vscode.OutputChannel) {
+  public static createOrShow(
+    extensionUri: vscode.Uri,
+    outputChannel: vscode.OutputChannel,
+    logDataUpdateCallback?: (locations: LogLocation[]) => void
+  ) {
+    // Store the callback for use by new or existing panel
+    if (logDataUpdateCallback) {
+      AutopsyPanel._logDataUpdateCallback = logDataUpdateCallback;
+    }
+
     // If panel exists, reveal it
     if (AutopsyPanel.currentPanel) {
       outputChannel.appendLine('Panel already exists, revealing it');
@@ -206,6 +219,8 @@ export class AutopsyPanel {
   }
 
   private async _handleMessage(message: any) {
+    this._outputChannel.appendLine(`Message received from webview: ${message.type}`);
+
     switch (message.type) {
       case 'openFile':
         this._outputChannel.appendLine(`Opening file: ${message.filename}:${message.line}`);
@@ -221,7 +236,123 @@ export class AutopsyPanel {
         const msg = message.message || '';
         this._outputChannel.appendLine(`[Webview ${level.toUpperCase()}] ${msg}`);
         break;
+      case 'logDataUpdate':
+        // Receive autopsy data from webview and emit event
+        this._outputChannel.appendLine('Received log data update from webview');
+        this._handleLogDataUpdate(message.data);
+        break;
+      default:
+        this._outputChannel.appendLine(`Unknown message type: ${message.type}`);
     }
+  }
+
+  /**
+   * Process autopsy data and emit log locations for CodeLens and decorations
+   */
+  private _handleLogDataUpdate(data: AutopsyData) {
+    try {
+      const locations = this._extractLogLocations(data);
+      this._outputChannel.appendLine(`Extracted ${locations.length} log locations`);
+      this._onLogDataUpdate.fire(locations);
+
+      // Also call the static callback if registered
+      if (AutopsyPanel._logDataUpdateCallback) {
+        AutopsyPanel._logDataUpdateCallback(locations);
+      }
+    } catch (error) {
+      this._outputChannel.appendLine(`Error processing log data: ${error}`);
+    }
+  }
+
+  /**
+   * Extract log locations from autopsy data
+   */
+  private _extractLogLocations(data: AutopsyData): LogLocation[] {
+    const locations: LogLocation[] = [];
+
+    // Process regular call sites
+    for (const callSite of data.call_sites) {
+      const location: LogLocation = {
+        filename: callSite.filename,
+        line: callSite.line,
+        logCount: callSite.value_groups.length,
+        isDashboard: callSite.is_dashboard || false,
+      };
+
+      // If it's a dashboard call site, get the dashboard type from first value group
+      if (callSite.is_dashboard && callSite.value_groups.length > 0) {
+        location.dashboardType = callSite.value_groups[0].dashboard_type;
+      }
+
+      locations.push(location);
+    }
+
+    // Process dashboard data to extract counts and values
+    if (data.dashboard) {
+      // Process histograms to extract values for sparklines
+      if (data.dashboard.histograms) {
+        for (const histEntry of data.dashboard.histograms) {
+          const existingLocation = locations.find(
+            loc => loc.filename === histEntry.call_site.filename &&
+                   loc.line === histEntry.call_site.line
+          );
+
+          if (existingLocation) {
+            // Add histogram values for sparkline generation
+            existingLocation.histogramValues = histEntry.values.map(v => v.value);
+          }
+        }
+      }
+
+      // Process counts to get total count
+      if (data.dashboard.counts) {
+        for (const countEntry of data.dashboard.counts) {
+          const existingLocation = locations.find(
+            loc => loc.filename === countEntry.call_site.filename &&
+                   loc.line === countEntry.call_site.line
+          );
+
+          if (existingLocation) {
+            // Sum up all counts across all values
+            let total = 0;
+            for (const valueKey in countEntry.value_counts) {
+              total += countEntry.value_counts[valueKey].count;
+            }
+            existingLocation.countTotal = total;
+          }
+        }
+      }
+
+      // Process timeline to get event count
+      if (data.dashboard.timeline) {
+        for (const timelineEntry of data.dashboard.timeline) {
+          const existingLocation = locations.find(
+            loc => loc.filename === timelineEntry.call_site.filename &&
+                   loc.line === timelineEntry.call_site.line
+          );
+
+          if (existingLocation) {
+            existingLocation.timelineEventCount = (existingLocation.timelineEventCount || 0) + 1;
+          }
+        }
+      }
+
+      // Process happened to get count
+      if (data.dashboard.happened) {
+        for (const happenedEntry of data.dashboard.happened) {
+          const existingLocation = locations.find(
+            loc => loc.filename === happenedEntry.call_site.filename &&
+                   loc.line === happenedEntry.call_site.line
+          );
+
+          if (existingLocation) {
+            existingLocation.happenedCount = happenedEntry.count;
+          }
+        }
+      }
+    }
+
+    return locations;
   }
 
   private async _openFileAtLocation(
@@ -287,6 +418,7 @@ export class AutopsyPanel {
   public dispose() {
     AutopsyPanel.currentPanel = undefined;
     this._panel.dispose();
+    this._onLogDataUpdate.dispose();
     while (this._disposables.length) {
       const d = this._disposables.pop();
       if (d) d.dispose();

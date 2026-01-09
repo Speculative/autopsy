@@ -40,3 +40,29 @@ export function openFileInVSCode(filename: string, line: number, column: number 
   });
   return true;
 }
+
+export function sendLogDataUpdate(data: any): boolean {
+  const api = getVSCodeApi();
+  if (!api) {
+    console.error('VS Code API not available');
+    return false;
+  }
+
+  try {
+    console.log('Attempting to send log data update, call_sites:', data.call_sites?.length);
+
+    // Deep clone the data to avoid circular references and ensure it's serializable
+    // postMessage uses structured clone algorithm which can't handle some objects
+    const serializedData = JSON.parse(JSON.stringify(data));
+
+    api.postMessage({
+      type: 'logDataUpdate',
+      data: serializedData
+    });
+    console.log('Log data update sent successfully');
+    return true;
+  } catch (error) {
+    console.error('Failed to send log data update:', error);
+    return false;
+  }
+}

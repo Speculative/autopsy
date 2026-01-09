@@ -6,7 +6,7 @@
   import TreeView from "./TreeView.svelte";
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import * as pako from "pako";
-  import { isVSCodeWebview, openFileInVSCode } from "./vscodeApi";
+  import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate } from "./vscodeApi";
 
   // Conditional imports for live mode
   let createWebSocketConnection: any;
@@ -176,6 +176,14 @@
 
   // Load data on mount
   loadData();
+
+  // Send data updates to VS Code extension when data changes
+  $effect(() => {
+    if (isVSCodeWebview() && data.call_sites.length > 0) {
+      console.log("Sending log data update to VS Code extension");
+      sendLogDataUpdate(data);
+    }
+  });
 
   function handleShowInHistory(logIndex: number) {
     highlightedLogIndex = logIndex;
