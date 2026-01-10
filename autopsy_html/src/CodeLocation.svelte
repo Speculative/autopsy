@@ -7,6 +7,7 @@
     functionName?: string;
     className?: string;
     showFunction?: boolean;
+    compact?: boolean;
   }
 
   let {
@@ -14,7 +15,8 @@
     line,
     functionName,
     className,
-    showFunction = true
+    showFunction = true,
+    compact = false
   }: Props = $props();
 
   const inVSCode = isVSCodeWebview();
@@ -34,33 +36,51 @@
 </script>
 
 {#if inVSCode}
-  <button class="code-location clickable" onclick={handleClick} title="Open in editor: {filename}:{line}">
-    <span class="filename">{getShortFilename(filename)}</span><span class="line-number">:{line}</span>
-    {#if showFunction && functionName}
-      <span class="function-name">
-        in <code>
-          {#if className}
-            {className}.{functionName}
-          {:else}
-            {functionName}
-          {/if}
-        </code>
+  <button class="code-location clickable" class:compact onclick={handleClick} title="Open in editor: {filename}:{line}">
+    {#if compact}
+      <span class="compact-text">
+        {getShortFilename(filename)}:{line}
+        {#if showFunction && functionName}
+          ({#if className}{className}.{/if}{functionName})
+        {/if}
       </span>
+    {:else}
+      <span class="filename">{getShortFilename(filename)}</span><span class="line-number">:{line}</span>
+      {#if showFunction && functionName}
+        <span class="function-name">
+          in <code>
+            {#if className}
+              {className}.{functionName}
+            {:else}
+              {functionName}
+            {/if}
+          </code>
+        </span>
+      {/if}
     {/if}
   </button>
 {:else}
-  <span class="code-location">
-    <span class="filename">{getShortFilename(filename)}</span><span class="line-number">:{line}</span>
-    {#if showFunction && functionName}
-      <span class="function-name">
-        in <code>
-          {#if className}
-            {className}.{functionName}
-          {:else}
-            {functionName}
-          {/if}
-        </code>
+  <span class="code-location" class:compact>
+    {#if compact}
+      <span class="compact-text">
+        {getShortFilename(filename)}:{line}
+        {#if showFunction && functionName}
+          ({#if className}{className}.{/if}{functionName})
+        {/if}
       </span>
+    {:else}
+      <span class="filename">{getShortFilename(filename)}</span><span class="line-number">:{line}</span>
+      {#if showFunction && functionName}
+        <span class="function-name">
+          in <code>
+            {#if className}
+              {className}.{functionName}
+            {:else}
+              {functionName}
+            {/if}
+          </code>
+        </span>
+      {/if}
     {/if}
   </span>
 {/if}
@@ -112,5 +132,17 @@
     border-radius: 0.25rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.875rem;
+  }
+
+  /* Compact mode styles */
+  .compact-text {
+    font-weight: 400;
+    color: #9ca3af;
+    font-size: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  .code-location.clickable.compact:hover .compact-text {
+    color: #6b7280;
   }
 </style>

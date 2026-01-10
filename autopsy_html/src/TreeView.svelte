@@ -165,7 +165,7 @@
   }
 </script>
 
-<div class="tree-node">
+<div class="tree-node" class:nested={key !== undefined}>
   <div class="tree-line">
     {#if key !== undefined}
       <span
@@ -267,11 +267,14 @@
 
 <style>
   .tree-node {
-    margin-left: 20px;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro",
       monospace;
     font-size: 0.9rem;
     line-height: 1.5;
+  }
+
+  .tree-node.nested {
+    margin-left: 20px;
   }
 
   .tree-line {

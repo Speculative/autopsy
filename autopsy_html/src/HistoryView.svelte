@@ -40,6 +40,8 @@
     onToggleShowDashboard,
   }: Props = $props();
 
+  let showCodeLocations = $state(false);
+
   // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
   let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
 
@@ -276,13 +278,13 @@
     onHideCallSite?.(key);
   }
 
-  let menuOpenFor: string | null = $state(null);
+  let menuOpenFor: number | null = $state(null);
   let expandedSkipMarkers = $state<Set<number>>(new Set());
   let lastProcessedLogIndex: number | null = $state(null);
 
-  function toggleMenu(callSiteKey: string, e: MouseEvent | KeyboardEvent) {
+  function toggleMenu(logIndex: number, e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
-    menuOpenFor = menuOpenFor === callSiteKey ? null : callSiteKey;
+    menuOpenFor = menuOpenFor === logIndex ? null : logIndex;
   }
 
   function closeMenu() {
@@ -385,13 +387,21 @@
       />
       <span>Hide skipped logs</span>
     </label>
+    <label class="header-checkbox">
+      <input
+        type="checkbox"
+        checked={showCodeLocations}
+        onchange={(e) => showCodeLocations = e.currentTarget.checked}
+      />
+      <span>Show code locations</span>
+    </label>
   </div>
   <div class="history">
     {#each historyEntries as item, index}
       {#if "type" in item && item.type === "skip"}
         {#if !hideSkippedLogs}
           {@const isExpanded = isSkipMarkerExpanded(index)}
-          <div class="skip-marker-container">
+          <div class="skip-marker-wrapper">
             <div
               class="skip-marker"
               class:expanded={isExpanded}
@@ -405,97 +415,122 @@
                 }
               }}
               aria-label="{item.count} entries skipped, click to {isExpanded ? 'collapse' : 'expand'}"
+              title="{item.count} {item.count === 1 ? 'log' : 'logs'} skipped"
             >
-              <span class="skip-text">
-                {isExpanded ? "▼" : "▶"} ...{item.count}{" "}
-                {item.count === 1 ? "log" : "logs"} skipped
-              </span>
+              +{item.count}
             </div>
             {#if isExpanded}
-              <div class="skipped-entries">
+              <div class="skip-marker-container">
                 {#each item.entries as skippedEntry}
+                  {@const skippedCallSiteKey = getCallSiteKey(skippedEntry.callSite)}
                   <div
                     class="history-entry skipped-entry"
                     class:highlighted={highlightedLogIndex === skippedEntry.log_index}
                     class:selected={selectedLogIndex === skippedEntry.log_index}
                     class:clickable={skippedEntry.valueGroup.stack_trace_id !== undefined}
+                    class:menu-open={menuOpenFor === skippedEntry.log_index}
                     data-log-index={skippedEntry.log_index}
                     onclick={() => handleEntryClick(skippedEntry)}
                   >
-                    <div class="entry-header">
-                      <span
-                        class="log-number clickable"
-                        role="button"
-                        tabindex="0"
-                        onclick={(e) => {
+                    <span
+                      class="log-number clickable"
+                      role="button"
+                      tabindex="0"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        onShowInStream?.(skippedEntry.log_index);
+                      }}
+                      onkeydown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
                           e.stopPropagation();
                           onShowInStream?.(skippedEntry.log_index);
-                        }}
-                        onkeydown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onShowInStream?.(skippedEntry.log_index);
-                          }
-                        }}
-                        title="Show this log in the Streams view"
-                      >
-                        <span class="log-number-arrow">⬅️</span>
-                        <span class="log-number-text">#{skippedEntry.log_index}</span>
-                      </span>
-                      <span class="location">
-                        <span class="filename">{getFilename(skippedEntry.callSite)}</span>
-                        <span class="separator">:</span>
-                        <span class="line">{skippedEntry.callSite.line}</span>
-                      </span>
-                      <span class="separator">in</span>
-                      <span class="function">
-                        {#if skippedEntry.valueGroup.class_name}
-                          {skippedEntry.valueGroup.class_name}.{skippedEntry.valueGroup.function_name}
-                        {:else}
-                          {skippedEntry.valueGroup.function_name}
-                        {/if}
-                      </span>
-                    </div>
-                    {#if skippedEntry.valueGroup.dashboard_type}
-                      <div class="dashboard-entry">
-                        {#if skippedEntry.valueGroup.dashboard_type === "count"}
-                          <span class="dashboard-label">count:</span>
-                          <TreeView value={skippedEntry.valueGroup.value} />
-                        {:else if skippedEntry.valueGroup.dashboard_type === "hist"}
-                          <span class="dashboard-label">hist:</span>
-                          <TreeView value={skippedEntry.valueGroup.value} />
-                        {:else if skippedEntry.valueGroup.dashboard_type === "timeline"}
-                          <span class="dashboard-label">timeline:</span>
-                          <span class="dashboard-text">{skippedEntry.valueGroup.event_name}</span>
-                        {:else if skippedEntry.valueGroup.dashboard_type === "happened"}
-                          <span class="dashboard-label">happened</span>
-                          {#if skippedEntry.valueGroup.message}
-                            <span class="dashboard-text">: {skippedEntry.valueGroup.message}</span>
+                        }
+                      }}
+                      title="Show this log in the Streams view"
+                    >
+                      <span class="log-number-arrow">⬅️</span>
+                      <span class="log-number-text">#{skippedEntry.log_index}</span>
+                    </span>
+
+                    <div class="entry-content">
+                      {#if showCodeLocations}
+                        <CodeLocation
+                          filename={skippedEntry.callSite.filename}
+                          line={skippedEntry.callSite.line}
+                          functionName={skippedEntry.valueGroup.function_name}
+                          className={skippedEntry.valueGroup.class_name}
+                          compact={true}
+                        />
+                      {/if}
+                      {#if skippedEntry.valueGroup.dashboard_type}
+                        <div class="dashboard-entry">
+                          {#if skippedEntry.valueGroup.dashboard_type === "count"}
+                            <span class="dashboard-label">count:</span>
+                            <TreeView value={skippedEntry.valueGroup.value} />
+                          {:else if skippedEntry.valueGroup.dashboard_type === "hist"}
+                            <span class="dashboard-label">hist:</span>
+                            <TreeView value={skippedEntry.valueGroup.value} />
+                          {:else if skippedEntry.valueGroup.dashboard_type === "timeline"}
+                            <span class="dashboard-label">timeline:</span>
+                            <span class="dashboard-text">{skippedEntry.valueGroup.event_name}</span>
+                          {:else if skippedEntry.valueGroup.dashboard_type === "happened"}
+                            <span class="dashboard-label">happened</span>
+                            {#if skippedEntry.valueGroup.message}
+                              <span class="dashboard-text">: {skippedEntry.valueGroup.message}</span>
+                            {/if}
                           {/if}
-                        {/if}
-                      </div>
-                    {:else if skippedEntry.valueGroup.values && skippedEntry.valueGroup.values.length === 0 && skippedEntry.valueGroup.name}
-                      <div class="log-name-only">{skippedEntry.valueGroup.name}</div>
-                    {:else if skippedEntry.valueGroup.values}
-                      <div class="values">
+                        </div>
+                      {:else if skippedEntry.valueGroup.values && skippedEntry.valueGroup.values.length === 0 && skippedEntry.valueGroup.name}
+                        <span class="log-name-inline">{skippedEntry.valueGroup.name}</span>
+                      {:else if skippedEntry.valueGroup.values}
                         {#if skippedEntry.valueGroup.name}
                           <span class="log-name-inline">{skippedEntry.valueGroup.name}</span>
                         {/if}
                         {#each getOrderedValues(skippedEntry.valueGroup, skippedEntry.callSite) as valueWithName}
-                          <div class="value-item">
+                          <span class="value-item" title={valueWithName.name || ''}>
                             {#if valueWithName.name}
-                              <div class="value-label">{valueWithName.name}:</div>
+                              <span class="value-label">{valueWithName.name}:</span>
                             {/if}
                             {#if typeof valueWithName.value === 'object' && valueWithName.value !== null && '__error' in valueWithName.value}
                               <span class="computed-error">{valueWithName.value.__error}</span>
                             {:else}
                               <TreeView value={valueWithName.value} />
                             {/if}
-                          </div>
+                          </span>
                         {/each}
-                      </div>
-                    {/if}
+                      {/if}
+                    </div>
+
+                    <div class="entry-menu-container">
+                      <button
+                        class="menu-button"
+                        onclick={(e) => toggleMenu(skippedEntry.log_index, e)}
+                        onkeydown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            toggleMenu(skippedEntry.log_index, e);
+                          }
+                        }}
+                        title="Menu"
+                      >
+                        ⋯
+                      </button>
+                      {#if menuOpenFor === skippedEntry.log_index}
+                        <div class="menu-dropdown" onclick={(e) => e.stopPropagation()}>
+                          <button
+                            class="menu-item"
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              handleHideCallSite(skippedEntry.callSite);
+                              closeMenu();
+                            }}
+                          >
+                            Hide {skippedEntry.callSite.value_groups.length} {skippedEntry.callSite.value_groups.length === 1 ? "log" : "logs"} like this
+                          </button>
+                        </div>
+                      {/if}
+                    </div>
                   </div>
                 {/each}
               </div>
@@ -510,105 +545,109 @@
           class:highlighted={highlightedLogIndex === entry.log_index}
           class:selected={selectedLogIndex === entry.log_index}
           class:clickable={entry.valueGroup.stack_trace_id !== undefined}
+          class:menu-open={menuOpenFor === entry.log_index}
           data-log-index={entry.log_index}
           onclick={() => handleEntryClick(entry)}
         >
-          <div class="entry-header">
-            <span
-              class="log-number clickable"
-              role="button"
-              tabindex="0"
-              onclick={(e) => {
+          <span
+            class="log-number clickable"
+            role="button"
+            tabindex="0"
+            onclick={(e) => {
+              e.stopPropagation();
+              onShowInStream?.(entry.log_index);
+            }}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
                 e.stopPropagation();
                 onShowInStream?.(entry.log_index);
-              }}
-              onkeydown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onShowInStream?.(entry.log_index);
-                }
-              }}
-              title="Show this log in the Streams view"
-            >
-              <span class="log-number-arrow">⬅️</span>
-              <span class="log-number-text">#{entry.log_index}</span>
-            </span>
-            <CodeLocation
-              filename={entry.callSite.filename}
-              line={entry.callSite.line}
-              functionName={entry.valueGroup.function_name}
-              className={entry.valueGroup.class_name}
-            />
-            <div class="entry-menu-container">
-              <button
-                class="menu-button"
-                onclick={(e) => toggleMenu(callSiteKey, e)}
-                onkeydown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    toggleMenu(callSiteKey, e);
-                  }
-                }}
-                title="Menu"
-              >
-                ⋯
-              </button>
-              {#if menuOpenFor === callSiteKey}
-                <div class="menu-dropdown" onclick={(e) => e.stopPropagation()}>
-                  <button
-                    class="menu-item"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      handleHideCallSite(entry.callSite);
-                      closeMenu();
-                    }}
-                  >
-                    Hide {entry.callSite.value_groups.length} {entry.callSite.value_groups.length === 1 ? "log" : "logs"} like this
-                  </button>
-                </div>
-              {/if}
-            </div>
-          </div>
-          {#if entry.valueGroup.dashboard_type}
-            <div class="dashboard-entry">
-              {#if entry.valueGroup.dashboard_type === "count"}
-                <span class="dashboard-label">count:</span>
-                <TreeView value={entry.valueGroup.value} />
-              {:else if entry.valueGroup.dashboard_type === "hist"}
-                <span class="dashboard-label">hist:</span>
-                <TreeView value={entry.valueGroup.value} />
-              {:else if entry.valueGroup.dashboard_type === "timeline"}
-                <span class="dashboard-label">timeline:</span>
-                <span class="dashboard-text">{entry.valueGroup.event_name}</span>
-              {:else if entry.valueGroup.dashboard_type === "happened"}
-                <span class="dashboard-label">happened</span>
-                {#if entry.valueGroup.message}
-                  <span class="dashboard-text">: {entry.valueGroup.message}</span>
+              }
+            }}
+            title="Show this log in the Streams view"
+          >
+            <span class="log-number-arrow">⬅️</span>
+            <span class="log-number-text">#{entry.log_index}</span>
+          </span>
+
+          <div class="entry-content">
+            {#if showCodeLocations}
+              <CodeLocation
+                filename={entry.callSite.filename}
+                line={entry.callSite.line}
+                functionName={entry.valueGroup.function_name}
+                className={entry.valueGroup.class_name}
+                compact={true}
+              />
+            {/if}
+            {#if entry.valueGroup.dashboard_type}
+              <div class="dashboard-entry">
+                {#if entry.valueGroup.dashboard_type === "count"}
+                  <span class="dashboard-label">count:</span>
+                  <TreeView value={entry.valueGroup.value} />
+                {:else if entry.valueGroup.dashboard_type === "hist"}
+                  <span class="dashboard-label">hist:</span>
+                  <TreeView value={entry.valueGroup.value} />
+                {:else if entry.valueGroup.dashboard_type === "timeline"}
+                  <span class="dashboard-label">timeline:</span>
+                  <span class="dashboard-text">{entry.valueGroup.event_name}</span>
+                {:else if entry.valueGroup.dashboard_type === "happened"}
+                  <span class="dashboard-label">happened</span>
+                  {#if entry.valueGroup.message}
+                    <span class="dashboard-text">: {entry.valueGroup.message}</span>
+                  {/if}
                 {/if}
-              {/if}
-            </div>
-          {:else if entry.valueGroup.values && entry.valueGroup.values.length === 0 && entry.valueGroup.name}
-            <div class="log-name-only">{entry.valueGroup.name}</div>
-          {:else if entry.valueGroup.values}
-            <div class="values">
+              </div>
+            {:else if entry.valueGroup.values && entry.valueGroup.values.length === 0 && entry.valueGroup.name}
+              <span class="log-name-inline">{entry.valueGroup.name}</span>
+            {:else if entry.valueGroup.values}
               {#if entry.valueGroup.name}
                 <span class="log-name-inline">{entry.valueGroup.name}</span>
               {/if}
               {#each getOrderedValues(entry.valueGroup, entry.callSite) as valueWithName}
-                <div class="value-item">
+                <span class="value-item" title={valueWithName.name || ''}>
                   {#if valueWithName.name}
-                    <div class="value-label">{valueWithName.name}:</div>
+                    <span class="value-label">{valueWithName.name}:</span>
                   {/if}
                   {#if typeof valueWithName.value === 'object' && valueWithName.value !== null && '__error' in valueWithName.value}
                     <span class="computed-error">{valueWithName.value.__error}</span>
                   {:else}
                     <TreeView value={valueWithName.value} />
                   {/if}
-                </div>
+                </span>
               {/each}
-            </div>
-          {/if}
+            {/if}
+          </div>
+
+          <div class="entry-menu-container">
+            <button
+              class="menu-button"
+              onclick={(e) => toggleMenu(entry.log_index, e)}
+              onkeydown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleMenu(entry.log_index, e);
+                }
+              }}
+              title="Menu"
+            >
+              ⋯
+            </button>
+            {#if menuOpenFor === entry.log_index}
+              <div class="menu-dropdown" onclick={(e) => e.stopPropagation()}>
+                <button
+                  class="menu-item"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    handleHideCallSite(entry.callSite);
+                    closeMenu();
+                  }}
+                >
+                  Hide {entry.callSite.value_groups.length} {entry.callSite.value_groups.length === 1 ? "log" : "logs"} like this
+                </button>
+              </div>
+            {/if}
+          </div>
         </div>
       {/if}
     {/each}
@@ -649,20 +688,31 @@
   .history {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0;
+    margin-left: 2rem;
+    position: relative;
   }
 
   .history-entry {
     border: 1px solid #e5e5e5;
     border-radius: 6px;
-    padding: 0.75rem;
+    padding: 0.4rem 0.6rem;
     background: white;
     transition: border-color 0.2s, background-color 0.2s;
     position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   .history-entry.clickable {
     cursor: pointer;
+  }
+
+  .history-entry.menu-open {
+    z-index: 100;
   }
 
   .history-entry:hover {
@@ -719,19 +769,22 @@
     z-index: 2;
   }
 
-  .entry-header {
+  .entry-content {
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 0.4rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.85rem;
-    position: relative;
-    z-index: 3;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
   }
 
   .entry-menu-container {
-    margin-left: auto;
+    flex-shrink: 0;
     position: relative;
+    align-self: flex-start;
+    z-index: 20;
   }
 
   .menu-button {
@@ -780,23 +833,29 @@
     background-color: #f8fafc;
   }
 
-  .skip-marker-container {
-    margin: 0.5rem 0;
+  .skip-marker-wrapper {
+    position: relative;
   }
 
   .skip-marker {
-    text-align: center;
-    padding: 0.5rem;
+    position: absolute;
+    left: -2rem;
+    top: 0;
+    padding: 0.1rem 0.3rem;
     color: #999;
-    font-style: italic;
-    font-size: 0.85rem;
+    font-size: 0.65rem;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     cursor: pointer;
     transition: background-color 0.2s, color 0.2s;
-    border-radius: 4px;
+    border-radius: 3px;
+    background: #f9fafb;
+    border: 1px solid #d1d5db;
+    user-select: none;
+    z-index: 5;
   }
 
   .skip-marker:hover {
-    background-color: #f3f4f6;
+    background-color: #e5e7eb;
     color: #666;
   }
 
@@ -805,33 +864,22 @@
     outline-offset: 2px;
   }
 
-  .skip-text {
-    background: #f9fafb;
-    padding: 0.25rem 0.75rem;
-    border-radius: 4px;
-    border: 1px dashed #d1d5db;
-    display: inline-block;
-  }
-
-  .skipped-entries {
-    margin-top: 0.5rem;
-    margin-left: 1rem;
+  .skip-marker-container {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0;
   }
 
-  .skipped-entry {
+  .skip-marker-container .history-entry {
     border: 2px dashed #d1d5db !important;
     opacity: 0.8;
   }
 
   .dashboard-entry {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    margin-top: 0.5rem;
-    padding: 0.5rem;
+    padding: 0.25rem 0.5rem;
     background: #f0f9ff;
     border: 1px solid #bae6fd;
     border-radius: 4px;
@@ -857,6 +905,8 @@
     background: #eff6ff;
     border-radius: 3px;
     width: 4rem;
+    flex-shrink: 0;
+    align-self: flex-start;
   }
 
   .log-number.clickable {
@@ -909,46 +959,6 @@
     transform: translateX(0);
   }
 
-  .location {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    color: #666;
-  }
-
-  .filename {
-    font-weight: 500;
-    color: #475569;
-  }
-
-  .separator {
-    color: #64748b;
-  }
-
-  .line {
-    color: #64748b;
-  }
-
-  .function {
-    color: #64748b;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-  }
-
-  .values {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: flex-start;
-  }
-
-  .log-name-only {
-    color: #881391;
-    font-size: 1rem;
-    font-weight: 500;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    margin-top: 0.25rem;
-  }
 
   .log-name-inline {
     color: #881391;
@@ -962,35 +972,30 @@
   .value-item {
     flex: 0 1 auto;
     min-width: 0;
-    padding: 0.5rem;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 4px;
-    overflow-x: auto;
+    padding: 2px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    overflow-x: visible;
     max-width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    display: inline-flex;
+    flex-direction: row;
+    gap: 0;
+    align-items: center;
+    transition: border-color 0.15s ease;
+  }
+
+  .value-item:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
   }
 
   .value-label {
-    font-weight: 400;
-    color: #881391;
-    font-size: 0.7rem;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    display: none;
   }
 
   @media (max-width: 768px) {
-    .entry-header {
-      flex-wrap: wrap;
-    }
-
-    .function {
-      margin-left: 0;
-      width: 100%;
-    }
-
-    .values {
+    .entry-content {
       flex-direction: column;
     }
 

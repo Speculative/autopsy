@@ -8,7 +8,7 @@ handling rules modify options, they permanently contaminate the profile.
 
 import random
 from autopsy import report
-from autopsy.report import generate_html
+from autopsy.report import generate_html, ReportConfiguration
 
 SHIPPING_PROFILES = {
     "standard": {
@@ -30,7 +30,7 @@ class ShippingCalculator:
     
     def calculate(self, order: dict) -> dict:
         tier = order.get("tier", "standard")
-        shipping = self.profiles[tier].copy()  # Bug: shallow copy
+        shipping = self.profiles[tier].copy()
         self._apply_handling_rules(shipping, order)
         return shipping
     
@@ -134,11 +134,21 @@ def main():
     errors = []
     
     for order in orders:
-        report.log("Processing order", order["id"], order.get("tier", "standard"), order.get("fragile", False), order.get("perishable", False))
+        # report.log("Processing order",
+        #   order["id"],
+        #   order.get("tier", "standard"),
+        #   order.get("fragile", False),
+        #   order.get("perishable", False))
         result = processor.process(order)
         report.hist(result['cost'])
         results.append(result)
-        
+        report.log("Processed",
+          order["id"],
+          order.get("tier", "standard"),
+          order.get("fragile", False),
+          order.get("perishable", False),
+          result["cost"])
+
         expected = expected_cost(order)
         if abs(result["cost"] - expected) > 0.01:
             errors.append({
@@ -182,6 +192,19 @@ def main():
 
 
 if __name__ == "__main__":
+    # trace["frames"][0]["local_variables"]["order"]["id"]
+    # report.init(ReportConfiguration(
+    #     auto_stack_trace=True,
+    #     live_mode=True,
+    #     live_mode_host="localhost",
+    #     live_mode_port=8765
+    # ))
     report.init()
+      # report.init(ReportConfiguration(
+    #     auto_stack_trace=True,
+    #     live_mode=True,
+    #     live_mode_host="localhost",
+    #     live_mode_port=8765
+    # ))  main()
     main()
     generate_html(report, output_path="order_pipeline_report.html")

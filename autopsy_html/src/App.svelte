@@ -27,7 +27,7 @@
     call_sites: [],
     stack_traces: {},
   });
-  let activeTab = $state<"streams" | "history" | "dashboard">("streams");
+  let activeTab = $state<"streams" | "history" | "dashboard">("history");
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
@@ -499,7 +499,6 @@
   <main class="main-panel">
     <div class="header">
       <div class="header-top">
-        <h1>Autopsy Report</h1>
         {#if frameFilter}
           <div class="filter-indicator">
             <span class="filter-label">Filtered by frame</span>
@@ -508,17 +507,17 @@
             </button>
           </div>
         {/if}
+        {#if typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__ && liveMode}
+          <div class="timestamp">
+            <span class="live-indicator {connectionStatus}">●</span>
+            <span>Live - Last updated: {lastUpdateTime || 'Connecting...'}</span>
+          </div>
+        {:else if data.generated_at}
+          <div class="timestamp">
+            Generated: {new Date(data.generated_at).toLocaleString()}
+          </div>
+        {/if}
       </div>
-      {#if typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__ && liveMode}
-        <div class="timestamp">
-          <span class="live-indicator {connectionStatus}">●</span>
-          <span>Live - Last updated: {lastUpdateTime || 'Connecting...'}</span>
-        </div>
-      {:else if data.generated_at}
-        <div class="timestamp">
-          Generated: {new Date(data.generated_at).toLocaleString()}
-        </div>
-      {/if}
     </div>
 
     <div class="tabs">
@@ -804,35 +803,26 @@
   }
 
   .main-panel > .header {
-    max-width: 1200px;
     width: 100%;
-    margin: 0 auto;
-    padding: 2rem 2rem 0 2rem;
+    padding: 0.5rem 2rem 0 2rem;
   }
 
   .main-panel > .tabs {
-    max-width: 1200px;
     width: 100%;
-    margin: 0 auto;
     padding: 0 2rem;
   }
 
   .main-panel > .content {
-    max-width: 1200px;
     width: 100%;
-    margin: 0 auto;
     padding: 0 2rem 2rem 2rem;
     flex: 1;
     min-height: 200px;
   }
 
-  .header {
-    margin-bottom: 1.5rem;
-  }
-
-  h1 {
-    margin: 0 0 0.5rem 0;
-    color: #333;
+  /* Only limit width for Dashboard view */
+  .main-panel > .content:has(> :nth-child(3)) {
+    max-width: 1200px;
+    margin: 0 auto;
   }
 
   .timestamp {
