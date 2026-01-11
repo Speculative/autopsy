@@ -54,6 +54,9 @@
   type ColumnSort = { columnName: string; direction: SortDirection };
   let columnSorts = $state<Record<string, ColumnSort[]>>({});
 
+  // Hidden columns state: maps callSiteKey -> Set of hidden column names
+  let hiddenColumns = $state<Record<string, Set<string>>>({});
+
   // Computed columns state: maps callSiteKey -> array of computed columns
   let computedColumns = $state<Record<string, ComputedColumn[]>>({});
   let computedColumnModalOpen = $state<{
@@ -556,6 +559,7 @@
           {computedColumns}
           bind:collapsedCallSites
           bind:columnSorts
+          bind:hiddenColumns
           onShowInHistory={handleShowInHistory}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}

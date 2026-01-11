@@ -17,6 +17,7 @@
     "@codemirror/state": "^6.5.3",
     "@codemirror/view": "^6.39.9",
     "codemirror": "^6.0.2",
+    "lucide-svelte": "^0.562.0",
     "pako": "^2.1.0"
   },
   "devDependencies": {

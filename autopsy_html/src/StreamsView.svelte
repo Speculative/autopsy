@@ -5,6 +5,7 @@
   import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId, isFrameIndexStable } from "./computedColumns";
+  import { ListFilter } from "lucide-svelte";
 
   // Drag-and-drop types for stack variables
   interface PathSegment {
@@ -37,6 +38,7 @@
     computedColumns?: Record<string, ComputedColumn[]>;
     collapsedCallSites?: Record<string, boolean>;
     columnSorts?: Record<string, ColumnSort[]>;
+    hiddenColumns?: Record<string, Set<string>>;
     onShowInHistory?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
@@ -44,6 +46,8 @@
     onColumnOrderChange?: (callSiteKey: string, newOrder: string[]) => void;
     onOpenComputedColumnModal?: (callSite: CallSite, existingColumn?: ComputedColumn) => void;
     onSaveComputedColumn?: (column: ComputedColumn) => void;
+    onHideColumn?: (callSiteKey: string, columnName: string) => void;
+    onShowColumn?: (callSiteKey: string, columnName: string) => void;
   }
 
   let {
@@ -56,6 +60,7 @@
     computedColumns = {},
     collapsedCallSites = $bindable({}),
     columnSorts = $bindable({}),
+    hiddenColumns = $bindable({}),
     onShowInHistory,
     onEntryClick,
     onHideCallSite,
@@ -63,11 +68,16 @@
     onColumnOrderChange,
     onOpenComputedColumnModal,
     onSaveComputedColumn,
+    onHideColumn,
+    onShowColumn,
   }: Props = $props();
 
   // Drag-and-drop state
   let draggedColumn = $state<{ callSiteKey: string; columnName: string } | null>(null);
   let dropTarget = $state<{ callSiteKey: string; index: number } | null>(null);
+
+  // Dropdown menu state - track which column's dropdown is open
+  let openDropdown = $state<{ callSiteKey: string; columnName: string } | null>(null);
 
   // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
   let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
@@ -187,18 +197,22 @@
 
     const allColumns = [...regularColumns, ...computedColumnNames];
 
+    // Filter out hidden columns
+    const hiddenCols = hiddenColumns[callSiteKey] || new Set<string>();
+    const visibleColumns = allColumns.filter(col => !hiddenCols.has(col));
+
     // If we have a stored order, use it and append any new columns
     const storedOrder = columnOrders[callSiteKey];
     if (storedOrder) {
-      // Filter stored order to only include columns that still exist
-      const orderedCols = storedOrder.filter(col => allColumns.includes(col));
+      // Filter stored order to only include columns that still exist and are visible
+      const orderedCols = storedOrder.filter(col => visibleColumns.includes(col));
       // Add any new columns not in stored order (preserve original order)
-      const newCols = allColumns.filter(col => !storedOrder.includes(col));
+      const newCols = visibleColumns.filter(col => !storedOrder.includes(col));
       return [...orderedCols, ...newCols];
     }
 
     // Return columns in their natural order from the data (matches call site order)
-    return allColumns;
+    return visibleColumns;
   }
 
   // Check if a value is a primitive type that can be sorted
@@ -280,6 +294,73 @@
     const sorts = columnSorts[callSiteKey] || [];
     const index = sorts.findIndex(s => s.columnName === columnName);
     return index === -1 ? null : index + 1;
+  }
+
+  // Dropdown menu functions
+  function toggleDropdown(callSite: CallSite, columnName: string, event: MouseEvent) {
+    event.stopPropagation();
+    const callSiteKey = getCallSiteKey(callSite);
+    if (openDropdown?.callSiteKey === callSiteKey && openDropdown?.columnName === columnName) {
+      openDropdown = null;
+    } else {
+      openDropdown = { callSiteKey, columnName };
+    }
+  }
+
+  function closeDropdown() {
+    openDropdown = null;
+  }
+
+  function isDropdownOpen(callSite: CallSite, columnName: string): boolean {
+    const callSiteKey = getCallSiteKey(callSite);
+    return openDropdown?.callSiteKey === callSiteKey && openDropdown?.columnName === columnName;
+  }
+
+  function handleSortAscending(callSite: CallSite, columnName: string) {
+    const callSiteKey = getCallSiteKey(callSite);
+    const sorts = columnSorts[callSiteKey] || [];
+    const existingIndex = sorts.findIndex(s => s.columnName === columnName);
+
+    if (existingIndex === -1) {
+      columnSorts[callSiteKey] = [...sorts, { columnName, direction: 'asc' }];
+    } else {
+      const newSorts = [...sorts];
+      newSorts[existingIndex] = { columnName, direction: 'asc' };
+      columnSorts[callSiteKey] = newSorts;
+    }
+    closeDropdown();
+  }
+
+  function handleSortDescending(callSite: CallSite, columnName: string) {
+    const callSiteKey = getCallSiteKey(callSite);
+    const sorts = columnSorts[callSiteKey] || [];
+    const existingIndex = sorts.findIndex(s => s.columnName === columnName);
+
+    if (existingIndex === -1) {
+      columnSorts[callSiteKey] = [...sorts, { columnName, direction: 'desc' }];
+    } else {
+      const newSorts = [...sorts];
+      newSorts[existingIndex] = { columnName, direction: 'desc' };
+      columnSorts[callSiteKey] = newSorts;
+    }
+    closeDropdown();
+  }
+
+  function handleResetSort(callSite: CallSite, columnName: string) {
+    const callSiteKey = getCallSiteKey(callSite);
+    const sorts = columnSorts[callSiteKey] || [];
+    columnSorts[callSiteKey] = sorts.filter(s => s.columnName !== columnName);
+    closeDropdown();
+  }
+
+  function handleHideColumn(callSite: CallSite, columnName: string) {
+    const callSiteKey = getCallSiteKey(callSite);
+    const currentHidden = hiddenColumns[callSiteKey] || new Set<string>();
+    const newHidden = new Set(currentHidden);
+    newHidden.add(columnName);
+    hiddenColumns[callSiteKey] = newHidden;
+    onHideColumn?.(callSiteKey, columnName);
+    closeDropdown();
   }
 
   // Get filtered and sorted call sites (dashboard at bottom)
@@ -702,6 +783,22 @@
       });
     }
   });
+
+  // Close dropdown when clicking outside
+  $effect(() => {
+    if (openDropdown) {
+      const handleClickOutside = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.column-menu-container')) {
+          closeDropdown();
+        }
+      };
+      document.addEventListener('click', handleClickOutside);
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  });
 </script>
 
 {#if data.call_sites.length === 0}
@@ -884,26 +981,62 @@
                         <span class="computed-icon">ƒ</span>
                       {/if}
                       <span class="column-name">{displayName}</span>
-                      {#if sortable}
+                      <div class="column-menu-container">
                         <button
-                          class="sort-button"
-                          class:sorted={sortState !== null}
-                          onclick={(e) => {
-                            e.stopPropagation();
-                            toggleSort(callSite, columnName);
-                          }}
-                          title={sortState === null
-                            ? 'Click to sort descending'
-                            : sortState === 'desc'
-                              ? 'Click to sort ascending'
-                              : 'Click to remove sort'}
+                          class="filter-menu-button"
+                          class:menu-active={sortState !== null}
+                          onclick={(e) => toggleDropdown(callSite, columnName, e)}
+                          title="Column options"
                         >
-                          {getSortIcon(sortState)}
+                          <ListFilter size={14} />
                           {#if sortPriority !== null && (columnSorts[getCallSiteKey(callSite)]?.length ?? 0) > 1}
                             <span class="sort-priority">{sortPriority}</span>
                           {/if}
                         </button>
-                      {/if}
+                        {#if isDropdownOpen(callSite, columnName)}
+                          <div class="column-dropdown-menu">
+                            {#if sortable}
+                              <div class="dropdown-section">
+                                <button
+                                  class="dropdown-item"
+                                  class:active={sortState === 'asc'}
+                                  onclick={() => handleSortAscending(callSite, columnName)}
+                                >
+                                  <span class="dropdown-icon">▲</span>
+                                  Sort ascending
+                                </button>
+                                <button
+                                  class="dropdown-item"
+                                  class:active={sortState === 'desc'}
+                                  onclick={() => handleSortDescending(callSite, columnName)}
+                                >
+                                  <span class="dropdown-icon">▼</span>
+                                  Sort descending
+                                </button>
+                                <button
+                                  class="dropdown-item"
+                                  class:disabled={sortState === null}
+                                  onclick={() => handleResetSort(callSite, columnName)}
+                                  disabled={sortState === null}
+                                >
+                                  <span class="dropdown-icon">─</span>
+                                  Reset sort
+                                </button>
+                              </div>
+                              <div class="dropdown-divider"></div>
+                            {/if}
+                            <div class="dropdown-section">
+                              <button
+                                class="dropdown-item"
+                                onclick={() => handleHideColumn(callSite, columnName)}
+                              >
+                                <span class="dropdown-icon">✕</span>
+                                Hide column
+                              </button>
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
                     </div>
                   </th>
                 {/each}
@@ -1375,37 +1508,40 @@
     flex: 0 0 auto;
   }
 
-  .sort-button {
+  .column-menu-container {
+    position: relative;
     flex: 0 0 auto;
+  }
+
+  .filter-menu-button {
     background: transparent;
     border: 1px solid #cbd5e1;
     border-radius: 3px;
     padding: 2px 6px;
     cursor: pointer;
-    font-size: 0.75rem;
     color: #64748b;
     transition: all 0.2s;
-    font-family: monospace;
     display: flex;
     align-items: center;
     gap: 2px;
     min-width: 1.9rem;
     justify-content: center;
+    height: 22px;
   }
 
-  .sort-button:hover {
+  .filter-menu-button:hover {
     background: #f1f5f9;
     border-color: #94a3b8;
     color: #475569;
   }
 
-  .sort-button.sorted {
+  .filter-menu-button.menu-active {
     background: #881391;
     border-color: #881391;
     color: white;
   }
 
-  .sort-button.sorted:hover {
+  .filter-menu-button.menu-active:hover {
     background: #6b0f73;
     border-color: #6b0f73;
   }
@@ -1414,6 +1550,73 @@
     font-size: 0.65rem;
     font-weight: 600;
     margin-left: 1px;
+  }
+
+  .column-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    min-width: 180px;
+    overflow: hidden;
+  }
+
+  .dropdown-section {
+    padding: 4px 0;
+  }
+
+  .dropdown-divider {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 0;
+  }
+
+  .dropdown-item {
+    width: 100%;
+    padding: 8px 12px;
+    background: white;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #374151;
+    transition: background-color 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: inherit;
+  }
+
+  .dropdown-item:hover:not(:disabled) {
+    background: #f3f4f6;
+  }
+
+  .dropdown-item.active {
+    background: #eff6ff;
+    color: #2563eb;
+    font-weight: 500;
+  }
+
+  .dropdown-item.active:hover {
+    background: #dbeafe;
+  }
+
+  .dropdown-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .dropdown-icon {
+    font-size: 0.75rem;
+    width: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace;
   }
 
   .log-number-header {
