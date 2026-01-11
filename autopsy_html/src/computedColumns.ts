@@ -25,7 +25,9 @@ export async function evaluateComputedColumn(
 
 /**
  * Evaluate Python code for multiple ValueGroups in batch (efficient)
- * The Python code has access to a 'trace' variable containing the StackTrace object
+ * The Python code has access to:
+ * - 'trace' variable containing the StackTrace object
+ * - Top frame's local variables available as direct variables (e.g., 'x', 'y')
  */
 export async function evaluateComputedColumnBatch(
   pythonCode: string,
@@ -54,11 +56,24 @@ export async function evaluateComputedColumnBatch(
       };
     });
 
+    // Extract top frame local variables for ergonomic access
+    const topFrameLocals = valueGroups.map(vg => {
+      const stackTraceId = vg.stack_trace_id;
+      if (!stackTraceId) {
+        return null;
+      }
+      const stackTrace = data.stack_traces[stackTraceId];
+      if (!stackTrace || stackTrace.frames.length === 0) {
+        return null;
+      }
+      return stackTrace.frames[0].local_variables;
+    });
+
     // Execute Python code in batch
-    const results = await pythonExecutor.executeBatch(
+    const results = await pythonExecutor.executeBatchWithLocals(
       pythonCode,
       traces,
-      'trace'
+      topFrameLocals
     );
 
     return results;
@@ -96,4 +111,39 @@ export function getComputedColumnDisplayName(column: ComputedColumn): string {
  */
 export function generateColumnId(): string {
   return `computed_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Check if a specific frame index always has the same function across all value groups
+ * This determines whether we can use direct frame indexing or need to use next()
+ */
+export function isFrameIndexStable(
+  valueGroups: ValueGroup[],
+  frameIndex: number,
+  data: AutopsyData
+): { stable: boolean; functionName?: string } {
+  let seenFunctionName: string | undefined = undefined;
+
+  for (const vg of valueGroups) {
+    if (!vg.stack_trace_id) continue;
+
+    const stackTrace = data.stack_traces[vg.stack_trace_id];
+    if (!stackTrace) continue;
+
+    if (frameIndex >= stackTrace.frames.length) {
+      // Frame doesn't exist at this index - not stable
+      return { stable: false };
+    }
+
+    const frameFunctionName = stackTrace.frames[frameIndex].function_name;
+
+    if (seenFunctionName === undefined) {
+      seenFunctionName = frameFunctionName;
+    } else if (seenFunctionName !== frameFunctionName) {
+      // Different function at this index - not stable
+      return { stable: false };
+    }
+  }
+
+  return { stable: true, functionName: seenFunctionName };
 }

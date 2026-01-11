@@ -4,7 +4,7 @@
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
-  import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId } from "./computedColumns";
+  import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId, isFrameIndexStable } from "./computedColumns";
 
   // Drag-and-drop types for stack variables
   interface PathSegment {
@@ -537,7 +537,7 @@
     }
 
     // Generate expression and title
-    const expression = generatePythonExpression(payload);
+    const expression = generatePythonExpression(payload, callSite);
     const title = generateColumnTitle(payload);
 
     console.log("Generated expression:", expression);
@@ -569,7 +569,7 @@
     console.log("Done with handleStackVariableDrop");
   }
 
-  function generatePythonExpression(payload: StackVariableDragPayload): string {
+  function generatePythonExpression(payload: StackVariableDragPayload, callSite: CallSite): string {
     const { frameIndex, path, frameFunctionName, frameFilename, frameLineNumber, baseExpression } = payload;
 
     let expr: string;
@@ -577,27 +577,76 @@
     if (baseExpression) {
       // Append to existing expression
       expr = baseExpression;
-    } else {
-      // Generate new expression from frame context
-      let frameAccessExpr: string;
 
-      if (frameFunctionName) {
-        // Try to use function name-based search for more robust access
-        // First, generate a search expression to find the frame
-        const functionNameEscaped = escapeForPython(frameFunctionName);
-
-        // Use next() with a generator expression to find the first matching frame
-        frameAccessExpr = `next((f for f in trace['frames'] if f['function_name'] == "${functionNameEscaped}"), trace['frames'][${frameIndex}])`;
-      } else {
-        // Fallback to direct index access
-        frameAccessExpr = `trace['frames'][${frameIndex}]`;
+      // Append the dragged path
+      for (const segment of path) {
+        if (segment.type === 'array') {
+          expr += `[${segment.key}]`;
+        } else {
+          const escapedKey = escapeForPython(String(segment.key));
+          expr += `["${escapedKey}"]`;
+        }
       }
+    } else {
+      // Check if this is the top frame (index 0) and we're accessing a direct variable
+      if (frameIndex === 0 && path.length > 0) {
+        // For top frame, the first segment can be a direct variable name
+        const firstSegment = path[0];
+        if (firstSegment.type === 'object') {
+          // Use direct variable name
+          expr = String(firstSegment.key);
 
-      // Start with local_variables access
-      expr = `(${frameAccessExpr})['local_variables']`;
+          // Append remaining path segments (skipping the first one)
+          for (let i = 1; i < path.length; i++) {
+            const segment = path[i];
+            if (segment.type === 'array') {
+              expr += `[${segment.key}]`;
+            } else {
+              const escapedKey = escapeForPython(String(segment.key));
+              expr += `["${escapedKey}"]`;
+            }
+          }
+        } else {
+          // First segment is an array access, so we still need full path from trace
+          expr = buildFrameExpression(frameIndex, frameFunctionName, callSite, path);
+        }
+      } else {
+        // For non-top frames, use frame access
+        expr = buildFrameExpression(frameIndex, frameFunctionName, callSite, path);
+      }
     }
 
-    // Append the dragged path
+    return expr;
+  }
+
+  function buildFrameExpression(
+    frameIndex: number,
+    frameFunctionName: string | undefined,
+    callSite: CallSite,
+    path: PathSegment[]
+  ): string {
+    // Generate frame access expression
+    let frameAccessExpr: string;
+
+    // Check if the frame at this index is stable across all logs
+    const stability = isFrameIndexStable(callSite.value_groups, frameIndex, data);
+
+    if (stability.stable) {
+      // Frame is stable - use direct index access (more efficient)
+      frameAccessExpr = `trace['frames'][${frameIndex}]`;
+    } else if (frameFunctionName) {
+      // Frame is not stable - use next() to search by function name
+      const functionNameEscaped = escapeForPython(frameFunctionName);
+      frameAccessExpr = `next((f for f in trace['frames'] if f['function_name'] == "${functionNameEscaped}"), trace['frames'][${frameIndex}])`;
+    } else {
+      // Fallback to direct index access
+      frameAccessExpr = `trace['frames'][${frameIndex}]`;
+    }
+
+    // Access local_variables
+    let expr = `(${frameAccessExpr})['local_variables']`;
+
+    // Append the full path
     for (const segment of path) {
       if (segment.type === 'array') {
         expr += `[${segment.key}]`;
@@ -959,7 +1008,7 @@
                       {@const baseExpr = isComputedColumn
                         ? getComputedColumn(callSite, columnName)?.expression
                         : isSimpleVariable
-                          ? `next((f for f in trace['frames'] if f['function_name'] == "${escapeForPython(firstFrame.function_name)}"), trace['frames'][0])['local_variables']["${escapeForPython(columnName)}"]`
+                          ? columnName
                           : undefined}
                       <td class="value-cell">
                         {#if cellValue !== undefined}
