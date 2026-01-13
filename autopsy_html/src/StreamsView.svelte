@@ -79,6 +79,13 @@
   // Dropdown menu state - track which column's dropdown is open
   let openDropdown = $state<{ callSiteKey: string; columnName: string } | null>(null);
 
+  // Column resize state
+  let resizingColumn = $state<{ callSiteKey: string; columnName: string; startX: number; startWidth: number } | null>(null);
+  let columnWidths = $state<Record<string, Record<string, number>>>({});
+
+  // Track table container refs for initial width computation
+  let tableContainers = $state<Record<string, HTMLDivElement | null>>({});
+
   // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
   let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
 
@@ -489,8 +496,220 @@
     }
   }
 
+  // Column resize handlers
+  function handleResizeStart(callSite: CallSite, columnName: string, e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const callSiteKey = getCallSiteKey(callSite);
+    const th = (e.target as HTMLElement).closest('th');
+    if (!th) return;
+
+    // Capture current widths of ALL columns in this table to prevent them from changing
+    const headerRow = th.parentElement;
+    if (headerRow) {
+      const allHeaders = Array.from(headerRow.querySelectorAll('th.column-header'));
+      const columns = getColumnNames(callSite);
+
+      if (!columnWidths[callSiteKey]) {
+        columnWidths[callSiteKey] = {};
+      }
+
+      // Lock ALL column widths at their current rendered widths
+      allHeaders.forEach((header, index) => {
+        const colName = columns[index];
+        if (colName) {
+          // Always capture the current width, even if already set
+          columnWidths[callSiteKey][colName] = (header as HTMLElement).offsetWidth;
+        }
+      });
+    }
+
+    const startWidth = th.offsetWidth;
+    resizingColumn = { callSiteKey, columnName, startX: e.clientX, startWidth };
+
+    // Prevent text selection during resize
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  }
+
+  function handleResizeMove(e: MouseEvent) {
+    if (!resizingColumn) return;
+
+    const deltaX = e.clientX - resizingColumn.startX;
+    const newWidth = Math.max(100, resizingColumn.startWidth + deltaX); // Min width 100px
+
+    // Update the width in state
+    if (!columnWidths[resizingColumn.callSiteKey]) {
+      columnWidths[resizingColumn.callSiteKey] = {};
+    }
+    columnWidths[resizingColumn.callSiteKey][resizingColumn.columnName] = newWidth;
+  }
+
+  function handleResizeEnd() {
+    if (resizingColumn) {
+      resizingColumn = null;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+  }
+
+  function getColumnWidth(callSite: CallSite, columnName: string): string {
+    const callSiteKey = getCallSiteKey(callSite);
+    const width = columnWidths[callSiteKey]?.[columnName];
+    if (width !== undefined) {
+      return `width: ${width}px; min-width: ${width}px; max-width: ${width}px;`;
+    }
+    // Return default width to ensure all columns have explicit widths
+    return 'width: 200px; min-width: 200px; max-width: 200px;';
+  }
+
+  // Estimate width needed to display a value (heuristic-based, no DOM measurement)
+  function estimateValueWidth(value: unknown): number {
+    if (value === null || value === undefined) return 60;
+    if (typeof value === 'boolean') return 60;
+    if (typeof value === 'number') return 80;
+    if (typeof value === 'string') {
+      const len = value.length;
+      if (len <= 10) return 100;
+      if (len <= 30) return 180;
+      return 250;
+    }
+    // Objects and arrays show collapsed by default
+    if (Array.isArray(value)) return 120;
+    if (typeof value === 'object') return 120;
+    return 100;
+  }
+
+  // Estimate width needed for column header
+  function estimateHeaderWidth(displayName: string, isComputed: boolean): number {
+    // Base: character width (~8px per char) + padding + filter button (~40px) + resize handle (10px)
+    const charWidth = displayName.length * 8;
+    const fixedWidth = isComputed ? 70 : 55; // extra for computed icon
+    return charWidth + fixedWidth;
+  }
+
+  // Compute initial column widths for a call site to fill available space
+  function computeInitialColumnWidths(callSite: CallSite, availableWidth: number): Record<string, number> {
+    const columns = getColumnNames(callSite);
+    if (columns.length === 0) return {};
+
+    const firstRow = callSite.value_groups[0];
+    const MIN_WIDTH = 80;
+
+    // Calculate data width and full width for each column
+    const columnInfo = columns.map(columnName => {
+      const isComputed = columnName.startsWith('computed:');
+      const computedCol = isComputed ? getComputedColumn(callSite, columnName) : undefined;
+      const displayName = isComputed && computedCol ? getComputedColumnDisplayName(computedCol) : columnName;
+
+      const value = firstRow ? getValueForColumn(firstRow, columnName, callSite) : undefined;
+      const dataWidth = Math.max(estimateValueWidth(value), MIN_WIDTH);
+      const headerWidth = estimateHeaderWidth(displayName, isComputed);
+      const fullWidth = Math.max(dataWidth, headerWidth);
+
+      return { columnName, dataWidth, headerWidth, fullWidth };
+    });
+
+    const totalDataWidth = columnInfo.reduce((sum, c) => sum + c.dataWidth, 0);
+    const totalFullWidth = columnInfo.reduce((sum, c) => sum + c.fullWidth, 0);
+
+    const result: Record<string, number> = {};
+
+    if (totalFullWidth <= availableWidth) {
+      // Case A: Everything fits, distribute extra space proportionally
+      const extra = availableWidth - totalFullWidth;
+      const extraPerColumn = extra / columns.length;
+      for (const c of columnInfo) {
+        result[c.columnName] = Math.floor(c.fullWidth + extraPerColumn);
+      }
+    } else if (totalDataWidth <= availableWidth) {
+      // Case B: Data fits but headers may be clipped
+      // Start with data widths, distribute remaining to columns that need header space
+      let remaining = availableWidth - totalDataWidth;
+
+      // Sort by gap (fullWidth - dataWidth) ascending to prioritize small gaps
+      const gaps = columnInfo
+        .map(c => ({ columnName: c.columnName, gap: c.fullWidth - c.dataWidth }))
+        .filter(g => g.gap > 0)
+        .sort((a, b) => a.gap - b.gap);
+
+      // Initialize with data widths
+      for (const c of columnInfo) {
+        result[c.columnName] = c.dataWidth;
+      }
+
+      // Distribute remaining space to close gaps
+      for (const g of gaps) {
+        if (remaining <= 0) break;
+        const add = Math.min(g.gap, remaining);
+        result[g.columnName] += add;
+        remaining -= add;
+      }
+
+      // If still space left, distribute evenly
+      if (remaining > 0) {
+        const extraPerColumn = remaining / columns.length;
+        for (const c of columnInfo) {
+          result[c.columnName] = Math.floor(result[c.columnName] + extraPerColumn);
+        }
+      }
+    } else {
+      // Case C: Need to compress - scale proportionally
+      const scale = availableWidth / totalDataWidth;
+      for (const c of columnInfo) {
+        result[c.columnName] = Math.max(MIN_WIDTH, Math.floor(c.dataWidth * scale));
+      }
+    }
+
+    return result;
+  }
+
+  // Add global mouse event listeners for resize
+  $effect(() => {
+    if (resizingColumn) {
+      const handleMove = (e: MouseEvent) => handleResizeMove(e);
+      const handleUp = () => handleResizeEnd();
+
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleUp);
+
+      return () => {
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleUp);
+      };
+    }
+  });
+
+  // Initialize column widths when table containers are mounted
+  $effect(() => {
+    // Trigger on tableContainers and filteredCallSites changes
+    const containers = tableContainers;
+    const callSites = filteredCallSites;
+
+    for (const callSite of callSites) {
+      const callSiteKey = getCallSiteKey(callSite);
+      const container = containers[callSiteKey];
+
+      // Only compute if container exists and no widths set yet
+      if (container && !columnWidths[callSiteKey]) {
+        // Subtract space for # column (~60px) and + column (~48px)
+        const availableWidth = container.clientWidth - 60 - 48;
+        if (availableWidth > 0) {
+          columnWidths[callSiteKey] = computeInitialColumnWidths(callSite, availableWidth);
+        }
+      }
+    }
+  });
+
   // Drag-and-drop handlers
   function handleDragStart(callSite: CallSite, columnName: string, e: DragEvent) {
+    // Prevent drag if we're currently resizing
+    if (resizingColumn) {
+      e.preventDefault();
+      return;
+    }
+
     const callSiteKey = getCallSiteKey(callSite);
     draggedColumn = { callSiteKey, columnName };
     if (e.dataTransfer) {
@@ -899,7 +1118,8 @@
             </div>
           {/if}
         {:else if getColumnNames(callSite).length > 0}
-          <table class="value-table">
+          <div class="table-container" bind:this={tableContainers[callSiteKey]}>
+            <table class="value-table">
             <thead class="table-header">
               <tr
                 class="call-site-info-row"
@@ -974,7 +1194,8 @@
                     ondrop={(e) => handleDrop(callSite, columnIndex, e)}
                     ondragend={handleDragEnd}
                     ondblclick={() => handleColumnDoubleClick(callSite, columnName)}
-                    title={isComputed && computedCol ? `Expression: ${computedCol.expression}` : ''}
+                    title={isComputed && computedCol ? `${displayName}\n\nExpression: ${computedCol.expression}` : displayName}
+                    style={getColumnWidth(callSite, columnName)}
                   >
                     <div class="column-header-content">
                       {#if isComputed}
@@ -1037,6 +1258,12 @@
                           </div>
                         {/if}
                       </div>
+                      <div
+                        class="resize-handle"
+                        class:resizing={resizingColumn?.callSiteKey === getCallSiteKey(callSite) && resizingColumn?.columnName === columnName}
+                        onmousedown={(e) => handleResizeStart(callSite, columnName, e)}
+                        title="Drag to resize column"
+                      ></div>
                     </div>
                   </th>
                 {/each}
@@ -1143,7 +1370,10 @@
                         : isSimpleVariable
                           ? columnName
                           : undefined}
-                      <td class="value-cell">
+                      <td
+                        class="value-cell"
+                        style={getColumnWidth(callSite, columnName)}
+                      >
                         {#if cellValue !== undefined}
                           {#if typeof cellValue === 'object' && cellValue !== null && '__error' in cellValue}
                             <span class="computed-error">{cellValue.__error}</span>
@@ -1169,6 +1399,7 @@
               </tbody>
             {/if}
           </table>
+          </div>
         {:else}
           <div
             class="call-site-header"
@@ -1386,12 +1617,18 @@
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
   }
 
+  .table-container {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+
   .value-table {
-    width: 100%;
+    width: auto;
     border-collapse: collapse;
     background: white;
     border-radius: 4px;
     overflow: hidden;
+    table-layout: fixed;
   }
 
   .table-header {
@@ -1502,15 +1739,44 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    position: relative;
+    overflow: hidden;
+    padding-right: 10px; /* Space for resize handle */
   }
 
   .column-name {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
 
   .column-menu-container {
     position: relative;
     flex: 0 0 auto;
+  }
+
+  .resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 16px;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 10;
+    border-right: 1px solid #ddd;
+  }
+
+  .resize-handle:hover {
+    border-right: none;
+    background: linear-gradient(to right, transparent, rgba(37, 99, 235, 0.4));
+  }
+
+  .resize-handle.resizing {
+    border-right: none;
+    background: linear-gradient(to right, transparent 30%, rgba(37, 99, 235, 0.6));
   }
 
   .filter-menu-button {
@@ -1662,6 +1928,9 @@
     padding: 0.75rem;
     vertical-align: top;
     min-width: 200px;
+    max-width: 0; /* Force the cell to respect the width constraint */
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .empty-cell {
@@ -1919,6 +2188,7 @@
     font-weight: bold;
     font-size: 0.9rem;
     margin-right: 0.25rem;
+    flex-shrink: 0;
   }
 
   .add-column-header {
