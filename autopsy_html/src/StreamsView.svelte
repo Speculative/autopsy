@@ -1059,6 +1059,7 @@
         // Check if table has scrolled past the top of the scroll container
         if (containerTopRelative < 0 && containerRect.bottom > scrollTop + theadRect.height) {
           // Make header fixed to viewport
+          // Account for horizontal scroll by using the container's current left position
           thead.style.position = 'fixed';
           thead.style.top = `${scrollTop}px`;
           thead.style.left = `${containerRect.left}px`;
@@ -1066,6 +1067,9 @@
           thead.style.zIndex = '100';
           // Remove any transform
           thead.style.transform = '';
+
+          // Mark as fixed so we know to handle horizontal scroll
+          thead.dataset.isFixed = 'true';
         } else {
           // Reset to normal flow
           thead.style.position = '';
@@ -1074,6 +1078,7 @@
           thead.style.width = '';
           thead.style.zIndex = '';
           thead.style.transform = '';
+          delete thead.dataset.isFixed;
         }
       }
     };
@@ -1092,6 +1097,24 @@
     console.log('[Sticky Headers] Setting up scroll listener on .main-panel', Object.keys(currentHeaders));
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
 
+    // Also add horizontal scroll listeners to each table container
+    const containerScrollListeners: Array<() => void> = [];
+    for (const callSiteKey in currentContainers) {
+      const container = currentContainers[callSiteKey];
+      if (container) {
+        const horizontalScrollHandler = () => {
+          // Only update if this table's header is currently fixed
+          const thead = currentHeaders[callSiteKey];
+          if (thead && thead.dataset.isFixed === 'true') {
+            // Use transform to shift the header horizontally based on scroll
+            thead.style.transform = `translateX(-${container.scrollLeft}px)`;
+          }
+        };
+        container.addEventListener('scroll', horizontalScrollHandler, { passive: true });
+        containerScrollListeners.push(() => container.removeEventListener('scroll', horizontalScrollHandler));
+      }
+    }
+
     // Initial check
     updateHeaders();
 
@@ -1101,6 +1124,8 @@
         cancelAnimationFrame(rafId);
       }
       scrollContainer.removeEventListener('scroll', handleScroll);
+      // Clean up horizontal scroll listeners
+      containerScrollListeners.forEach(cleanup => cleanup());
     };
   });
 </script>
@@ -1644,7 +1669,7 @@
   .call-site {
     border: 1px solid #ddd;
     border-radius: 8px;
-    padding: 1rem;
+    padding: 0;
     background: #f9f9f9;
     transition: opacity 0.2s, background-color 0.2s;
     /* No overflow here - we want sticky headers to work relative to viewport */
@@ -1784,7 +1809,7 @@
   }
 
   .table-header th:not(.call-site-info) {
-    padding: 0.75rem;
+    padding: 0.25rem 0.75rem;
     text-align: left;
     font-weight: 600;
     /* color: #2563eb; */
@@ -2014,12 +2039,12 @@
   }
 
   .log-number-cell {
-    padding: 0.5rem 0.75rem;
+    padding: 0.4rem 0.6rem;
     vertical-align: top;
   }
 
   .value-cell {
-    padding: 0.75rem;
+    padding: 0.4rem 0.6rem;
     vertical-align: top;
     min-width: 200px;
     max-width: 0; /* Force the cell to respect the width constraint */
