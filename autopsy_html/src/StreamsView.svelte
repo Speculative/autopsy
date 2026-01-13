@@ -86,6 +86,9 @@
   // Track table container refs for initial width computation
   let tableContainers = $state<Record<string, HTMLDivElement | null>>({});
 
+  // Track table header refs for sticky behavior
+  let tableHeaders = $state<Record<string, HTMLTableSectionElement | null>>({});
+
   // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
   let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
 
@@ -1018,6 +1021,88 @@
       };
     }
   });
+
+  // Handle sticky headers with JavaScript
+  $effect(() => {
+    // Capture current refs - access them once to establish reactivity
+    const currentHeaders = { ...tableHeaders };
+    const currentContainers = { ...tableContainers };
+
+    // Find the actual scrolling container (main-panel)
+    const scrollContainer = document.querySelector('.main-panel');
+    if (!scrollContainer) {
+      console.log('[Sticky Headers] Could not find .main-panel scrolling container');
+      return;
+    }
+
+    console.log('[Sticky Headers] Found scroll container:', scrollContainer);
+
+    let rafId: number | null = null;
+
+    const updateHeaders = () => {
+      // Get the scroll container's position for reference
+      const scrollContainerRect = scrollContainer.getBoundingClientRect();
+      const scrollTop = scrollContainerRect.top;
+
+      for (const callSiteKey in currentHeaders) {
+        const thead = currentHeaders[callSiteKey];
+        const container = currentContainers[callSiteKey];
+
+        if (!thead || !container) continue;
+
+        const containerRect = container.getBoundingClientRect();
+        const theadRect = thead.getBoundingClientRect();
+
+        // Calculate position relative to the scroll container's top edge
+        const containerTopRelative = containerRect.top - scrollTop;
+
+        // Check if table has scrolled past the top of the scroll container
+        if (containerTopRelative < 0 && containerRect.bottom > scrollTop + theadRect.height) {
+          // Make header fixed to viewport
+          thead.style.position = 'fixed';
+          thead.style.top = `${scrollTop}px`;
+          thead.style.left = `${containerRect.left}px`;
+          thead.style.width = `${containerRect.width}px`;
+          thead.style.zIndex = '100';
+          // Remove any transform
+          thead.style.transform = '';
+        } else {
+          // Reset to normal flow
+          thead.style.position = '';
+          thead.style.top = '';
+          thead.style.left = '';
+          thead.style.width = '';
+          thead.style.zIndex = '';
+          thead.style.transform = '';
+        }
+      }
+    };
+
+    const handleScroll = () => {
+      // Cancel any pending animation frame
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+
+      // Schedule update on next animation frame for smooth rendering
+      rafId = requestAnimationFrame(updateHeaders);
+    };
+
+    // Add scroll listener to the actual scrolling element
+    console.log('[Sticky Headers] Setting up scroll listener on .main-panel', Object.keys(currentHeaders));
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+
+    // Initial check
+    updateHeaders();
+
+    return () => {
+      console.log('[Sticky Headers] Cleaning up scroll listener');
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      scrollContainer.removeEventListener('scroll', handleScroll);
+    };
+  });
 </script>
 
 {#if data.call_sites.length === 0}
@@ -1118,62 +1203,63 @@
             </div>
           {/if}
         {:else if getColumnNames(callSite).length > 0}
-          <div class="table-container" bind:this={tableContainers[callSiteKey]}>
-            <table class="value-table">
-            <thead class="table-header">
-              <tr
-                class="call-site-info-row"
-                class:collapsible-header={true}
-                onclick={() => toggleCollapse(callSite)}
-                role="button"
-                tabindex="0"
-                onkeydown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    toggleCollapse(callSite);
-                  }
-                }}
-              >
-                <th
-                  colspan={getColumnNames(callSite).length + 2}
-                  class="call-site-info"
+          <div class="table-wrapper">
+            <div class="table-container" bind:this={tableContainers[callSiteKey]}>
+              <table class="value-table">
+              <thead class="table-header" bind:this={tableHeaders[callSiteKey]}>
+                <tr
+                  class="call-site-info-row"
+                  class:collapsible-header={true}
+                  onclick={() => toggleCollapse(callSite)}
+                  role="button"
+                  tabindex="0"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleCollapse(callSite);
+                    }
+                  }}
                 >
-                  <div class="header-left">
-                    <label class="call-site-checkbox" onclick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={!hiddenCallSites.has(callSiteKey)}
-                        onclick={(e) => e.stopPropagation()}
-                        onchange={(e) => {
-                          e.stopPropagation();
-                          if (e.currentTarget.checked) {
-                            handleShowCallSite(callSiteKey);
-                          } else {
-                            handleHideCallSite(callSiteKey);
-                          }
-                        }}
+                  <th
+                    colspan={getColumnNames(callSite).length + 2}
+                    class="call-site-info"
+                  >
+                    <div class="header-left">
+                      <label class="call-site-checkbox" onclick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={!hiddenCallSites.has(callSiteKey)}
+                          onclick={(e) => e.stopPropagation()}
+                          onchange={(e) => {
+                            e.stopPropagation();
+                            if (e.currentTarget.checked) {
+                              handleShowCallSite(callSiteKey);
+                            } else {
+                              handleHideCallSite(callSiteKey);
+                            }
+                          }}
+                        />
+                      </label>
+                      <CodeLocation
+                        filename={callSite.filename}
+                        line={callSite.line}
+                        functionName={callSite.function_name}
+                        className={callSite.class_name}
                       />
-                    </label>
-                    <CodeLocation
-                      filename={callSite.filename}
-                      line={callSite.line}
-                      functionName={callSite.function_name}
-                      className={callSite.class_name}
-                    />
-                    {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
-                      <span class="log-name-header"
-                        >{callSite.value_groups[0].name}</span
-                      >
-                    {/if}
-                    {#if isDashboard}
-                      <span class="dashboard-badge">dashboard</span>
-                    {/if}
-                  </div>
-                </th>
-              </tr>
-              <tr>
-                <th class="log-number-header">#</th>
-                {#each getColumnNames(callSite) as columnName, columnIndex}
+                      {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
+                        <span class="log-name-header"
+                          >{callSite.value_groups[0].name}</span
+                        >
+                      {/if}
+                      {#if isDashboard}
+                        <span class="dashboard-badge">dashboard</span>
+                      {/if}
+                    </div>
+                  </th>
+                </tr>
+                <tr>
+                  <th class="log-number-header">#</th>
+                  {#each getColumnNames(callSite) as columnName, columnIndex}
                   {@const sortable = isColumnSortable(callSite, columnName)}
                   {@const sortState = getColumnSortState(callSite, columnName)}
                   {@const sortPriority = getSortPriority(callSite, columnName)}
@@ -1400,6 +1486,7 @@
             {/if}
           </table>
           </div>
+          </div>
         {:else}
           <div
             class="call-site-header"
@@ -1560,6 +1647,7 @@
     padding: 1rem;
     background: #f9f9f9;
     transition: opacity 0.2s, background-color 0.2s;
+    /* No overflow here - we want sticky headers to work relative to viewport */
   }
 
   .call-site.hidden {
@@ -1617,6 +1705,10 @@
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
   }
 
+  .table-wrapper {
+    position: relative;
+  }
+
   .table-container {
     overflow-x: auto;
     overflow-y: visible;
@@ -1627,19 +1719,20 @@
     border-collapse: collapse;
     background: white;
     border-radius: 4px;
-    overflow: hidden;
     table-layout: fixed;
   }
 
   .table-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
     background: #f9f9f9;
+    /* Will be positioned via JavaScript - no transition for smoothness */
   }
 
   .call-site-info-row {
     border-bottom: 1px solid #e5e5e5;
+  }
+
+  .call-site-info-row th {
+    background: #f9f9f9;
   }
 
   .call-site-info {
@@ -1700,6 +1793,7 @@
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     border-bottom: 2px solid #e5e5e5;
     white-space: nowrap;
+    background: #f9f9f9;
     position: relative;
   }
 
