@@ -57,6 +57,9 @@
   // Hidden columns state: maps callSiteKey -> Set of hidden column names
   let hiddenColumns = $state<Record<string, Set<string>>>({});
 
+  // Column filters state: maps callSiteKey -> { columnName -> filter }
+  let columnFilters = $state<Record<string, import('./types').ColumnFilters>>({});
+
   // Computed columns state: maps callSiteKey -> array of computed columns
   let computedColumns = $state<Record<string, ComputedColumn[]>>({});
   let computedColumnModalOpen = $state<{
@@ -560,6 +563,7 @@
           bind:collapsedCallSites
           bind:columnSorts
           bind:hiddenColumns
+          bind:columnFilters
           onShowInHistory={handleShowInHistory}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}

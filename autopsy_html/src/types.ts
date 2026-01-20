@@ -110,3 +110,13 @@ export interface ComputedColumn {
   callSiteKey: string;     // Which call site this belongs to
 }
 
+// Column filter types
+export type ColumnFilter =
+  | { type: 'numeric_range'; min: number; max: number }
+  | { type: 'enum_values'; selectedValues: Set<string> }  // Set of selected enum values
+  | { type: 'regex'; pattern: string }
+  | { type: 'python_expression'; expression: string };
+
+// Filters for a call site (columnName -> filter)
+export type ColumnFilters = Record<string, ColumnFilter>;
+

@@ -1,10 +1,13 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
+  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn, ColumnFilters, ColumnFilter } from "./types";
   import type { EvaluationResult } from "./computedColumns";
+  import type { ColumnProfile } from "./columnProfiler";
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
+  import FilterWidgets from "./FilterWidgets.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId, isFrameIndexStable } from "./computedColumns";
+  import { profileColumn } from "./columnProfiler";
   import { ListFilter } from "lucide-svelte";
 
   // Drag-and-drop types for stack variables
@@ -39,6 +42,7 @@
     collapsedCallSites?: Record<string, boolean>;
     columnSorts?: Record<string, ColumnSort[]>;
     hiddenColumns?: Record<string, Set<string>>;
+    columnFilters?: Record<string, ColumnFilters>;
     onShowInHistory?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
@@ -61,6 +65,7 @@
     collapsedCallSites = $bindable({}),
     columnSorts = $bindable({}),
     hiddenColumns = $bindable({}),
+    columnFilters = $bindable({}),
     onShowInHistory,
     onEntryClick,
     onHideCallSite,
@@ -91,6 +96,12 @@
 
   // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
   let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
+
+  // Cache for column profiles (callSiteKey:columnName -> profile)
+  let columnProfileCache = $state<Map<string, ColumnProfile>>(new Map());
+
+  // Cache for Python expression filter results (callSiteKey:columnName -> log_index -> boolean)
+  let pythonFilterCache = $state<Map<string, Map<number, boolean>>>(new Map());
 
   // Pre-compute all computed columns when data or columns change
   $effect(() => {
@@ -128,6 +139,72 @@
       }
 
       computedColumnCache = newCache;
+    })();
+  });
+
+  // Pre-compute Python expression filters when data or filters change
+  $effect(() => {
+    // Trigger reactivity on data and columnFilters
+    const _ = [data, columnFilters];
+
+    // Async function to evaluate all Python expression filters
+    (async () => {
+      const newFilterCache = new Map<string, Map<number, boolean>>();
+
+      // Import pythonExecutor
+      const { pythonExecutor } = await import('./pythonExecutor');
+
+      for (const callSite of data.call_sites) {
+        const callSiteKey = getCallSiteKey(callSite);
+        const filters = columnFilters[callSiteKey];
+
+        if (!filters) continue;
+
+        for (const [columnName, filter] of Object.entries(filters)) {
+          if (filter.type !== 'python_expression') continue;
+
+          const cacheKey = `${callSiteKey}:${columnName}`;
+
+          try {
+            // Ensure Pyodide is initialized
+            if (!pythonExecutor.isReady()) {
+              await pythonExecutor.initialize();
+            }
+
+            // Get the actual values for this column
+            const values = callSite.value_groups.map(vg =>
+              getValueForColumn(vg, columnName, callSite)
+            );
+
+            // Use executeBatch to evaluate the Python expression with 'value' as the variable
+            const results = await pythonExecutor.executeBatch(
+              filter.expression,
+              values,
+              'value'
+            );
+
+            // Store boolean results in cache
+            const resultMap = new Map<number, boolean>();
+            callSite.value_groups.forEach((vg, i) => {
+              const result = results[i];
+              // Convert result to boolean (truthy/falsy)
+              const passes = !result.error && !!result.value;
+              resultMap.set(vg.log_index, passes);
+            });
+            newFilterCache.set(cacheKey, resultMap);
+          } catch (error) {
+            console.error(`Error evaluating Python filter for ${columnName}:`, error);
+            // On error, create a cache that fails all values
+            const resultMap = new Map<number, boolean>();
+            callSite.value_groups.forEach(vg => {
+              resultMap.set(vg.log_index, false);
+            });
+            newFilterCache.set(cacheKey, resultMap);
+          }
+        }
+      }
+
+      pythonFilterCache = newFilterCache;
     })();
   });
 
@@ -371,6 +448,51 @@
     closeDropdown();
   }
 
+  // Get or create column profile
+  function getColumnProfile(callSite: CallSite, columnName: string): ColumnProfile {
+    const callSiteKey = getCallSiteKey(callSite);
+    const cacheKey = `${callSiteKey}:${columnName}`;
+
+    // Check cache first
+    const cached = columnProfileCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Profile the column
+    const profile = profileColumn(callSite, columnName, {}, computedColumnCache, callSiteKey);
+
+    // Cache it
+    columnProfileCache.set(cacheKey, profile);
+
+    return profile;
+  }
+
+  // Handle filter changes
+  function handleFilterChange(callSite: CallSite, columnName: string, filter: ColumnFilter | null) {
+    const callSiteKey = getCallSiteKey(callSite);
+
+    if (!columnFilters[callSiteKey]) {
+      columnFilters[callSiteKey] = {};
+    }
+
+    if (filter === null) {
+      // Remove filter
+      delete columnFilters[callSiteKey][columnName];
+
+      // Clean up empty filter objects
+      if (Object.keys(columnFilters[callSiteKey]).length === 0) {
+        delete columnFilters[callSiteKey];
+      }
+    } else {
+      // Set filter
+      columnFilters[callSiteKey][columnName] = filter;
+    }
+
+    // Trigger reactivity
+    columnFilters = { ...columnFilters };
+  }
+
   function handleHideColumn(callSite: CallSite, columnName: string) {
     const callSiteKey = getCallSiteKey(callSite);
     const currentHidden = hiddenColumns[callSiteKey] || new Set<string>();
@@ -379,6 +501,72 @@
     hiddenColumns[callSiteKey] = newHidden;
     onHideColumn?.(callSiteKey, columnName);
     closeDropdown();
+  }
+
+  // Check if a value passes a filter
+  function valuePassesFilter(
+    value: unknown,
+    filter: ColumnFilter,
+    callSiteKey: string,
+    columnName: string,
+    logIndex: number
+  ): boolean {
+    if (filter.type === 'numeric_range') {
+      if (typeof value !== 'number') return false;
+      return value >= filter.min && value <= filter.max;
+    }
+
+    if (filter.type === 'enum_values') {
+      // Handle both strings and booleans
+      if (typeof value !== 'string' && typeof value !== 'boolean') return false;
+      return filter.selectedValues.has(String(value));
+    }
+
+    if (filter.type === 'regex') {
+      if (typeof value !== 'string') return false;
+      try {
+        const regex = new RegExp(filter.pattern);
+        return regex.test(value);
+      } catch {
+        return false;
+      }
+    }
+
+    if (filter.type === 'python_expression') {
+      // Look up cached result
+      const cacheKey = `${callSiteKey}:${columnName}`;
+      const cachedResults = pythonFilterCache.get(cacheKey);
+      if (cachedResults) {
+        return cachedResults.get(logIndex) ?? false;
+      }
+      // If not yet cached, fail by default (filter is still evaluating)
+      return false;
+    }
+
+    return true;
+  }
+
+  // Check if a value group passes all column filters
+  function valueGroupPassesFilters(
+    valueGroup: ValueGroup,
+    callSite: CallSite,
+    callSiteKey: string,
+    filters: ColumnFilters
+  ): boolean {
+    for (const [columnName, filter] of Object.entries(filters)) {
+      const value = getValueForColumn(valueGroup, columnName, callSite);
+
+      // Handle undefined values - they don't pass any filter
+      if (value === undefined || value === null) {
+        return false;
+      }
+
+      if (!valuePassesFilter(value, filter, callSiteKey, columnName, valueGroup.log_index)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   // Get filtered and sorted call sites (dashboard at bottom)
@@ -396,6 +584,14 @@
       if (frameFilter) {
         filteredValueGroups = callSite.value_groups.filter(valueGroup =>
           stackTraceContainsFrame(valueGroup.stack_trace_id, frameFilter)
+        );
+      }
+
+      // Apply column filters if configured
+      const filters = columnFilters[callSiteKey];
+      if (filters && Object.keys(filters).length > 0) {
+        filteredValueGroups = filteredValueGroups.filter(valueGroup =>
+          valueGroupPassesFilters(valueGroup, callSite, callSiteKey, filters)
         );
       }
 
@@ -1019,7 +1215,8 @@
     if (openDropdown) {
       const handleClickOutside = (event: MouseEvent) => {
         const target = event.target as HTMLElement;
-        if (!target.closest('.column-menu-container')) {
+        // Don't close if clicking inside the dropdown menu or the button that opened it
+        if (!target.closest('.column-dropdown-menu') && !target.closest('.column-menu-container')) {
           closeDropdown();
         }
       };
@@ -1333,49 +1530,6 @@
                             <span class="sort-priority">{sortPriority}</span>
                           {/if}
                         </button>
-                        {#if isDropdownOpen(callSite, columnName)}
-                          <div class="column-dropdown-menu" style="top: {openDropdown?.top}px; left: {openDropdown?.left}px;">
-                            {#if sortable}
-                              <div class="dropdown-section">
-                                <button
-                                  class="dropdown-item"
-                                  class:active={sortState === 'asc'}
-                                  onclick={() => handleSortAscending(callSite, columnName)}
-                                >
-                                  <span class="dropdown-icon">▲</span>
-                                  Sort ascending
-                                </button>
-                                <button
-                                  class="dropdown-item"
-                                  class:active={sortState === 'desc'}
-                                  onclick={() => handleSortDescending(callSite, columnName)}
-                                >
-                                  <span class="dropdown-icon">▼</span>
-                                  Sort descending
-                                </button>
-                                <button
-                                  class="dropdown-item"
-                                  class:disabled={sortState === null}
-                                  onclick={() => handleResetSort(callSite, columnName)}
-                                  disabled={sortState === null}
-                                >
-                                  <span class="dropdown-icon">─</span>
-                                  Reset sort
-                                </button>
-                              </div>
-                              <div class="dropdown-divider"></div>
-                            {/if}
-                            <div class="dropdown-section">
-                              <button
-                                class="dropdown-item"
-                                onclick={() => handleHideColumn(callSite, columnName)}
-                              >
-                                <span class="dropdown-icon">✕</span>
-                                Hide column
-                              </button>
-                            </div>
-                          </div>
-                        {/if}
                       </div>
                       <div
                         class="resize-handle"
@@ -1659,6 +1813,77 @@
       </div>
     {/each}
   </div>
+{/if}
+
+<!-- Render dropdown outside the table structure to prevent event bubbling -->
+{#if openDropdown}
+  {@const dropdownState = openDropdown}
+  {@const callSite = filteredCallSites.find(cs => getCallSiteKey(cs) === dropdownState.callSiteKey)}
+  {#if callSite}
+    {@const columnName = dropdownState.columnName}
+    {@const sortable = isColumnSortable(callSite, columnName)}
+    {@const sortState = getColumnSortState(callSite, columnName)}
+    {@const columnProfile = getColumnProfile(callSite, columnName)}
+    {@const callSiteKey = getCallSiteKey(callSite)}
+    {@const currentFilter = columnFilters[callSiteKey]?.[columnName] || null}
+    <div
+      class="column-dropdown-menu"
+      style="top: {dropdownState.top}px; left: {dropdownState.left}px;"
+      role="menu"
+      tabindex="-1"
+      onmousedown={(e) => e.stopPropagation()}
+      ondblclick={(e) => e.stopPropagation()}
+      ondragstart={(e) => e.preventDefault()}
+    >
+      {#if sortable}
+        <div class="dropdown-section">
+          <button
+            class="dropdown-item"
+            class:active={sortState === 'asc'}
+            onclick={() => handleSortAscending(callSite, columnName)}
+          >
+            <span class="dropdown-icon">▲</span>
+            Sort ascending
+          </button>
+          <button
+            class="dropdown-item"
+            class:active={sortState === 'desc'}
+            onclick={() => handleSortDescending(callSite, columnName)}
+          >
+            <span class="dropdown-icon">▼</span>
+            Sort descending
+          </button>
+          <button
+            class="dropdown-item"
+            class:disabled={sortState === null}
+            onclick={() => handleResetSort(callSite, columnName)}
+            disabled={sortState === null}
+          >
+            <span class="dropdown-icon">─</span>
+            Reset sort
+          </button>
+        </div>
+        <div class="dropdown-divider"></div>
+      {/if}
+      <div class="dropdown-section filter-section">
+        <FilterWidgets
+          profile={columnProfile}
+          filter={currentFilter}
+          onFilterChange={(filter) => handleFilterChange(callSite, columnName, filter)}
+        />
+      </div>
+      <div class="dropdown-divider"></div>
+      <div class="dropdown-section">
+        <button
+          class="dropdown-item"
+          onclick={() => handleHideColumn(callSite, columnName)}
+        >
+          <span class="dropdown-icon">✕</span>
+          Hide column
+        </button>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -1952,12 +2177,18 @@
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 10000;
-    min-width: 180px;
-    overflow: hidden;
+    min-width: 320px;
+    max-width: 400px;
+    max-height: 600px;
+    overflow-y: auto;
   }
 
   .dropdown-section {
     padding: 4px 0;
+  }
+
+  .dropdown-section.filter-section {
+    padding: 0;
   }
 
   .dropdown-divider {
