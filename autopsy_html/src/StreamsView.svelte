@@ -77,7 +77,7 @@
   let dropTarget = $state<{ callSiteKey: string; index: number } | null>(null);
 
   // Dropdown menu state - track which column's dropdown is open
-  let openDropdown = $state<{ callSiteKey: string; columnName: string } | null>(null);
+  let openDropdown = $state<{ callSiteKey: string; columnName: string; top: number; left: number } | null>(null);
 
   // Column resize state
   let resizingColumn = $state<{ callSiteKey: string; columnName: string; startX: number; startWidth: number } | null>(null);
@@ -313,7 +313,15 @@
     if (openDropdown?.callSiteKey === callSiteKey && openDropdown?.columnName === columnName) {
       openDropdown = null;
     } else {
-      openDropdown = { callSiteKey, columnName };
+      // Calculate position relative to the clicked button
+      const button = event.currentTarget as HTMLElement;
+      const rect = button.getBoundingClientRect();
+      openDropdown = {
+        callSiteKey,
+        columnName,
+        top: rect.bottom + 4,
+        left: rect.right - 180  // Align right edge (dropdown min-width is 180px)
+      };
     }
   }
 
@@ -586,9 +594,9 @@
 
   // Estimate width needed for column header
   function estimateHeaderWidth(displayName: string, isComputed: boolean): number {
-    // Base: character width (~8px per char) + padding + filter button (~40px) + resize handle (10px)
+    // Base: character width (~8px per char) + padding (24px) + gap (8px) + filter button (~42px) + resize handle (16px)
     const charWidth = displayName.length * 8;
-    const fixedWidth = isComputed ? 70 : 55; // extra for computed icon
+    const fixedWidth = isComputed ? 105 : 90; // extra for computed icon (ƒ + spacing)
     return charWidth + fixedWidth;
   }
 
@@ -696,8 +704,8 @@
 
       // Only compute if container exists and no widths set yet
       if (container && !columnWidths[callSiteKey]) {
-        // Subtract space for # column (~60px) and + column (~48px)
-        const availableWidth = container.clientWidth - 60 - 48;
+        // Subtract space for # column and + column
+        const availableWidth = container.clientWidth - 96 - 56;
         if (availableWidth > 0) {
           columnWidths[callSiteKey] = computeInitialColumnWidths(callSite, availableWidth);
         }
@@ -1326,7 +1334,7 @@
                           {/if}
                         </button>
                         {#if isDropdownOpen(callSite, columnName)}
-                          <div class="column-dropdown-menu">
+                          <div class="column-dropdown-menu" style="top: {openDropdown?.top}px; left: {openDropdown?.left}px;">
                             {#if sortable}
                               <div class="dropdown-section">
                                 <button
@@ -1938,14 +1946,12 @@
   }
 
   .column-dropdown-menu {
-    position: absolute;
-    top: calc(100% + 4px);
-    right: 0;
+    position: fixed;
     background: white;
     border: 1px solid #cbd5e1;
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
+    z-index: 10000;
     min-width: 180px;
     overflow: hidden;
   }
