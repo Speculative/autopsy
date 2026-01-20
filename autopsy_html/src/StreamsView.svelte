@@ -31,6 +31,11 @@
   type SortDirection = 'asc' | 'desc';
   type ColumnSort = { columnName: string; direction: SortDirection };
 
+  export type LogMark = {
+    color: string;
+    note: string;
+  };
+
   interface Props {
     data: AutopsyData;
     highlightedLogIndex?: number | null;
@@ -39,6 +44,7 @@
     frameFilter?: string | null;
     columnOrders?: Record<string, string[]>;
     computedColumns?: Record<string, ComputedColumn[]>;
+    logMarks?: Record<number, LogMark>;
     collapsedCallSites?: Record<string, boolean>;
     columnSorts?: Record<string, ColumnSort[]>;
     hiddenColumns?: Record<string, Set<string>>;
@@ -62,6 +68,7 @@
     frameFilter = null,
     columnOrders = {},
     computedColumns = {},
+    logMarks = {},
     collapsedCallSites = $bindable({}),
     columnSorts = $bindable({}),
     hiddenColumns = $bindable({}),
@@ -1420,12 +1427,14 @@
           {:else}
             <div class="value-groups">
               {#each callSite.value_groups as valueGroup}
+                {@const mark = logMarks[valueGroup.log_index]}
                 <div
                   class="value-group"
                   class:highlighted={highlightedLogIndex === valueGroup.log_index}
                   class:selected={selectedLogIndex === valueGroup.log_index}
                   class:clickable={valueGroup.stack_trace_id !== undefined}
                   data-log-index={valueGroup.log_index}
+                  style={mark?.color ? `background-color: ${mark.color};` : ""}
                   onclick={() => handleRowClick(valueGroup)}
                 >
                   <div class="value-group-row">
@@ -1601,6 +1610,7 @@
             {:else}
               <tbody>
                 {#each callSite.value_groups as valueGroup, groupIndex}
+                  {@const mark = logMarks[valueGroup.log_index]}
                   <tr
                     class="table-row"
                     class:highlighted={highlightedLogIndex ===
@@ -1608,6 +1618,7 @@
                     class:selected={selectedLogIndex === valueGroup.log_index}
                     class:clickable={valueGroup.stack_trace_id !== undefined}
                     data-log-index={valueGroup.log_index}
+                    style={mark?.color ? `background-color: ${mark.color};` : ""}
                     onclick={() => handleRowClick(valueGroup)}
                     role={valueGroup.stack_trace_id !== undefined
                       ? "button"
@@ -1754,6 +1765,7 @@
           {:else}
             <div class="value-groups">
               {#each callSite.value_groups as valueGroup, groupIndex}
+                {@const mark = logMarks[valueGroup.log_index]}
                 <div
                   class="value-group"
                   class:highlighted={highlightedLogIndex ===
@@ -1761,6 +1773,7 @@
                   class:selected={selectedLogIndex === valueGroup.log_index}
                   class:clickable={valueGroup.stack_trace_id !== undefined}
                   data-log-index={valueGroup.log_index}
+                  style={mark?.color ? `background-color: ${mark.color};` : ""}
                   onclick={() => handleRowClick(valueGroup)}
                   role={valueGroup.stack_trace_id !== undefined
                     ? "button"

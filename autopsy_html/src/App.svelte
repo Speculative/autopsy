@@ -68,6 +68,13 @@
     existingColumn?: ComputedColumn;
   } | null>(null);
 
+  // Mark state: maps logIndex -> {color, note}
+  export type LogMark = {
+    color: string;
+    note: string;
+  };
+  let logMarks = $state<Record<number, LogMark>>({});
+
   // Live mode state
   let liveMode = $state(false);
   let wsConnection = $state<WebSocket | null>(null);
@@ -496,6 +503,16 @@
     computedColumnModalOpen = null;
   }
 
+  function handleMarkLog(logIndex: number, color: string, note: string) {
+    if (color || note) {
+      logMarks[logIndex] = { color, note };
+      logMarks = { ...logMarks };
+    } else {
+      delete logMarks[logIndex];
+      logMarks = { ...logMarks };
+    }
+  }
+
   function getCallSiteKey(callSite: CallSite): string {
     return `${callSite.filename}:${callSite.line}`;
   }
@@ -560,6 +577,7 @@
           {frameFilter}
           {columnOrders}
           {computedColumns}
+          {logMarks}
           bind:collapsedCallSites
           bind:columnSorts
           bind:hiddenColumns
@@ -583,11 +601,13 @@
           {frameFilter}
           {columnOrders}
           {computedColumns}
+          {logMarks}
           bind:hideSkippedLogs
           onShowInStream={handleShowInStream}
           onEntryClick={handleEntryClick}
           onHideCallSite={handleHideCallSite}
           onToggleShowDashboard={handleToggleShowDashboard}
+          onMarkLog={handleMarkLog}
         />
       {:else if activeTab === "dashboard"}
         <DashboardView

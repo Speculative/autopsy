@@ -6,6 +6,11 @@
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, getComputedColumnDisplayName } from "./computedColumns";
 
+  export type LogMark = {
+    color: string;
+    note: string;
+  };
+
   interface Props {
     data: AutopsyData;
     highlightedLogIndex?: number | null;
@@ -16,11 +21,13 @@
     frameFilter?: string | null;
     columnOrders?: Record<string, string[]>;
     computedColumns?: Record<string, ComputedColumn[]>;
+    logMarks?: Record<number, LogMark>;
     hideSkippedLogs?: boolean;
     onShowInStream?: (logIndex: number) => void;
     onEntryClick?: (logIndex: number, stackTraceId?: string) => void;
     onHideCallSite?: (callSiteKey: string) => void;
     onToggleShowDashboard?: (show: boolean) => void;
+    onMarkLog?: (logIndex: number, color: string, note: string) => void;
   }
 
   let {
@@ -33,11 +40,13 @@
     frameFilter = null,
     columnOrders = {},
     computedColumns = {},
+    logMarks = {},
     hideSkippedLogs = $bindable(false),
     onShowInStream,
     onEntryClick,
     onHideCallSite,
     onToggleShowDashboard,
+    onMarkLog,
   }: Props = $props();
 
   let showCodeLocations = $state(false);
@@ -282,6 +291,20 @@
   let expandedSkipMarkers = $state<Set<number>>(new Set());
   let lastProcessedLogIndex: number | null = $state(null);
 
+  // Mark colors available for selection
+  const MARK_COLORS = [
+    { name: "Red", value: "#fee2e2" },
+    { name: "Orange", value: "#fed7aa" },
+    { name: "Yellow", value: "#fef3c7" },
+    { name: "Green", value: "#d1fae5" },
+    { name: "Blue", value: "#dbeafe" },
+    { name: "Purple", value: "#e9d5ff" },
+    { name: "Pink", value: "#fce7f3" },
+  ];
+
+  // Track note input for each log
+  let markNotes = $state<Record<number, string>>({});
+
   function toggleMenu(logIndex: number, e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
     menuOpenFor = menuOpenFor === logIndex ? null : logIndex;
@@ -290,6 +313,37 @@
   function closeMenu() {
     menuOpenFor = null;
   }
+
+  function handleMarkColor(logIndex: number, color: string) {
+    const note = markNotes[logIndex] || logMarks[logIndex]?.note || "";
+    onMarkLog?.(logIndex, color, note);
+  }
+
+  function handleMarkNote(logIndex: number, note: string) {
+    markNotes[logIndex] = note;
+  }
+
+  function handleMarkNoteBlur(logIndex: number) {
+    const color = logMarks[logIndex]?.color || "";
+    const note = markNotes[logIndex] || "";
+    onMarkLog?.(logIndex, color, note);
+  }
+
+  function handleClearMark(logIndex: number) {
+    onMarkLog?.(logIndex, "", "");
+    delete markNotes[logIndex];
+    markNotes = { ...markNotes };
+  }
+
+  // Initialize markNotes from logMarks
+  $effect(() => {
+    const _ = logMarks;
+    for (const logIndex in logMarks) {
+      if (logMarks[logIndex].note && !markNotes[logIndex]) {
+        markNotes[logIndex] = logMarks[logIndex].note;
+      }
+    }
+  });
 
   function toggleSkipMarker(index: number) {
     if (expandedSkipMarkers.has(index)) {
@@ -423,6 +477,7 @@
               <div class="skip-marker-container">
                 {#each item.entries as skippedEntry}
                   {@const skippedCallSiteKey = getCallSiteKey(skippedEntry.callSite)}
+                  {@const skippedMark = logMarks[skippedEntry.log_index]}
                   <div
                     class="history-entry skipped-entry"
                     class:highlighted={highlightedLogIndex === skippedEntry.log_index}
@@ -430,6 +485,7 @@
                     class:clickable={skippedEntry.valueGroup.stack_trace_id !== undefined}
                     class:menu-open={menuOpenFor === skippedEntry.log_index}
                     data-log-index={skippedEntry.log_index}
+                    style={skippedMark?.color ? `background-color: ${skippedMark.color};` : ""}
                     onclick={() => handleEntryClick(skippedEntry)}
                   >
                     <span
@@ -502,6 +558,12 @@
                       {/if}
                     </div>
 
+                    {#if skippedMark?.note}
+                      <div class="mark-note-display" title={skippedMark.note}>
+                        {skippedMark.note}
+                      </div>
+                    {/if}
+
                     <div class="entry-menu-container">
                       <button
                         class="menu-button"
@@ -518,6 +580,49 @@
                       </button>
                       {#if menuOpenFor === skippedEntry.log_index}
                         <div class="menu-dropdown" onclick={(e) => e.stopPropagation()}>
+                          <div class="menu-section">
+                            <div class="menu-section-title">Mark</div>
+                            <div class="mark-colors">
+                              {#each MARK_COLORS as markColor}
+                                <button
+                                  class="mark-color-button"
+                                  style="background-color: {markColor.value};"
+                                  title={markColor.name}
+                                  class:selected={logMarks[skippedEntry.log_index]?.color === markColor.value}
+                                  onclick={(e) => {
+                                    e.stopPropagation();
+                                    handleMarkColor(skippedEntry.log_index, markColor.value);
+                                  }}
+                                >
+                                  {#if logMarks[skippedEntry.log_index]?.color === markColor.value}
+                                    ✓
+                                  {/if}
+                                </button>
+                              {/each}
+                              {#if logMarks[skippedEntry.log_index]?.color}
+                                <button
+                                  class="mark-clear-button"
+                                  title="Clear mark"
+                                  onclick={(e) => {
+                                    e.stopPropagation();
+                                    handleClearMark(skippedEntry.log_index);
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              {/if}
+                            </div>
+                            <input
+                              type="text"
+                              class="mark-note-input"
+                              placeholder="Add note..."
+                              value={markNotes[skippedEntry.log_index] || ""}
+                              oninput={(e) => handleMarkNote(skippedEntry.log_index, e.currentTarget.value)}
+                              onblur={() => handleMarkNoteBlur(skippedEntry.log_index)}
+                              onclick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <div class="menu-divider"></div>
                           <button
                             class="menu-item"
                             onclick={(e) => {
@@ -540,6 +645,7 @@
       {:else}
         {@const entry = item as HistoryEntry}
         {@const callSiteKey = getCallSiteKey(entry.callSite)}
+        {@const mark = logMarks[entry.log_index]}
         <div
           class="history-entry"
           class:highlighted={highlightedLogIndex === entry.log_index}
@@ -547,6 +653,7 @@
           class:clickable={entry.valueGroup.stack_trace_id !== undefined}
           class:menu-open={menuOpenFor === entry.log_index}
           data-log-index={entry.log_index}
+          style={mark?.color ? `background-color: ${mark.color};` : ""}
           onclick={() => handleEntryClick(entry)}
         >
           <span
@@ -619,6 +726,12 @@
             {/if}
           </div>
 
+          {#if mark?.note}
+            <div class="mark-note-display" title={mark.note}>
+              {mark.note}
+            </div>
+          {/if}
+
           <div class="entry-menu-container">
             <button
               class="menu-button"
@@ -635,6 +748,49 @@
             </button>
             {#if menuOpenFor === entry.log_index}
               <div class="menu-dropdown" onclick={(e) => e.stopPropagation()}>
+                <div class="menu-section">
+                  <div class="menu-section-title">Mark</div>
+                  <div class="mark-colors">
+                    {#each MARK_COLORS as markColor}
+                      <button
+                        class="mark-color-button"
+                        style="background-color: {markColor.value};"
+                        title={markColor.name}
+                        class:selected={logMarks[entry.log_index]?.color === markColor.value}
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          handleMarkColor(entry.log_index, markColor.value);
+                        }}
+                      >
+                        {#if logMarks[entry.log_index]?.color === markColor.value}
+                          ✓
+                        {/if}
+                      </button>
+                    {/each}
+                    {#if logMarks[entry.log_index]?.color}
+                      <button
+                        class="mark-clear-button"
+                        title="Clear mark"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          handleClearMark(entry.log_index);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    {/if}
+                  </div>
+                  <input
+                    type="text"
+                    class="mark-note-input"
+                    placeholder="Add note..."
+                    value={markNotes[entry.log_index] || ""}
+                    oninput={(e) => handleMarkNote(entry.log_index, e.currentTarget.value)}
+                    onblur={() => handleMarkNoteBlur(entry.log_index)}
+                    onclick={(e) => e.stopPropagation()}
+                  />
+                </div>
+                <div class="menu-divider"></div>
                 <button
                   class="menu-item"
                   onclick={(e) => {
@@ -1008,5 +1164,106 @@
     color: #dc2626;
     font-style: italic;
     font-size: 0.85rem;
+  }
+
+  .menu-section {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .menu-section-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #666;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  .mark-colors {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+  }
+
+  .mark-color-button {
+    width: 2rem;
+    height: 2rem;
+    border: 2px solid #d1d5db;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    padding: 0;
+  }
+
+  .mark-color-button:hover {
+    border-color: #9ca3af;
+    transform: scale(1.05);
+  }
+
+  .mark-color-button.selected {
+    border-color: #2563eb;
+    border-width: 2px;
+  }
+
+  .mark-clear-button {
+    width: 2rem;
+    height: 2rem;
+    border: 2px solid #d1d5db;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    color: #666;
+    padding: 0;
+  }
+
+  .mark-clear-button:hover {
+    background-color: #fee2e2;
+    border-color: #dc2626;
+    color: #dc2626;
+  }
+
+  .mark-note-input {
+    width: 100%;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-family: inherit;
+  }
+
+  .mark-note-input:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+  }
+
+  .mark-note-display {
+    font-size: 0.85rem;
+    color: #666;
+    font-style: italic;
+    padding: 0.25rem 0.5rem;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 3px;
+    margin-left: auto;
+    flex-shrink: 0;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .menu-divider {
+    height: 1px;
+    background: #e5e5e5;
+    margin: 0.25rem 0;
   }
 </style>
