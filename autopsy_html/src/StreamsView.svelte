@@ -1088,7 +1088,13 @@
       // Append the dragged path
       for (const segment of path) {
         if (segment.type === 'array') {
-          expr += `[${segment.key}]`;
+          // Array access - check if key is numeric or string
+          if (typeof segment.key === 'number') {
+            expr += `[${segment.key}]`;
+          } else {
+            const escapedKey = escapeForPython(String(segment.key));
+            expr += `["${escapedKey}"]`;
+          }
         } else {
           const escapedKey = escapeForPython(String(segment.key));
           expr += `["${escapedKey}"]`;
@@ -1107,7 +1113,13 @@
           for (let i = 1; i < path.length; i++) {
             const segment = path[i];
             if (segment.type === 'array') {
-              expr += `[${segment.key}]`;
+              // Array access - check if key is numeric or string
+              if (typeof segment.key === 'number') {
+                expr += `[${segment.key}]`;
+              } else {
+                const escapedKey = escapeForPython(String(segment.key));
+                expr += `["${escapedKey}"]`;
+              }
             } else {
               const escapedKey = escapeForPython(String(segment.key));
               expr += `["${escapedKey}"]`;
@@ -1156,7 +1168,13 @@
     // Append the full path
     for (const segment of path) {
       if (segment.type === 'array') {
-        expr += `[${segment.key}]`;
+        // Array access - check if key is numeric or string
+        if (typeof segment.key === 'number') {
+          expr += `[${segment.key}]`;
+        } else {
+          const escapedKey = escapeForPython(String(segment.key));
+          expr += `["${escapedKey}"]`;
+        }
       } else {
         const escapedKey = escapeForPython(String(segment.key));
         expr += `["${escapedKey}"]`;

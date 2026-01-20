@@ -331,15 +331,58 @@
     </div>
 
   {:else if profile.type === 'array'}
-    <!-- Array Profile Display (read-only for now) -->
+    <!-- Array Length Distribution Histogram -->
+    {@const createHistogramBins = () => {
+      const numBins = 10;
+      const lengths = profile.lengthDistribution.map(d => d.length);
+      const minLength = Math.min(...lengths);
+      const maxLength = Math.max(...lengths);
+      const range = maxLength - minLength;
+
+      if (range === 0) {
+        // All same length
+        const totalCount = profile.lengthDistribution.reduce((sum, d) => sum + d.count, 0);
+        return [{ minLength, maxLength, count: totalCount, label: String(minLength) }];
+      }
+
+      const binSize = Math.ceil(range / numBins);
+      const bins = [];
+
+      for (let i = 0; i < numBins; i++) {
+        const binMin = minLength + i * binSize;
+        const binMax = minLength + (i + 1) * binSize;
+        let binCount = 0;
+
+        // Sum up counts for lengths that fall in this bin
+        for (const { length, count } of profile.lengthDistribution) {
+          if (length >= binMin && (i === numBins - 1 ? length <= binMax : length < binMax)) {
+            binCount += count;
+          }
+        }
+
+        if (binCount > 0) {
+          const label = binSize === 1 ? String(binMin) : `${binMin}-${binMax - 1}`;
+          bins.push({ minLength: binMin, maxLength: binMax, count: binCount, label });
+        }
+      }
+
+      return bins;
+    }}
+    {@const histogramBins = createHistogramBins()}
+    {@const maxCount = Math.max(...histogramBins.map(d => d.count), 1)}
     <div class="array-profile">
-      <div class="profile-title">Array Length Distribution:</div>
-      {#each profile.lengthDistribution.slice(0, 5) as { length, count, percentage }}
-        <div class="profile-item">
-          <span class="profile-label">Length {length}:</span>
-          <span class="profile-count">{count} ({percentage.toFixed(1)}%)</span>
-        </div>
-      {/each}
+      <div class="array-histogram">
+        {#each histogramBins as bin}
+          {@const height = (bin.count / maxCount) * 100}
+          {@const totalArrays = profile.lengthDistribution.reduce((sum, d) => sum + d.count, 0)}
+          {@const percentage = (bin.count / totalArrays) * 100}
+          <div
+            class="array-histogram-bar"
+            style="height: {height}%"
+            title="Length {bin.label}: {bin.count} arrays ({percentage.toFixed(1)}%)"
+          ></div>
+        {/each}
+      </div>
     </div>
 
   {:else if profile.type === 'object'}
@@ -640,6 +683,28 @@
   .profile-count {
     color: #64748b;
     font-size: 0.8rem;
+  }
+
+  /* Array Histogram */
+  .array-histogram {
+    display: flex;
+    align-items: flex-end;
+    height: 60px;
+    gap: 1px;
+    background: #f3f4f6;
+    padding: 4px;
+    border-radius: 4px;
+  }
+
+  .array-histogram-bar {
+    flex: 1;
+    background: linear-gradient(to top, #3b82f6, #60a5fa);
+    min-height: 2px;
+    transition: opacity 0.2s;
+  }
+
+  .array-histogram-bar:hover {
+    opacity: 0.8;
   }
 
   .unknown-profile {
