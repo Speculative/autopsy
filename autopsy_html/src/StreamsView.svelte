@@ -466,8 +466,19 @@
       return cached;
     }
 
-    // Profile the column
-    const profile = profileColumn(callSite, columnName, {}, computedColumnCache, callSiteKey);
+    // Find the original unfiltered call site from data.call_sites
+    // This ensures we profile the full dataset, not the filtered one
+    const originalCallSite = data.call_sites.find(cs => getCallSiteKey(cs) === callSiteKey);
+    if (!originalCallSite) {
+      // Fallback to the passed callSite if we can't find the original
+      // This shouldn't happen in normal operation
+      const profile = profileColumn(callSite, columnName, {}, computedColumnCache, callSiteKey);
+      columnProfileCache.set(cacheKey, profile);
+      return profile;
+    }
+
+    // Profile the column using the original unfiltered data
+    const profile = profileColumn(originalCallSite, columnName, {}, computedColumnCache, callSiteKey);
 
     // Cache it
     columnProfileCache.set(cacheKey, profile);
@@ -1849,11 +1860,12 @@
 <!-- Render dropdown outside the table structure to prevent event bubbling -->
 {#if openDropdown}
   {@const dropdownState = openDropdown}
-  {@const callSite = filteredCallSites.find(cs => getCallSiteKey(cs) === dropdownState.callSiteKey)}
-  {#if callSite}
+  {@const filteredCallSite = filteredCallSites.find(cs => getCallSiteKey(cs) === dropdownState.callSiteKey)}
+  {@const callSite = data.call_sites.find(cs => getCallSiteKey(cs) === dropdownState.callSiteKey)}
+  {#if callSite && filteredCallSite}
     {@const columnName = dropdownState.columnName}
-    {@const sortable = isColumnSortable(callSite, columnName)}
-    {@const sortState = getColumnSortState(callSite, columnName)}
+    {@const sortable = isColumnSortable(filteredCallSite, columnName)}
+    {@const sortState = getColumnSortState(filteredCallSite, columnName)}
     {@const columnProfile = getColumnProfile(callSite, columnName)}
     {@const callSiteKey = getCallSiteKey(callSite)}
     {@const currentFilter = columnFilters[callSiteKey]?.[columnName] || null}
