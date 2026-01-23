@@ -336,8 +336,8 @@ def test_dashboard_with_stack_traces_disabled():
 
 
 def test_dashboard_init_clears_data():
-    """Test that init() clears dashboard data."""
-    report.init()
+    """Test that init(clear=True) clears dashboard data."""
+    report.init(clear=True, warn=False)
 
     report.count("value")
     report.hist(1.0)
@@ -347,8 +347,8 @@ def test_dashboard_init_clears_data():
     data1 = report.to_json()
     assert "dashboard" in data1
 
-    # Reinitialize
-    report.init()
+    # Reinitialize with clear=True
+    report.init(clear=True, warn=False)
 
     data2 = report.to_json()
     assert "dashboard" not in data2 or (

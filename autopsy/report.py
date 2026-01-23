@@ -1,10 +1,12 @@
 import ast
+import atexit
 import base64
 import gzip
 import inspect
 import json
 import pickle
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -72,6 +74,18 @@ class Report:
         # Thread safety
         self._lock = RLock()  # Reentrant lock for nested calls
         self._live_mode_enabled = False
+        # Tracking for lazy initialization and auto-write
+        self._initialized = False
+        self._written = False
+
+    def _ensure_initialized(self):
+        """
+        Ensure the report is initialized before use.
+        Called automatically on first log/count/hist/timeline/happened call.
+        """
+        if not self._initialized:
+            # Initialize with default config if not already initialized
+            self._initialized = True
 
     def _ast_node_to_expression(self, node: ast.expr) -> Optional[str]:
         """
@@ -310,6 +324,7 @@ class Report:
             name: Optional name for this log entry. If not provided and the first
                   argument is a string literal, it will be inferred as the name.
         """
+        self._ensure_initialized()
         with self._lock:
             # Get the call site (file path and line number) from the caller's frame
             stack = inspect.stack()
@@ -483,6 +498,7 @@ class Report:
         Args:
             value: The value to count occurrences of
         """
+        self._ensure_initialized()
         with self._lock:
             call_site, _, function_name, class_name = (
                 self._get_call_site_and_stack_trace()
@@ -551,6 +567,7 @@ class Report:
         Args:
             num: The number to add to the histogram
         """
+        self._ensure_initialized()
         with self._lock:
             call_site, _, function_name, class_name = (
                 self._get_call_site_and_stack_trace()
@@ -606,6 +623,7 @@ class Report:
         Args:
             event_name: Name of the event to record
         """
+        self._ensure_initialized()
         with self._lock:
             import time
 
@@ -668,6 +686,7 @@ class Report:
         Args:
             message: Optional message to associate with this call site
         """
+        self._ensure_initialized()
         with self._lock:
             call_site, _, function_name, class_name = (
                 self._get_call_site_and_stack_trace()
@@ -723,27 +742,60 @@ class Report:
 
             self._happened[call_site] = (count + 1, stack_trace_ids, stored_message)
 
-    def init(self, config: Optional[ReportConfiguration] = None):
+    def init(self, config: Optional[ReportConfiguration] = None, clear: bool = False, warn: bool = True):
         """
-        Reset/initialize the report with fresh storage.
+        Initialize the report with a new configuration.
 
         Args:
-            config: Optional configuration object. If None, keeps existing config.
+            config: Optional configuration object. If None, uses default configuration.
+            clear: If True, clears all existing data. If False (default), preserves existing data.
+            warn: If True (default), warns to stderr when re-initializing with data.
+                  If False, suppresses warnings (useful for tests).
         """
         with self._lock:
-            self._logs.clear()
-            self._log_index = 0
-            self._stack_traces.clear()
-            self._counts.clear()
-            self._counts_metadata.clear()
-            self._histograms.clear()
-            self._histograms_metadata.clear()
-            self._timeline.clear()
-            self._happened.clear()
-            self._happened_metadata.clear()
-            self._dashboard_logs.clear()
+            # Check if there's any data that will be affected
+            has_data = (self._logs or self._dashboard_logs or self._timeline or
+                       self._happened or self._counts or self._histograms)
+
+            if warn and self._initialized and has_data:
+                if clear:
+                    # Warn if clearing data
+                    print(
+                        "Warning: Report.init() clearing existing data.",
+                        file=sys.stderr
+                    )
+                else:
+                    # Warn if re-initializing with data (but not clearing)
+                    print(
+                        "Warning: Report.init() called on initialized report with existing data.",
+                        file=sys.stderr
+                    )
+
+            if clear:
+                # Clear all data
+                self._logs.clear()
+                self._log_index = 0
+                self._stack_traces.clear()
+                self._counts.clear()
+                self._counts_metadata.clear()
+                self._histograms.clear()
+                self._histograms_metadata.clear()
+                self._timeline.clear()
+                self._happened.clear()
+                self._happened_metadata.clear()
+                self._dashboard_logs.clear()
+                # Reset written flag since we cleared data
+                self._written = False
+
+            # Mark as initialized
+            self._initialized = True
+
+            # Update config
             if config is not None:
                 self._config = config
+            elif not self._initialized:
+                # Only reset to default if not initialized yet
+                self._config = ReportConfiguration()
 
             # Start live server if enabled
             if self._config.live_mode and not self._live_mode_enabled:
@@ -1315,14 +1367,78 @@ def get_report() -> Report:
     return _report_instance
 
 
-def init(config: Optional[ReportConfiguration] = None):
+def init(config: Optional[ReportConfiguration] = None, clear: bool = False, warn: bool = True):
     """
-    Initialize/reset the global report instance.
+    Initialize the global report instance.
 
     Args:
         config: Optional configuration object. If None, uses default configuration.
+        clear: If True, clears all existing data. If False (default), preserves existing data.
+        warn: If True (default), warns to stderr when re-initializing with data.
+              If False, suppresses warnings (useful for tests).
     """
-    _report_instance.init(config)
+    _report_instance.init(config, clear=clear, warn=warn)
+
+
+# Global flag to control atexit behavior
+_atexit_enabled = True
+
+
+def set_atexit_enabled(enabled: bool):
+    """
+    Enable or disable the automatic report writing on exit.
+
+    Args:
+        enabled: If True, enables automatic HTML report generation on exit.
+                 If False, disables it (useful for tests).
+    """
+    global _atexit_enabled
+    _atexit_enabled = enabled
+
+
+def _atexit_handler():
+    """
+    Automatically write out HTML report if:
+    1. The report was initialized (had at least one log call)
+    2. The report was not already written to a file
+    3. We're not in live mode
+    4. Atexit is enabled (not disabled for tests)
+    """
+    if not _atexit_enabled:
+        # Disabled (e.g., for tests)
+        return
+
+    if not _report_instance._initialized:
+        # Report was never used, nothing to do
+        return
+
+    if _report_instance._written:
+        # Report was already written, nothing to do
+        return
+
+    if _report_instance._config.live_mode:
+        # In live mode, don't auto-write
+        return
+
+    # Check if there's any data to write
+    if (not _report_instance._logs and
+        not _report_instance._dashboard_logs and
+        not _report_instance._timeline and
+        not _report_instance._happened):
+        # No data collected, nothing to write
+        return
+
+    # Auto-generate HTML report with default filename
+    output_path = "autopsy_report.html"
+    try:
+        generate_html(_report_instance, output_path)
+        print(f"\n→ Autopsy report automatically saved to {output_path}", file=sys.stderr)
+    except Exception as e:
+        print(f"\nWarning: Failed to auto-generate autopsy report: {e}", file=sys.stderr)
+
+
+# Register atexit handler
+atexit.register(_atexit_handler)
 
 
 def generate_html(
@@ -1376,6 +1492,8 @@ def generate_html(
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(html_content, encoding="utf-8")
+        # Mark report as written
+        report._written = True
 
     return html_content
 
@@ -1405,5 +1523,7 @@ def generate_json(
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(json_str, encoding="utf-8")
+        # Mark report as written
+        report._written = True
 
     return json_str
