@@ -1161,6 +1161,7 @@
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     font-size: 0.85rem;
     color: #333;
+    white-space: pre-wrap;
   }
 
   .frame-variables {

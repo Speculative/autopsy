@@ -35,6 +35,10 @@
   }: Props = $props();
 
   let expanded = $state(false); // Collapsed by default
+  let stringExpanded = $state(false); // Track if string value is expanded
+  let expandedStringWidth = $state(0); // Track width of original string element
+  let stringSpanRef: HTMLSpanElement | null = null;
+  let expandedInputRef: HTMLInputElement | null = null;
 
   // Compute current path by appending current key to pathPrefix
   const currentPath = $derived.by(() => {
@@ -101,6 +105,53 @@
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       toggle(event);
+    }
+  }
+
+  function handleStringDoubleClick(event: MouseEvent) {
+    console.log("handleStringDoubleClick called", {
+      valueType: getType(value),
+      isString: getType(value) === "string",
+      stringLength: getType(value) === "string" ? (value as string).length : null,
+      isTruncated: getType(value) === "string" && (value as string).length > 50,
+      currentStringExpanded: stringExpanded,
+      value: value
+    });
+    event.stopPropagation();
+    event.preventDefault();
+    if (getType(value) === "string" && (value as string).length > 50) {
+      // Capture the width before expanding
+      if (!stringExpanded && stringSpanRef) {
+        expandedStringWidth = stringSpanRef.offsetWidth;
+        console.log("Captured width:", expandedStringWidth);
+      }
+      stringExpanded = !stringExpanded;
+      console.log("Toggled stringExpanded to:", stringExpanded);
+
+      // Focus the input after it's rendered
+      if (stringExpanded) {
+        setTimeout(() => {
+          if (expandedInputRef) {
+            expandedInputRef.focus();
+            expandedInputRef.select();
+          }
+        }, 0);
+      }
+    } else {
+      console.log("Did not toggle - conditions not met");
+    }
+  }
+
+  function handleClickOutside(event: MouseEvent) {
+    event.stopPropagation();
+    stringExpanded = false;
+  }
+
+  function handleExpandedStringKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      stringExpanded = false;
     }
   }
 
@@ -195,7 +246,12 @@
     <span
       class="value-wrapper"
       class:expandable={isObject(value) || isArray(value)}
-      onclick={(e) => (isObject(value) || isArray(value)) && toggle(e)}
+      onclick={(e) => {
+        console.log("value-wrapper clicked", { isExpandable: isObject(value) || isArray(value) });
+        if (isObject(value) || isArray(value)) {
+          toggle(e);
+        }
+      }}
       onkeydown={(e) =>
         (isObject(value) || isArray(value)) && handleKeydown(e)}
       {...isObject(value) || isArray(value)
@@ -217,12 +273,33 @@
           {getValuePreview(value)}
         </span>
       {:else}
-        <span
-          class="value-preview literal"
-          style="color: {getTypeColor(getType(value))}"
-        >
-          {getValuePreview(value)}
-        </span>
+        {#if getType(value) === "string" && stringExpanded}
+          <div class="expanded-string-container">
+            <input
+              bind:this={expandedInputRef}
+              type="text"
+              class="expanded-string"
+              style="width: {expandedStringWidth}px;"
+              value={value}
+              readonly
+              onkeydown={handleExpandedStringKeydown}
+            />
+            <div class="click-outside-overlay" onclick={handleClickOutside}></div>
+          </div>
+        {:else}
+          <span
+            bind:this={stringSpanRef}
+            class="value-preview literal"
+            class:truncated-string={getType(value) === "string" && (value as string).length > 50}
+            style="color: {getTypeColor(getType(value))}"
+            ondblclick={(e) => {
+              console.log("Span double-clicked");
+              handleStringDoubleClick(e);
+            }}
+          >
+            {getValuePreview(value)}
+          </span>
+        {/if}
       {/if}
     </span>
   </div>
@@ -337,6 +414,7 @@
 
   .value-wrapper {
     display: inline-block;
+    pointer-events: auto;
   }
 
   .value-wrapper.expandable {
@@ -382,5 +460,60 @@
     border-left: 1px solid #e0e0e0;
     padding-left: 0;
     margin-left: 0;
+  }
+
+  .truncated-string {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-decoration-color: rgba(0, 0, 0, 0.3);
+    user-select: none;
+  }
+
+  .truncated-string:hover {
+    background-color: #f0f0f0;
+    border-radius: 2px;
+  }
+
+  .truncated-string:active {
+    background-color: #e0e0e0;
+  }
+
+  .expanded-string-container {
+    position: relative;
+    display: inline-block;
+  }
+
+  .expanded-string {
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro",
+      monospace;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    padding: 0px 4px;
+    border: 1px solid #d1d5db;
+    border-radius: 3px;
+    background-color: #f9fafb;
+    color: #0a0;
+    overflow-x: auto;
+    white-space: pre;
+    cursor: pointer;
+    position: relative;
+    z-index: 1001;
+    box-sizing: border-box;
+    height: auto;
+  }
+
+  .expanded-string:focus {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+
+  .click-outside-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    background: transparent;
   }
 </style>

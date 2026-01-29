@@ -569,15 +569,58 @@ class CallStack:
         return local_vars
 
     def _get_line_content(self, filename: str, line_no: int) -> str:
-        """Get line content from a file."""
+        """Get line content from a file, capturing multi-line calls."""
         try:
+            import textwrap
             with open(filename, "r", encoding="utf-8") as f:
                 lines = f.readlines()
                 if 0 < line_no <= len(lines):
-                    return lines[line_no - 1].rstrip("\n\r")
+                    # Try to detect if this is a multi-line call using AST
+                    end_line = self._find_call_end_line(filename, line_no)
+                    if end_line and end_line > line_no:
+                        # Multi-line call: capture all lines from line_no to end_line
+                        captured_lines = []
+                        for i in range(line_no - 1, min(end_line, len(lines))):
+                            captured_lines.append(lines[i].rstrip("\n\r"))
+                        # Dedent to remove common leading whitespace
+                        dedented = textwrap.dedent("\n".join(captured_lines))
+                        return dedented.strip()
+                    else:
+                        # Single line or AST parsing failed: return just the single line
+                        return lines[line_no - 1].strip()
         except Exception:
             pass
         return ""
+
+    def _find_call_end_line(self, filename: str, line_no: int) -> Optional[int]:
+        """
+        Find the ending line number of a call that starts at line_no.
+
+        Args:
+            filename: Path to the source file
+            line_no: Line number where the call starts
+
+        Returns:
+            Ending line number if found, None otherwise
+        """
+        try:
+            import ast
+            with open(filename, "r", encoding="utf-8") as f:
+                source_code = f.read()
+
+            tree = ast.parse(source_code, filename=filename)
+
+            # Walk the AST to find a Call node that spans from line_no
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    # Check if this call starts at or contains our line_no
+                    if hasattr(node, 'lineno') and hasattr(node, 'end_lineno'):
+                        if node.lineno <= line_no <= node.end_lineno:
+                            return node.end_lineno
+
+            return None
+        except Exception:
+            return None
 
     def _create_serializable_frame(self, frame: FrameType) -> SerializableFrame:
         """Create a serializable frame from a Python frame object."""

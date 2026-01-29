@@ -209,7 +209,7 @@ class Report:
 
     def _find_log_call_ast(self, filename: str, line_number: int) -> Optional[ast.Call]:
         """
-        Find the AST node for a report.log() call at the given line.
+        Find the AST node for a report.log() or autopsy.log() call at the given line.
 
         Args:
             filename: Path to the source file
@@ -232,17 +232,17 @@ class Report:
                     self.found_call: Optional[ast.Call] = None
 
                 def visit_Call(self, node: ast.Call):
-                    # Check if this is a report.log() call on the target line
+                    # Check if this is a log() call on the target line
                     if (
                         node.lineno == self.target_line
                         and isinstance(node.func, ast.Attribute)
                         and node.func.attr == "log"
                     ):
-                        # Check if the attribute before .log() is "report" or "_report"
-                        # This handles: report.log(), self.report.log(), module.report.log(), etc.
+                        # Check if the attribute before .log() is "report", "_report", or "autopsy"
+                        # This handles: report.log(), autopsy.log(), self.report.log(), module.report.log(), etc.
                         if isinstance(node.func.value, ast.Name):
-                            # Handle: report.log() or _report.log()
-                            if node.func.value.id in ("report", "_report"):
+                            # Handle: report.log(), _report.log(), or autopsy.log()
+                            if node.func.value.id in ("report", "_report", "autopsy"):
                                 self.found_call = node
                         elif isinstance(node.func.value, ast.Attribute):
                             # Handle: self.report.log(), module.report.log(), etc.
@@ -331,7 +331,8 @@ class Report:
             # Skip frames from autopsy module itself
             caller_frame = None
             for frame_info in stack[1:]:  # Skip current frame
-                if not frame_info.filename.endswith("autopsy/report.py"):
+                # Skip any frame from within the autopsy package
+                if not frame_info.filename.endswith(("autopsy/report.py", "autopsy/__init__.py")):
                     caller_frame = frame_info
                     break
 
@@ -467,7 +468,8 @@ class Report:
         # Skip frames from autopsy module itself
         caller_frame = None
         for frame_info in stack[1:]:  # Skip current frame
-            if not frame_info.filename.endswith("autopsy/report.py"):
+            # Skip any frame from within the autopsy package
+            if not frame_info.filename.endswith(("autopsy/report.py", "autopsy/__init__.py")):
                 caller_frame = frame_info
                 break
 
