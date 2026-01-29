@@ -19,6 +19,8 @@
     showDashboardCalls?: boolean;
     activeTab?: "streams" | "history" | "dashboard";
     frameFilter?: string | null;
+    hoveredFrameKey?: string | null;
+    selectedFrameKeys?: Set<string>;
     columnOrders?: Record<string, string[]>;
     computedColumns?: Record<string, ComputedColumn[]>;
     logMarks?: Record<number, LogMark>;
@@ -38,6 +40,8 @@
     showDashboardCalls = true,
     activeTab = "history",
     frameFilter = null,
+    hoveredFrameKey = null,
+    selectedFrameKeys = new Set<string>(),
     columnOrders = {},
     computedColumns = {},
     logMarks = {},
@@ -202,6 +206,19 @@
     return trace.frames.some(frame =>
       createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
     );
+  }
+
+  // Check if a log should be highlighted based on frame context
+  function shouldHighlightForFrameContext(stackTraceId: string | undefined): boolean {
+    if (hoveredFrameKey && stackTraceContainsFrame(stackTraceId, hoveredFrameKey)) {
+      return true;
+    }
+    for (const selectedKey of selectedFrameKeys) {
+      if (stackTraceContainsFrame(stackTraceId, selectedKey)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Get ordered values for a value group based on column order
@@ -478,10 +495,12 @@
                 {#each item.entries as skippedEntry}
                   {@const skippedCallSiteKey = getCallSiteKey(skippedEntry.callSite)}
                   {@const skippedMark = logMarks[skippedEntry.log_index]}
+                  {@const skippedFrameContextHighlight = shouldHighlightForFrameContext(skippedEntry.valueGroup.stack_trace_id)}
                   <div
                     class="history-entry skipped-entry"
                     class:highlighted={highlightedLogIndex === skippedEntry.log_index}
                     class:selected={selectedLogIndex === skippedEntry.log_index}
+                    class:frame-context-highlight={skippedFrameContextHighlight}
                     class:clickable={skippedEntry.valueGroup.stack_trace_id !== undefined}
                     class:menu-open={menuOpenFor === skippedEntry.log_index}
                     data-log-index={skippedEntry.log_index}
@@ -646,10 +665,12 @@
         {@const entry = item as HistoryEntry}
         {@const callSiteKey = getCallSiteKey(entry.callSite)}
         {@const mark = logMarks[entry.log_index]}
+        {@const frameContextHighlight = shouldHighlightForFrameContext(entry.valueGroup.stack_trace_id)}
         <div
           class="history-entry"
           class:highlighted={highlightedLogIndex === entry.log_index}
           class:selected={selectedLogIndex === entry.log_index}
+          class:frame-context-highlight={frameContextHighlight}
           class:clickable={entry.valueGroup.stack_trace_id !== undefined}
           class:menu-open={menuOpenFor === entry.log_index}
           data-log-index={entry.log_index}
@@ -900,6 +921,20 @@
 
   .history-entry.selected:hover {
     background: #dbeafe;
+  }
+
+  .history-entry.frame-context-highlight {
+    background: #fef3c7;
+    border-color: #f59e0b;
+  }
+
+  .history-entry.frame-context-highlight:hover {
+    background: #fde68a;
+  }
+
+  .history-entry.frame-context-highlight.selected {
+    background: #fde68a;
+    border-color: #f59e0b;
   }
 
   @keyframes highlight-pulse {

@@ -42,6 +42,8 @@
     selectedLogIndex?: number | null;
     hiddenCallSites?: Set<string>;
     frameFilter?: string | null;
+    hoveredFrameKey?: string | null;
+    selectedFrameKeys?: Set<string>;
     columnOrders?: Record<string, string[]>;
     computedColumns?: Record<string, ComputedColumn[]>;
     logMarks?: Record<number, LogMark>;
@@ -66,6 +68,8 @@
     selectedLogIndex = null,
     hiddenCallSites = new Set<string>(),
     frameFilter = null,
+    hoveredFrameKey = null,
+    selectedFrameKeys = new Set<string>(),
     columnOrders = {},
     computedColumns = {},
     logMarks = {},
@@ -227,9 +231,22 @@
     if (!stackTraceId) return false;
     const trace = data.stack_traces[stackTraceId];
     if (!trace) return false;
-    return trace.frames.some(frame => 
+    return trace.frames.some(frame =>
       createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
     );
+  }
+
+  // Check if a log should be highlighted based on frame context
+  function shouldHighlightForFrameContext(stackTraceId: string | undefined): boolean {
+    if (hoveredFrameKey && stackTraceContainsFrame(stackTraceId, hoveredFrameKey)) {
+      return true;
+    }
+    for (const selectedKey of selectedFrameKeys) {
+      if (stackTraceContainsFrame(stackTraceId, selectedKey)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function toggleCollapse(callSite: CallSite) {
@@ -1622,11 +1639,13 @@
               <tbody>
                 {#each callSite.value_groups as valueGroup, groupIndex}
                   {@const mark = logMarks[valueGroup.log_index]}
+                  {@const frameContextHighlight = shouldHighlightForFrameContext(valueGroup.stack_trace_id)}
                   <tr
                     class="table-row"
                     class:highlighted={highlightedLogIndex ===
                       valueGroup.log_index}
                     class:selected={selectedLogIndex === valueGroup.log_index}
+                    class:frame-context-highlight={frameContextHighlight}
                     class:clickable={valueGroup.stack_trace_id !== undefined}
                     data-log-index={valueGroup.log_index}
                     style={mark?.color ? `background-color: ${mark.color};` : ""}
@@ -2316,6 +2335,18 @@
 
   .table-row.selected:hover {
     background-color: #dbeafe;
+  }
+
+  .table-row.frame-context-highlight {
+    background-color: #fef3c7;
+  }
+
+  .table-row.frame-context-highlight:hover {
+    background-color: #fde68a;
+  }
+
+  .table-row.frame-context-highlight.selected {
+    background-color: #fde68a;
   }
 
   .log-number-cell {

@@ -42,6 +42,10 @@
   let frameFilter = $state<string | null>(null);
   let menuOpenForFrame = $state<string | null>(null);
 
+  // Frame context highlighting state
+  let hoveredFrameKey = $state<string | null>(null);
+  let selectedFrameKeys = $state<Set<string>>(new Set()); // Support multiple selections for future
+
   // Column order state: maps callSiteKey -> array of column names in order
   let columnOrders = $state<Record<string, string[]>>({});
 
@@ -460,6 +464,22 @@
     );
   }
 
+  function handleFrameHover(frameKey: string | null) {
+    hoveredFrameKey = frameKey;
+  }
+
+  function handleFrameClick(frameKey: string) {
+    // Toggle selection for the frame
+    if (selectedFrameKeys.has(frameKey)) {
+      selectedFrameKeys.delete(frameKey);
+    } else {
+      // For now, only allow one selected frame (but using Set for future multi-select)
+      selectedFrameKeys.clear();
+      selectedFrameKeys.add(frameKey);
+    }
+    selectedFrameKeys = new Set(selectedFrameKeys); // Trigger reactivity
+  }
+
   function handleColumnOrderChange(callSiteKey: string, newOrder: string[]) {
     columnOrders[callSiteKey] = newOrder;
     columnOrders = { ...columnOrders };
@@ -575,6 +595,8 @@
           {selectedLogIndex}
           hiddenCallSites={hiddenCallSites}
           {frameFilter}
+          {hoveredFrameKey}
+          {selectedFrameKeys}
           {columnOrders}
           {computedColumns}
           {logMarks}
@@ -599,6 +621,8 @@
           {showDashboardCalls}
           {activeTab}
           {frameFilter}
+          {hoveredFrameKey}
+          {selectedFrameKeys}
           {columnOrders}
           {computedColumns}
           {logMarks}
@@ -694,8 +718,26 @@
           {#each selectedStackTrace.frames as frame, index}
             {@const frameKey = createFrameKey(frame.filename, frame.line_number, frame.function_name)}
             <div class="stack-frame">
-              <div class="frame-header">
-                <span class="frame-number">#{index + 1}</span>
+              <div
+                class="frame-header"
+                class:frame-selected={selectedFrameKeys.has(frameKey)}
+                onmouseenter={() => handleFrameHover(frameKey)}
+                onmouseleave={() => handleFrameHover(null)}
+              >
+                <span
+                  class="frame-number"
+                  class:clickable={true}
+                  onclick={() => handleFrameClick(frameKey)}
+                  role="button"
+                  tabindex="0"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleFrameClick(frameKey);
+                    }
+                  }}
+                  title="Click to highlight all logs with this frame"
+                >#{index + 1}</span>
                 <div class="frame-info">
                   <span class="frame-function">{frame.function_name}</span>
                   {#if isVSCodeWebview()}
@@ -1054,6 +1096,7 @@
     margin-bottom: 0.75rem;
     font-size: 0.9rem;
     position: relative;
+    border-left: 3px solid transparent;
   }
 
   .frame-number {
@@ -1064,6 +1107,27 @@
     padding: 2px 6px;
     border-radius: 3px;
     flex-shrink: 0;
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  .frame-number.clickable {
+    cursor: pointer;
+  }
+
+  .frame-number.clickable:hover {
+    background: #dbeafe;
+    color: #1e40af;
+  }
+
+  .frame-header.frame-selected {
+    border-left: 3px solid #f59e0b;
+    padding-left: 0.5rem;
+    margin-left: -0.5rem;
+  }
+
+  .frame-header.frame-selected .frame-number {
+    background: #fef3c7;
+    color: #d97706;
   }
 
   .frame-info {
