@@ -559,8 +559,10 @@ class Report:
             if value_key not in self._counts[call_site]:
                 self._counts[call_site][value_key] = []
 
-            if stack_trace_id is not None:
-                self._counts[call_site][value_key].append((stack_trace_id, log_index))
+            # Append even if stack_trace_id is None (will be -1 or None in that case)
+            self._counts[call_site][value_key].append(
+                (stack_trace_id if stack_trace_id is not None else -1, log_index)
+            )
 
     def hist(self, num: float):
         """
@@ -1012,7 +1014,8 @@ class Report:
                 json_value_counts = {}
                 for value_key, stack_trace_data in value_counts.items():
                     # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
-                    stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
+                    # Filter out -1 sentinel values (used when stack traces are disabled)
+                    stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data if st_id != -1]
                     log_indices = [log_idx for _, log_idx in stack_trace_data]
 
                     # value_key might already be a JSON string (for unhashable types)
@@ -1124,7 +1127,8 @@ class Report:
                     call_site, ("<unknown>", None)
                 )
                 # stack_trace_data is now a list of (stack_trace_id, log_index) tuples
-                stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data]
+                # Filter out -1 sentinel values (used when stack traces are disabled)
+                stack_trace_ids = [str(st_id) for st_id, _ in stack_trace_data if st_id != -1]
                 log_indices = [log_idx for _, log_idx in stack_trace_data]
 
                 happened_entry = {
