@@ -100,6 +100,7 @@ export interface AutopsyData {
   call_sites: CallSite[]
   stack_traces: Record<string, StackTrace>  // Keyed by stack_trace_id as string
   dashboard?: DashboardData
+  tests?: TestResult[]  // Test results captured by pytest plugin
 }
 
 // Computed column definition
@@ -119,4 +120,17 @@ export type ColumnFilter =
 
 // Filters for a call site (columnName -> filter)
 export type ColumnFilters = Record<string, ColumnFilter>;
+
+// Test result types
+export interface TestResult {
+  nodeid: string;  // Test identifier like "tests/test_foo.py::test_bar"
+  outcome: string;  // "passed", "failed", "skipped", "error"
+  log_count: number;  // Number of logs during this test
+  filename?: string;  // Test file path
+  line?: number;  // Line number where test is defined
+  test_name?: string;  // Name of the test function
+  failure_message?: string;  // Failure message/traceback if failed
+  start_log_index?: number;  // First log during this test
+  end_log_index?: number;  // Last log during this test
+}
 

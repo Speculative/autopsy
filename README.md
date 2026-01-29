@@ -71,3 +71,10 @@ with report.section(name="all groups") as groups_report:
             for member in group:
                 group_report.log(member.id, member.name, name=f"member")
 ```
+
+## Pytest Integration
+Add the following to `pyproject.toml`:
+```toml
+[project.entry-points.pytest11]
+autopsy = "autopsy.pytest"
+```

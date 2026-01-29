@@ -3,6 +3,7 @@
   import StreamsView from "./StreamsView.svelte";
   import HistoryView from "./HistoryView.svelte";
   import DashboardView from "./DashboardView.svelte";
+  import TestsView from "./TestsView.svelte";
   import TreeView from "./TreeView.svelte";
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import * as pako from "pako";
@@ -27,7 +28,7 @@
     call_sites: [],
     stack_traces: {},
   });
-  let activeTab = $state<"streams" | "history" | "dashboard">("history");
+  let activeTab = $state<"streams" | "history" | "dashboard" | "tests">("history");
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
@@ -144,6 +145,7 @@
             call_sites: parsed.call_sites ?? [],
             stack_traces: parsed.stack_traces ?? {},
             dashboard: parsed.dashboard,
+            tests: parsed.tests,
           };
           console.log("Loaded development data from dev-data.json");
           return;
@@ -183,6 +185,7 @@
           call_sites: parsed.call_sites ?? [],
           stack_traces: parsed.stack_traces ?? {},
           dashboard: parsed.dashboard,
+          tests: parsed.tests,
         };
       } catch (e) {
         console.error("Failed to parse autopsy data:", e);
@@ -585,6 +588,13 @@
       >
         Dashboard
       </button>
+      <button
+        class="tab"
+        class:active={activeTab === "tests"}
+        onclick={() => (activeTab = "tests")}
+      >
+        Tests
+      </button>
     </div>
 
     <div class="content">
@@ -639,6 +649,11 @@
           {selectedLogIndex}
           selectedElementKey={selectedDashboardElementKey}
           onEntryClick={handleDashboardEntryClick}
+        />
+      {:else if activeTab === "tests"}
+        <TestsView
+          {data}
+          onShowInHistory={handleShowInHistory}
         />
       {/if}
     </div>

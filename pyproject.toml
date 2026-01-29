@@ -16,6 +16,9 @@ live = [
     "uvicorn[standard]>=0.24.0",
 ]
 
+[project.entry-points.pytest11]
+autopsy = "autopsy.pytest"
+
 [tool.setuptools]
 packages = ["autopsy"]
 package-data = {"autopsy" = ["template.html", "dist-live/**/*"]}

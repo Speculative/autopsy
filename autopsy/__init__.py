@@ -50,4 +50,5 @@ __all__ = [
     "ReportConfiguration",
     "get_report",
     "set_atexit_enabled",
+    "pytest",
 ]

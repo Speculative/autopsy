@@ -1165,6 +1165,17 @@ class Report:
             if dashboard_data:
                 result["dashboard"] = dashboard_data
 
+            # Add test results if available
+            try:
+                from autopsy.pytest import get_test_capture
+                test_capture = get_test_capture()
+                test_results = test_capture.get_results()
+                if test_results:
+                    result["tests"] = test_results
+            except (ImportError, Exception):
+                # pytest module not available or error getting test results
+                pass
+
             return result
 
     def _to_json_serializable(self, value: Any) -> Any:
