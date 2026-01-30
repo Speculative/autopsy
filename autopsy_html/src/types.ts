@@ -130,6 +130,7 @@ export interface TestResult {
   line?: number;  // Line number where test is defined
   test_name?: string;  // Name of the test function
   failure_message?: string;  // Failure message/traceback if failed
+  error_summary?: string;  // Just the exception line (e.g., "AssertionError: ...")
   start_log_index?: number;  // First log during this test
   end_log_index?: number;  // Last log during this test
 }

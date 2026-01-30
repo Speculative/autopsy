@@ -31,6 +31,11 @@
   type SortDirection = 'asc' | 'desc';
   type ColumnSort = { columnName: string; direction: SortDirection };
 
+  // Extended CallSite type to track filtered logs
+  interface FilteredCallSite extends CallSite {
+    filtered_value_groups?: ValueGroup[]; // Logs that were filtered out
+  }
+
   export type LogMark = {
     color: string;
     note: string;
@@ -100,6 +105,9 @@
   // Column resize state
   let resizingColumn = $state<{ callSiteKey: string; columnName: string; startX: number; startWidth: number } | null>(null);
   let columnWidths = $state<Record<string, Record<string, number>>>({});
+
+  // Track which call sites have expanded filtered logs
+  let expandedFilteredLogs = $state<Set<string>>(new Set());
 
   // Track table container refs for initial width computation
   let tableContainers = $state<Record<string, HTMLDivElement | null>>({});
@@ -280,6 +288,17 @@
     }
   }
 
+  function toggleFilteredLogs(callSite: FilteredCallSite) {
+    const key = getCallSiteKey(callSite);
+    const newSet = new Set(expandedFilteredLogs);
+    if (newSet.has(key)) {
+      newSet.delete(key);
+    } else {
+      newSet.add(key);
+    }
+    expandedFilteredLogs = newSet;
+  }
+
   function isCollapsed(callSite: CallSite): boolean {
     const key = getCallSiteKey(callSite);
     // Dashboard call sites are collapsed by default
@@ -305,12 +324,17 @@
   }
 
   // Get all unique column names (argument names) for a call site
-  function getColumnNames(callSite: CallSite): string[] {
+  function getColumnNames(callSite: CallSite | FilteredCallSite): string[] {
     const callSiteKey = getCallSiteKey(callSite);
 
-    // Get regular columns
+    // Get regular columns from both visible and filtered value groups
     const columnNames = new Set<string>();
-    for (const valueGroup of callSite.value_groups) {
+    const allValueGroups = [
+      ...callSite.value_groups,
+      ...((callSite as FilteredCallSite).filtered_value_groups || [])
+    ];
+
+    for (const valueGroup of allValueGroups) {
       if (valueGroup.values) {
         for (const value of valueGroup.values) {
           if (value.name) {
@@ -626,13 +650,16 @@
 
   // Get filtered and sorted call sites (dashboard at bottom)
   let filteredCallSites = $derived.by(() => {
-    const regular: CallSite[] = [];
-    const dashboard: CallSite[] = [];
+    const regular: FilteredCallSite[] = [];
+    const dashboard: FilteredCallSite[] = [];
 
     for (const callSite of data.call_sites) {
       const callSiteKey = getCallSiteKey(callSite);
       const isHidden = hiddenCallSites.has(callSiteKey);
       const isDashboard = callSite.is_dashboard ?? false;
+
+      // Track original value groups before filtering
+      const originalValueGroups = callSite.value_groups;
 
       // Filter value_groups based on frameFilter and testFilter if active
       let filteredValueGroups = callSite.value_groups;
@@ -697,10 +724,16 @@
         });
       }
 
-      // Create filtered call site
-      const filteredCallSite: CallSite = {
+      // Calculate filtered-out logs
+      const filteredOutLogs = originalValueGroups.filter(
+        vg => !filteredValueGroups.includes(vg)
+      );
+
+      // Create filtered call site with both visible and filtered logs
+      const filteredCallSite: FilteredCallSite = {
         ...callSite,
         value_groups: filteredValueGroups,
+        filtered_value_groups: filteredOutLogs.length > 0 ? filteredOutLogs : undefined,
       };
 
       // Include all call sites (even hidden ones) - they'll be collapsed/lowlighted
@@ -1685,8 +1718,16 @@
                     colspan={getColumnNames(callSite).length + 2}
                     class="collapsed-summary"
                   >
-                    ...{callSite.value_groups.length}
-                    {callSite.value_groups.length === 1 ? "log" : "logs"}
+                    {#if callSite.value_groups.length === 0 && callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0}
+                      <span class="filtered-indicator">...{callSite.filtered_value_groups.length}
+                      {callSite.filtered_value_groups.length === 1 ? "log" : "logs"} (filtered)</span>
+                    {:else}
+                      ...{callSite.value_groups.length}
+                      {callSite.value_groups.length === 1 ? "log" : "logs"}
+                      {#if callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0}
+                        <span class="filtered-count"> (+{callSite.filtered_value_groups.length} filtered)</span>
+                      {/if}
+                    {/if}
                   </td>
                 </tr>
               </tbody>
@@ -1783,6 +1824,124 @@
                     {/each}
                   </tr>
                 {/each}
+                {#if callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0}
+                  {@const isExpanded = expandedFilteredLogs.has(callSiteKey)}
+                  <!-- Show filtered logs if expanded -->
+                  {#if isExpanded}
+                    {#each callSite.filtered_value_groups as valueGroup, groupIndex}
+                      {@const mark = logMarks[valueGroup.log_index]}
+                      {@const frameContextHighlight = shouldHighlightForFrameContext(valueGroup.stack_trace_id)}
+                      <tr
+                        class="table-row filtered-log-row"
+                        class:highlighted={highlightedLogIndex ===
+                          valueGroup.log_index}
+                        class:selected={selectedLogIndex === valueGroup.log_index}
+                        class:frame-context-highlight={frameContextHighlight}
+                        class:clickable={valueGroup.stack_trace_id !== undefined}
+                        data-log-index={valueGroup.log_index}
+                        style={mark?.color ? `background-color: ${mark.color};` : ""}
+                        onclick={() => handleRowClick(valueGroup)}
+                        role={valueGroup.stack_trace_id !== undefined
+                          ? "button"
+                          : undefined}
+                        tabindex={valueGroup.stack_trace_id !== undefined
+                          ? 0
+                          : undefined}
+                        onkeydown={(e) => {
+                          if (
+                            valueGroup.stack_trace_id !== undefined &&
+                            (e.key === "Enter" || e.key === " ")
+                          ) {
+                            e.preventDefault();
+                            handleRowClick(valueGroup);
+                          }
+                        }}
+                      >
+                        <td class="log-number-cell">
+                          <span
+                            class="log-number clickable"
+                            role="button"
+                            tabindex="0"
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              onShowInHistory?.(valueGroup.log_index);
+                            }}
+                            onkeydown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onShowInHistory?.(valueGroup.log_index);
+                              }
+                            }}
+                            title="Show this log in the History view"
+                          >
+                            <span class="log-number-text"
+                              >#{valueGroup.log_index}</span
+                            >
+                            <span class="log-number-arrow">➡️</span>
+                          </span>
+                        </td>
+                        {#each getColumnNames(callSite) as columnName}
+                          {@const cellValue = getValueForColumn(valueGroup, columnName, callSite)}
+                          {@const stackTrace = valueGroup.stack_trace_id ? data.stack_traces[valueGroup.stack_trace_id] : undefined}
+                          {@const firstFrame = stackTrace?.frames[0]}
+                          {@const isComputedColumn = columnName.startsWith('computed:')}
+                          {@const isSimpleVariable = !isComputedColumn && firstFrame && columnName in firstFrame.local_variables}
+                          {@const canDrag = !!firstFrame && (isComputedColumn || isSimpleVariable)}
+                          {@const baseExpr = isComputedColumn
+                            ? getComputedColumn(callSite, columnName)?.expression
+                            : isSimpleVariable
+                              ? columnName
+                              : undefined}
+                          <td
+                            class="value-cell"
+                            style={getColumnWidth(callSite, columnName)}
+                          >
+                            {#if cellValue !== undefined}
+                              {#if typeof cellValue === 'object' && cellValue !== null && '__error' in cellValue}
+                                <span class="computed-error">{cellValue.__error}</span>
+                              {:else}
+                                <TreeView
+                                  value={cellValue}
+                                  enableDrag={canDrag}
+                                  frameIndex={0}
+                                  sourceLogIndex={valueGroup.log_index}
+                                  frameFunctionName={firstFrame?.function_name}
+                                  frameFilename={firstFrame?.filename}
+                                  frameLineNumber={firstFrame?.line_number}
+                                  baseExpression={baseExpr}
+                                />
+                              {/if}
+                            {:else}
+                              <span class="empty-cell">—</span>
+                            {/if}
+                          </td>
+                        {/each}
+                      </tr>
+                    {/each}
+                  {/if}
+                  <!-- "...n logs" row -->
+                  <tr
+                    class="filtered-logs-toggle-row"
+                    onclick={() => toggleFilteredLogs(callSite)}
+                    role="button"
+                    tabindex="0"
+                    onkeydown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleFilteredLogs(callSite);
+                      }
+                    }}
+                  >
+                    <td
+                      colspan={getColumnNames(callSite).length + 1}
+                      class="filtered-logs-summary"
+                    >
+                      ...{callSite.filtered_value_groups.length}
+                      {callSite.filtered_value_groups.length === 1 ? "log" : "logs"}
+                    </td>
+                  </tr>
+                {/if}
               </tbody>
             {/if}
           </table>
@@ -2196,6 +2355,17 @@
     background-color: #f8fafc;
   }
 
+  .filtered-indicator {
+    color: #64748b;
+    font-style: italic;
+  }
+
+  .filtered-count {
+    color: #64748b;
+    font-size: 0.85rem;
+    margin-left: 0.5rem;
+  }
+
   .table-header th:not(.call-site-info) {
     padding: 0.25rem 0.75rem;
     text-align: left;
@@ -2440,6 +2610,50 @@
 
   .table-row.frame-context-highlight.selected {
     background-color: #fde68a;
+  }
+
+  .filtered-log-row {
+    opacity: 0.6;
+    background-color: #f9fafb;
+  }
+
+  .filtered-log-row:hover {
+    opacity: 0.8;
+    background-color: #f3f4f6;
+  }
+
+  .filtered-log-row.highlighted {
+    opacity: 1;
+  }
+
+  .filtered-log-row.selected {
+    opacity: 1;
+    background-color: #e0e7ff;
+  }
+
+  .filtered-log-row.selected:hover {
+    background-color: #c7d2fe;
+  }
+
+  .filtered-logs-toggle-row {
+    border-top: 1px dashed #cbd5e1;
+    border-bottom: 1px solid #e5e5e5;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    background-color: #fafafa;
+  }
+
+  .filtered-logs-toggle-row:hover {
+    background-color: #f0f0f0;
+  }
+
+  .filtered-logs-summary {
+    padding: 0.5rem;
+    text-align: center;
+    color: #64748b;
+    font-size: 0.875rem;
+    font-style: italic;
+    user-select: none;
   }
 
   .log-number-cell {

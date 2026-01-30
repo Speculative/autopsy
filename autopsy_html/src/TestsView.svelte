@@ -18,6 +18,9 @@
   // Track which test menu is open
   let openMenuTestId: string | null = $state(null);
 
+  // Track which test failures are expanded
+  let expandedFailures: Set<string> = $state(new Set());
+
   // Separate filtered and non-filtered tests
   let filteredTest: TestResult | null = $derived(
     testFilter ? allTests.find(test => test.nodeid === testFilter) ?? null : null
@@ -107,6 +110,59 @@
     openMenuTestId = null;
   }
 
+  function toggleFailureExpansion(testId: string) {
+    const newExpanded = new Set(expandedFailures);
+    if (newExpanded.has(testId)) {
+      newExpanded.delete(testId);
+    } else {
+      newExpanded.add(testId);
+    }
+    expandedFailures = newExpanded;
+  }
+
+  function getErrorSummary(test: TestResult): string {
+    // Use the error_summary if available (captured directly from pytest)
+    if (test.error_summary) {
+      return test.error_summary;
+    }
+
+    // Fallback: parse from failure_message if error_summary wasn't captured
+    if (!test.failure_message) {
+      return 'Test failed';
+    }
+
+    // Extract just the assertion error line from the full traceback
+    // Pytest formats errors with lines starting with "E       "
+    const lines = test.failure_message.split('\n');
+
+    // Look for lines starting with "E       " which contain the actual error
+    const errorLines = lines.filter(line => line.trim().startsWith('E       '));
+
+    if (errorLines.length > 0) {
+      // Get the last error line, which typically has the key message
+      const lastErrorLine = errorLines[errorLines.length - 1];
+      return lastErrorLine.replace(/^E\s+/, '').trim();
+    }
+
+    // Fallback: look for common exception patterns in the last few lines
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 5); i--) {
+      const line = lines[i].trim();
+      if (line.match(/^(AssertionError|ValueError|TypeError|KeyError|AttributeError|IndexError|RuntimeError|Exception):/)) {
+        return line;
+      }
+    }
+
+    // Last resort: return first non-empty line
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+
+    return 'Test failed';
+  }
+
   // Close menu when clicking outside
   function handleClickOutside(e: MouseEvent) {
     if (!(e.target as Element)?.closest(".test-menu")) {
@@ -166,19 +222,40 @@
             Filtered: {filteredTest.outcome.charAt(0).toUpperCase() + filteredTest.outcome.slice(1)}
           </h4>
           <div class="test-list">
-            <div class="test-item">
-              <div class="test-header">
+            <div class="test-item" class:has-failure={filteredTest.failure_message}>
+              <div
+                class="test-header"
+                class:clickable={filteredTest.failure_message}
+                onclick={() => filteredTest.failure_message && toggleFailureExpansion(filteredTest.nodeid)}
+              >
                 <span class="test-icon" style="color: {getOutcomeColor(filteredTest.outcome)}">
                   {getOutcomeIcon(filteredTest.outcome)}
                 </span>
-                <span class="test-name">{filteredTest.test_name || filteredTest.nodeid}</span>
+                <span class="test-name-with-location">
+                  <span class="test-name">{filteredTest.test_name || filteredTest.nodeid}</span>
+                  {#if filteredTest.filename}
+                    <span class="inline-location">
+                      <CodeLocation
+                        filename={filteredTest.filename}
+                        line={filteredTest.line || 0}
+                        showFunction={false}
+                        compact={true}
+                      />
+                    </span>
+                  {/if}
+                </span>
+                {#if filteredTest.failure_message}
+                  <span class="expand-indicator">
+                    {expandedFailures.has(filteredTest.nodeid) ? "▼" : "▶"}
+                  </span>
+                {/if}
                 <span class="test-logs">
                   {filteredTest.log_count} log{filteredTest.log_count === 1 ? "" : "s"}
                 </span>
                 <div class="test-menu">
                   <button
                     class="test-menu-button"
-                    onclick={() => toggleTestMenu(filteredTest.nodeid)}
+                    onclick={(e) => { e.stopPropagation(); toggleTestMenu(filteredTest.nodeid); }}
                     title="Test actions"
                   >
                     <MoreVertical size={16} />
@@ -203,19 +280,16 @@
                 </div>
               </div>
 
-              {#if filteredTest.filename}
-                <div class="test-location">
-                  <CodeLocation
-                    filename={filteredTest.filename}
-                    line={filteredTest.line || 0}
-                  />
-                </div>
-              {/if}
-
               {#if filteredTest.failure_message}
-                <div class="test-failure">
-                  <pre>{filteredTest.failure_message}</pre>
-                </div>
+                {#if !expandedFailures.has(filteredTest.nodeid)}
+                  <div class="test-error-summary">
+                    {getErrorSummary(filteredTest)}
+                  </div>
+                {:else}
+                  <div class="test-failure">
+                    <pre>{filteredTest.failure_message}</pre>
+                  </div>
+                {/if}
               {/if}
             </div>
           </div>
@@ -236,19 +310,40 @@
             </h4>
             <div class="test-list">
               {#each otherTestsByOutcome()[outcome] as test}
-                <div class="test-item">
-                  <div class="test-header">
+                <div class="test-item" class:has-failure={test.failure_message}>
+                  <div
+                    class="test-header"
+                    class:clickable={test.failure_message}
+                    onclick={() => test.failure_message && toggleFailureExpansion(test.nodeid)}
+                  >
                     <span class="test-icon" style="color: {getOutcomeColor(test.outcome)}">
                       {getOutcomeIcon(test.outcome)}
                     </span>
-                    <span class="test-name">{test.test_name || test.nodeid}</span>
+                    <span class="test-name-with-location">
+                      <span class="test-name">{test.test_name || test.nodeid}</span>
+                      {#if test.filename}
+                        <span class="inline-location">
+                          <CodeLocation
+                            filename={test.filename}
+                            line={test.line || 0}
+                            showFunction={false}
+                            compact={true}
+                          />
+                        </span>
+                      {/if}
+                    </span>
+                    {#if test.failure_message}
+                      <span class="expand-indicator">
+                        {expandedFailures.has(test.nodeid) ? "▼" : "▶"}
+                      </span>
+                    {/if}
                     <span class="test-logs">
                       {test.log_count} log{test.log_count === 1 ? "" : "s"}
                     </span>
                     <div class="test-menu">
                       <button
                         class="test-menu-button"
-                        onclick={() => toggleTestMenu(test.nodeid)}
+                        onclick={(e) => { e.stopPropagation(); toggleTestMenu(test.nodeid); }}
                         title="Test actions"
                       >
                         <MoreVertical size={16} />
@@ -273,19 +368,16 @@
                     </div>
                   </div>
 
-                  {#if test.filename}
-                    <div class="test-location">
-                      <CodeLocation
-                        filename={test.filename}
-                        line={test.line || 0}
-                      />
-                    </div>
-                  {/if}
-
                   {#if test.failure_message}
-                    <div class="test-failure">
-                      <pre>{test.failure_message}</pre>
-                    </div>
+                    {#if !expandedFailures.has(test.nodeid)}
+                      <div class="test-error-summary">
+                        {getErrorSummary(test)}
+                      </div>
+                    {:else}
+                      <div class="test-failure">
+                        <pre>{test.failure_message}</pre>
+                      </div>
+                    {/if}
                   {/if}
                 </div>
               {/each}
@@ -421,17 +513,53 @@
     margin-bottom: 8px;
   }
 
+  .test-header.clickable {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s;
+    padding: 8px;
+    margin: -8px;
+    border-radius: 4px;
+  }
+
+  .test-header.clickable:hover {
+    background-color: #f9fafb;
+  }
+
   .test-icon {
     font-size: 18px;
     font-weight: bold;
   }
 
-  .test-name {
+  .test-name-with-location {
     flex: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .test-name {
     font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
       "Courier New", monospace;
     font-size: 14px;
     font-weight: 500;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+  }
+
+  .inline-location {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .expand-indicator {
+    font-size: 10px;
+    color: #6b7280;
+    margin-left: 4px;
+    transition: transform 0.15s;
   }
 
   .test-logs {
@@ -442,10 +570,18 @@
     border-radius: 4px;
   }
 
-  .test-location {
-    margin-bottom: 8px;
+  .test-error-summary {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: #fef2f2;
+    border-left: 3px solid #ef4444;
+    border-radius: 4px;
+    font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
+      "Courier New", monospace;
     font-size: 13px;
-    color: #6b7280;
+    color: #991b1b;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 
   .test-failure {

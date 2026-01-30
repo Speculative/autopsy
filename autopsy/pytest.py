@@ -14,6 +14,7 @@ class AutopsyTestResult:
         self.nodeid = nodeid  # Test identifier like "tests/test_foo.py::test_bar"
         self.outcome = outcome  # "passed", "failed", "skipped", "error"
         self.longrepr: Optional[str] = None  # Failure message/traceback
+        self.error_summary: Optional[str] = None  # Just the exception line (e.g., "AssertionError: ...")
         self.location: Optional[tuple] = None  # (filename, line, test_name)
         self.start_log_index: Optional[int] = None  # First log during this test
         self.end_log_index: Optional[int] = None  # Last log during this test
@@ -34,6 +35,9 @@ class AutopsyTestResult:
 
         if self.longrepr:
             result["failure_message"] = self.longrepr
+
+        if self.error_summary:
+            result["error_summary"] = self.error_summary
 
         if self.start_log_index is not None:
             result["start_log_index"] = self.start_log_index
@@ -58,7 +62,7 @@ class AutopsyTestCapture:
         # Record the current log index when test starts
         self.test_start_log_index = report._log_index
 
-    def finish_test(self, item, outcome: str, longrepr=None):
+    def finish_test(self, item, outcome: str, longrepr=None, error_summary=None):
         """Called when a test finishes."""
         report = get_report()
 
@@ -75,6 +79,10 @@ class AutopsyTestCapture:
         # Record failure message if test failed
         if longrepr:
             test_result.longrepr = str(longrepr)
+
+        # Record error summary if provided
+        if error_summary:
+            test_result.error_summary = error_summary
 
         # Calculate log indices for this test
         if self.test_start_log_index is not None:
@@ -122,24 +130,34 @@ def pytest_runtest_makereport(item, call):
     # Record on the "call" phase (main test execution)
     if report.when == "call":
         longrepr = None
+        error_summary = None
         if report.failed:
             longrepr = str(report.longrepr) if report.longrepr else "Test failed"
+            # Try to extract just the exception line from pytest's structured repr
+            if hasattr(report.longrepr, 'reprcrash') and report.longrepr.reprcrash:
+                error_summary = report.longrepr.reprcrash.message
         elif report.skipped:
             longrepr = str(report.longrepr) if report.longrepr else "Test skipped"
 
-        _test_capture.finish_test(item, report.outcome, longrepr)
+        _test_capture.finish_test(item, report.outcome, longrepr, error_summary)
         item._autopsy_recorded = True
 
     # If test failed during setup, record it
     elif report.when == "setup" and report.failed and not item._autopsy_recorded:
         longrepr = str(report.longrepr) if report.longrepr else "Setup failed"
-        _test_capture.finish_test(item, "error", longrepr)
+        error_summary = None
+        if hasattr(report.longrepr, 'reprcrash') and report.longrepr.reprcrash:
+            error_summary = report.longrepr.reprcrash.message
+        _test_capture.finish_test(item, "error", longrepr, error_summary)
         item._autopsy_recorded = True
 
     # If test failed during teardown and we haven't recorded yet, record it
     elif report.when == "teardown" and report.failed and not item._autopsy_recorded:
         longrepr = str(report.longrepr) if report.longrepr else "Teardown failed"
-        _test_capture.finish_test(item, "error", longrepr)
+        error_summary = None
+        if hasattr(report.longrepr, 'reprcrash') and report.longrepr.reprcrash:
+            error_summary = report.longrepr.reprcrash.message
+        _test_capture.finish_test(item, "error", longrepr, error_summary)
         item._autopsy_recorded = True
 
 
