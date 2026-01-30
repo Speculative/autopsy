@@ -24,12 +24,21 @@
     });
   }
 
+  // Get initial tab from hash or default to history
+  function getInitialTab(): "streams" | "history" | "dashboard" | "tests" {
+    const hash = window.location.hash.slice(1); // Remove the '#'
+    if (hash === "streams" || hash === "history" || hash === "dashboard" || hash === "tests") {
+      return hash;
+    }
+    return "history";
+  }
+
   let data: AutopsyData = $state({
     generated_at: "",
     call_sites: [],
     stack_traces: {},
   });
-  let activeTab = $state<"streams" | "history" | "dashboard" | "tests">("history");
+  let activeTab = $state<"streams" | "history" | "dashboard" | "tests">(getInitialTab());
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
@@ -198,6 +207,27 @@
 
   // Load data on mount
   loadData();
+
+  // Sync hash with active tab
+  $effect(() => {
+    const currentHash = window.location.hash.slice(1);
+    if (currentHash !== activeTab) {
+      window.location.hash = activeTab;
+    }
+  });
+
+  // Listen for hash changes (browser back/forward)
+  $effect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash === "streams" || hash === "history" || hash === "dashboard" || hash === "tests") {
+        activeTab = hash;
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  });
 
   // Send data updates to VS Code extension when data changes
   $effect(() => {
@@ -580,17 +610,17 @@
     <div class="tabs">
       <button
         class="tab"
-        class:active={activeTab === "streams"}
-        onclick={() => (activeTab = "streams")}
-      >
-        Streams
-      </button>
-      <button
-        class="tab"
         class:active={activeTab === "history"}
         onclick={() => (activeTab = "history")}
       >
         History
+      </button>
+      <button
+        class="tab"
+        class:active={activeTab === "streams"}
+        onclick={() => (activeTab = "streams")}
+      >
+        Streams
       </button>
       <button
         class="tab"
@@ -609,7 +639,28 @@
     </div>
 
     <div class="content">
-      {#if activeTab === "streams"}
+      {#if activeTab === "history"}
+        <HistoryView
+          {data}
+          {highlightedLogIndex}
+          {selectedLogIndex}
+          hiddenCallSites={hiddenCallSites}
+          {showDashboardCalls}
+          {activeTab}
+          {frameFilter}
+          {hoveredFrameKey}
+          {selectedFrameKeys}
+          {columnOrders}
+          {computedColumns}
+          {logMarks}
+          bind:hideSkippedLogs
+          onShowInStream={handleShowInStream}
+          onEntryClick={handleEntryClick}
+          onHideCallSite={handleHideCallSite}
+          onToggleShowDashboard={handleToggleShowDashboard}
+          onMarkLog={handleMarkLog}
+        />
+      {:else if activeTab === "streams"}
         <StreamsView
           {data}
           {highlightedLogIndex}
@@ -632,27 +683,6 @@
           onColumnOrderChange={handleColumnOrderChange}
           onOpenComputedColumnModal={handleOpenComputedColumnModal}
           onSaveComputedColumn={handleSaveComputedColumn}
-        />
-      {:else if activeTab === "history"}
-        <HistoryView
-          {data}
-          {highlightedLogIndex}
-          {selectedLogIndex}
-          hiddenCallSites={hiddenCallSites}
-          {showDashboardCalls}
-          {activeTab}
-          {frameFilter}
-          {hoveredFrameKey}
-          {selectedFrameKeys}
-          {columnOrders}
-          {computedColumns}
-          {logMarks}
-          bind:hideSkippedLogs
-          onShowInStream={handleShowInStream}
-          onEntryClick={handleEntryClick}
-          onHideCallSite={handleHideCallSite}
-          onToggleShowDashboard={handleToggleShowDashboard}
-          onMarkLog={handleMarkLog}
         />
       {:else if activeTab === "dashboard"}
         <DashboardView
