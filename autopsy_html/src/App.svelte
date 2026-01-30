@@ -8,6 +8,7 @@
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import * as pako from "pako";
   import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate } from "./vscodeApi";
+  import { Table, Logs } from "lucide-svelte";
 
   // Conditional imports for live mode
   let createWebSocketConnection: any;
@@ -46,6 +47,7 @@
   // Frame context highlighting state
   let hoveredFrameKey = $state<string | null>(null);
   let selectedFrameKeys = $state<Set<string>>(new Set()); // Support multiple selections for future
+  let expandedCodeFrames = $state<Set<string>>(new Set()); // Track which frames have expanded code context
 
   // Column order state: maps callSiteKey -> array of column names in order
   let columnOrders = $state<Record<string, string[]>>({});
@@ -483,6 +485,15 @@
     selectedFrameKeys = new Set(selectedFrameKeys); // Trigger reactivity
   }
 
+  function toggleCodeExpansion(frameKey: string) {
+    if (expandedCodeFrames.has(frameKey)) {
+      expandedCodeFrames.delete(frameKey);
+    } else {
+      expandedCodeFrames.add(frameKey);
+    }
+    expandedCodeFrames = new Set(expandedCodeFrames); // Trigger reactivity
+  }
+
   function handleColumnOrderChange(callSiteKey: string, newOrder: string[]) {
     columnOrders[callSiteKey] = newOrder;
     columnOrders = { ...columnOrders };
@@ -671,7 +682,6 @@
     ></div>
     <aside class="sidebar" style="width: {sidebarWidth}px">
       <div class="sidebar-header">
-        <h2>Stack Trace</h2>
         <div class="sidebar-actions">
           <button
             class="nav-button"
@@ -680,7 +690,7 @@
             disabled={selectedLogIndex === null}
             title="Jump to Stream"
           >
-            ⬅️
+            <Table size={18} />
           </button>
           <button
             class="nav-button"
@@ -690,7 +700,7 @@
             disabled={selectedLogIndex === null}
             title="Jump to History"
           >
-            ➡️
+            <Logs size={18} />
           </button>
           <button class="close-button" onclick={closeSidebar}>×</button>
         </div>
@@ -736,13 +746,13 @@
               <div
                 class="frame-header"
                 class:frame-selected={selectedFrameKeys.has(frameKey)}
-                onmouseenter={() => handleFrameHover(frameKey)}
-                onmouseleave={() => handleFrameHover(null)}
               >
                 <span
                   class="frame-number"
                   class:clickable={true}
                   onclick={() => handleFrameClick(frameKey)}
+                  onmouseenter={() => handleFrameHover(frameKey)}
+                  onmouseleave={() => handleFrameHover(null)}
                   role="button"
                   tabindex="0"
                   onkeydown={(e) => {
@@ -802,7 +812,20 @@
                   {/if}
                 </div>
               </div>
-              <div class="frame-code">
+              <div
+                class="frame-code"
+                class:expanded={expandedCodeFrames.has(frameKey)}
+                onclick={() => toggleCodeExpansion(frameKey)}
+                role="button"
+                tabindex="0"
+                onkeydown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleCodeExpansion(frameKey);
+                  }
+                }}
+                title={expandedCodeFrames.has(frameKey) ? "Click to collapse" : "Click to expand"}
+              >
                 <code>{frame.code_context || "(no code context)"}</code>
               </div>
               {#if Object.keys(frame.local_variables).length > 0}
@@ -815,7 +838,7 @@
                         key={name}
                         enableDrag={true}
                         frameIndex={index}
-                        sourceLogIndex={selectedLogIndex}
+                        sourceLogIndex={selectedLogIndex ?? undefined}
                         frameFunctionName={frame.function_name}
                         frameFilename={frame.filename}
                         frameLineNumber={frame.line_number}
@@ -952,6 +975,7 @@
     cursor: col-resize;
     transition: background-color 0.2s;
     position: relative;
+    z-index: 200;
   }
 
   .resize-handle:hover,
@@ -975,21 +999,16 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    z-index: 200;
   }
 
   .sidebar-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
-    padding: 1.5rem;
+    padding: 0.5rem;
     border-bottom: 1px solid #e5e5e5;
     flex-shrink: 0;
-  }
-
-  .sidebar-header h2 {
-    margin: 0;
-    font-size: 1.5rem;
-    color: #333;
   }
 
   .sidebar-actions {
@@ -1050,8 +1069,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 1.5rem;
+    gap: 0.5rem;
+    padding: 0.5rem;
     background: #f8fafc;
     border-bottom: 1px solid #e5e5e5;
     flex-shrink: 0;
@@ -1085,7 +1104,7 @@
   }
 
   .sidebar-body {
-    padding: 1.5rem;
+    padding: 0.5rem;
     overflow-y: auto;
     flex: 1;
     min-height: 0;
@@ -1094,21 +1113,22 @@
   .stack-trace {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.5rem;
   }
 
   .stack-frame {
     border: 1px solid #e5e5e5;
     border-radius: 6px;
-    padding: 1rem;
+    padding: 0.5rem;
     background: #f9fafb;
+    width: 100%;
   }
 
   .frame-header {
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
     font-size: 0.9rem;
     position: relative;
     border-left: 3px solid transparent;
@@ -1230,22 +1250,38 @@
 
   .frame-code {
     background: white;
-    padding: 0.75rem;
+    padding: 0.5rem;
     border-radius: 4px;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
     border: 1px solid #e5e5e5;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    overflow: hidden;
+  }
+
+  .frame-code:hover {
+    background-color: #f8fafc;
   }
 
   .frame-code code {
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     font-size: 0.85rem;
     color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+  }
+
+  .frame-code.expanded code {
     white-space: pre-wrap;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   .frame-variables {
     background: white;
-    padding: 0.75rem;
+    padding: 0.5rem;
     border-radius: 4px;
     border: 1px solid #e5e5e5;
     max-width: 100%;
