@@ -5,9 +5,13 @@
   let {
     frameFilter = $bindable<string | null>(null),
     frameFilterEnabled = $bindable(true),
+    testFilter = $bindable<string | null>(null),
+    testFilterEnabled = $bindable(true),
   }: {
     frameFilter?: string | null;
     frameFilterEnabled?: boolean;
+    testFilter?: string | null;
+    testFilterEnabled?: boolean;
   } = $props();
 
   // Local state
@@ -17,6 +21,7 @@
   let activeFilterCount = $derived(() => {
     let count = 0;
     if (frameFilter !== null && frameFilterEnabled) count++;
+    if (testFilter !== null && testFilterEnabled) count++;
     return count;
   });
 
@@ -31,6 +36,15 @@
   function handleFrameFilterRemove() {
     frameFilter = null;
     frameFilterEnabled = true;
+  }
+
+  function handleTestFilterToggle() {
+    testFilterEnabled = !testFilterEnabled;
+  }
+
+  function handleTestFilterRemove() {
+    testFilter = null;
+    testFilterEnabled = true;
   }
 
   // Close menu when clicking outside
@@ -59,9 +73,35 @@
 </script>
 
 <div class="view-filter-menu">
-  {#if isOpen && frameFilter !== null}
+  {#if isOpen && (frameFilter !== null || testFilter !== null)}
     <div class="filter-menu-panel">
       <div class="menu-header">View Filters</div>
+
+      {#if testFilter !== null}
+        <div class="filter-section">
+          <div class="section-title">Test Filters</div>
+          <div class="filter-item">
+            <label class="filter-checkbox-label">
+              <input
+                type="checkbox"
+                checked={testFilterEnabled}
+                onchange={handleTestFilterToggle}
+                class="filter-checkbox"
+              />
+              <span class="filter-label-text">
+                <span class="filter-label-main">{testFilter}</span>
+              </span>
+            </label>
+            <button
+              class="filter-remove-button"
+              onclick={handleTestFilterRemove}
+              title="Remove filter"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      {/if}
 
       {#if frameFilter !== null}
         {@const parsed = parseFrameFilter(frameFilter)}

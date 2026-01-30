@@ -19,6 +19,7 @@
     showDashboardCalls?: boolean;
     activeTab?: "streams" | "history" | "dashboard";
     frameFilter?: string | null;
+    testFilter?: string | null;
     hoveredFrameKey?: string | null;
     selectedFrameKeys?: Set<string>;
     columnOrders?: Record<string, string[]>;
@@ -40,6 +41,7 @@
     showDashboardCalls = true,
     activeTab = "history",
     frameFilter = null,
+    testFilter = null,
     hoveredFrameKey = null,
     selectedFrameKeys = new Set<string>(),
     columnOrders = {},
@@ -127,10 +129,16 @@
         if (frameFilter) {
           matchesFrameFilter = stackTraceContainsFrame(valueGroup.stack_trace_id, frameFilter);
         }
-        
-        // Entry is hidden if it's explicitly hidden OR doesn't match frame filter
-        const entryIsHidden = isHidden || !matchesFrameFilter;
-        
+
+        // Apply test filter if active
+        let matchesTestFilter = true;
+        if (testFilter) {
+          matchesTestFilter = logBelongsToTest(valueGroup.log_index, testFilter);
+        }
+
+        // Entry is hidden if it's explicitly hidden OR doesn't match frame filter OR doesn't match test filter
+        const entryIsHidden = isHidden || !matchesFrameFilter || !matchesTestFilter;
+
         allEntries.push({
           log_index: valueGroup.log_index,
           callSite,
@@ -206,6 +214,14 @@
     return trace.frames.some(frame =>
       createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
     );
+  }
+
+  function logBelongsToTest(logIndex: number, testNodeid: string): boolean {
+    if (!data.tests) return false;
+    const test = data.tests.find(t => t.nodeid === testNodeid);
+    if (!test) return false;
+    if (test.start_log_index === undefined || test.end_log_index === undefined) return false;
+    return logIndex >= test.start_log_index && logIndex <= test.end_log_index;
   }
 
   // Check if a log should be highlighted based on frame context

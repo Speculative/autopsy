@@ -42,6 +42,7 @@
     selectedLogIndex?: number | null;
     hiddenCallSites?: Set<string>;
     frameFilter?: string | null;
+    testFilter?: string | null;
     hoveredFrameKey?: string | null;
     selectedFrameKeys?: Set<string>;
     columnOrders?: Record<string, string[]>;
@@ -68,6 +69,7 @@
     selectedLogIndex = null,
     hiddenCallSites = new Set<string>(),
     frameFilter = null,
+    testFilter = null,
     hoveredFrameKey = null,
     selectedFrameKeys = new Set<string>(),
     columnOrders = {},
@@ -244,6 +246,14 @@
     return trace.frames.some(frame =>
       createFrameKey(frame.filename, frame.line_number, frame.function_name) === frameKey
     );
+  }
+
+  function logBelongsToTest(logIndex: number, testNodeid: string): boolean {
+    if (!data.tests) return false;
+    const test = data.tests.find(t => t.nodeid === testNodeid);
+    if (!test) return false;
+    if (test.start_log_index === undefined || test.end_log_index === undefined) return false;
+    return logIndex >= test.start_log_index && logIndex <= test.end_log_index;
   }
 
   // Check if a log should be highlighted based on frame context
@@ -624,11 +634,16 @@
       const isHidden = hiddenCallSites.has(callSiteKey);
       const isDashboard = callSite.is_dashboard ?? false;
 
-      // Filter value_groups based on frameFilter if active
+      // Filter value_groups based on frameFilter and testFilter if active
       let filteredValueGroups = callSite.value_groups;
       if (frameFilter) {
-        filteredValueGroups = callSite.value_groups.filter(valueGroup =>
+        filteredValueGroups = filteredValueGroups.filter(valueGroup =>
           stackTraceContainsFrame(valueGroup.stack_trace_id, frameFilter)
+        );
+      }
+      if (testFilter) {
+        filteredValueGroups = filteredValueGroups.filter(valueGroup =>
+          logBelongsToTest(valueGroup.log_index, testFilter)
         );
       }
 

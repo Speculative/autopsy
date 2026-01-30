@@ -53,10 +53,13 @@
   let showDashboardCalls = $state(false);
   let frameFilter = $state<string | null>(null);
   let frameFilterEnabled = $state(true);
+  let testFilter = $state<string | null>(null);
+  let testFilterEnabled = $state(true);
   let menuOpenForFrame = $state<string | null>(null);
 
   // Effective frame filter (null when disabled)
   let effectiveFrameFilter = $derived(frameFilter !== null && frameFilterEnabled ? frameFilter : null);
+  let effectiveTestFilter = $derived(testFilter !== null && testFilterEnabled ? testFilter : null);
 
   // Frame context highlighting state
   let hoveredFrameKey = $state<string | null>(null);
@@ -489,6 +492,11 @@
     frameFilterEnabled = true;
   }
 
+  function handleSetTestFilter(testNodeid: string) {
+    testFilter = testNodeid;
+    testFilterEnabled = true;
+  }
+
   function toggleFrameMenu(frameKey: string, e: MouseEvent | KeyboardEvent) {
     e.stopPropagation();
     menuOpenForFrame = menuOpenForFrame === frameKey ? null : frameKey;
@@ -647,6 +655,7 @@
           {showDashboardCalls}
           {activeTab}
           frameFilter={effectiveFrameFilter}
+          testFilter={effectiveTestFilter}
           {hoveredFrameKey}
           {selectedFrameKeys}
           {columnOrders}
@@ -666,6 +675,7 @@
           {selectedLogIndex}
           hiddenCallSites={hiddenCallSites}
           frameFilter={effectiveFrameFilter}
+          testFilter={effectiveTestFilter}
           {hoveredFrameKey}
           {selectedFrameKeys}
           {columnOrders}
@@ -693,7 +703,9 @@
       {:else if activeTab === "tests"}
         <TestsView
           {data}
+          testFilter={effectiveTestFilter}
           onShowInHistory={handleShowInHistory}
+          onSetTestFilter={handleSetTestFilter}
         />
       {/if}
     </div>
@@ -895,7 +907,7 @@
     />
   {/if}
 
-  <ViewFilterMenu bind:frameFilter bind:frameFilterEnabled />
+  <ViewFilterMenu bind:frameFilter bind:frameFilterEnabled bind:testFilter bind:testFilterEnabled />
 </div>
 
 <style>
