@@ -6,6 +6,7 @@
   import TestsView from "./TestsView.svelte";
   import TreeView from "./TreeView.svelte";
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
+  import ViewFilterMenu from "./ViewFilterMenu.svelte";
   import * as pako from "pako";
   import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate } from "./vscodeApi";
   import { Table, Logs } from "lucide-svelte";
@@ -51,7 +52,11 @@
   let hiddenCallSites = $state<Set<string>>(new Set());
   let showDashboardCalls = $state(false);
   let frameFilter = $state<string | null>(null);
+  let frameFilterEnabled = $state(true);
   let menuOpenForFrame = $state<string | null>(null);
+
+  // Effective frame filter (null when disabled)
+  let effectiveFrameFilter = $derived(frameFilter !== null && frameFilterEnabled ? frameFilter : null);
 
   // Frame context highlighting state
   let hoveredFrameKey = $state<string | null>(null);
@@ -475,11 +480,13 @@
 
   function handleShowFrameOnly(filename: string, lineNumber: number, functionName: string) {
     frameFilter = createFrameKey(filename, lineNumber, functionName);
+    frameFilterEnabled = true;
     menuOpenForFrame = null;
   }
 
   function handleClearFrameFilter() {
     frameFilter = null;
+    frameFilterEnabled = true;
   }
 
   function toggleFrameMenu(frameKey: string, e: MouseEvent | KeyboardEvent) {
@@ -586,14 +593,6 @@
   <main class="main-panel">
     <div class="header">
       <div class="header-top">
-        {#if frameFilter}
-          <div class="filter-indicator">
-            <span class="filter-label">Filtered by frame</span>
-            <button class="filter-clear" onclick={handleClearFrameFilter} title="Clear frame filter">
-              ×
-            </button>
-          </div>
-        {/if}
         {#if typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__ && liveMode}
           <div class="timestamp">
             <span class="live-indicator {connectionStatus}">●</span>
@@ -647,7 +646,7 @@
           hiddenCallSites={hiddenCallSites}
           {showDashboardCalls}
           {activeTab}
-          {frameFilter}
+          frameFilter={effectiveFrameFilter}
           {hoveredFrameKey}
           {selectedFrameKeys}
           {columnOrders}
@@ -666,7 +665,7 @@
           {highlightedLogIndex}
           {selectedLogIndex}
           hiddenCallSites={hiddenCallSites}
-          {frameFilter}
+          frameFilter={effectiveFrameFilter}
           {hoveredFrameKey}
           {selectedFrameKeys}
           {columnOrders}
@@ -895,6 +894,8 @@
       onClose={() => computedColumnModalOpen = null}
     />
   {/if}
+
+  <ViewFilterMenu bind:frameFilter bind:frameFilterEnabled />
 </div>
 
 <style>
