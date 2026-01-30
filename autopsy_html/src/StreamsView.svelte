@@ -105,6 +105,16 @@
   // Track table header refs for sticky behavior
   let tableHeaders = $state<Record<string, HTMLTableSectionElement | null>>({});
 
+  // Track floating header state: which headers should show their floating clones
+  let floatingHeaders = $state<Record<string, {
+    visible: boolean;
+    top: number;
+    left: number;
+    width: number;
+    scrollLeft: number;
+    columnWidths: number[];
+  }>>({});
+
   // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
   let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
 
@@ -1302,6 +1312,8 @@
       const scrollContainerRect = scrollContainer.getBoundingClientRect();
       const scrollTop = scrollContainerRect.top;
 
+      const newFloatingHeaders: typeof floatingHeaders = {};
+
       for (const callSiteKey in currentHeaders) {
         const thead = currentHeaders[callSiteKey];
         const container = currentContainers[callSiteKey];
@@ -1315,30 +1327,59 @@
         const containerTopRelative = containerRect.top - scrollTop;
 
         // Check if table has scrolled past the top of the scroll container
-        if (containerTopRelative < 0 && containerRect.bottom > scrollTop + theadRect.height) {
-          // Make header fixed to viewport
-          // Account for horizontal scroll by using the container's current left position
-          thead.style.position = 'fixed';
-          thead.style.top = `${scrollTop}px`;
-          thead.style.left = `${containerRect.left}px`;
-          thead.style.width = `${containerRect.width}px`;
-          thead.style.zIndex = '100';
-          // Remove any transform
-          thead.style.transform = '';
+        const tableHasScrolledPastTop = containerTopRelative < 0;
+        const tableBottomBelowViewport = containerRect.bottom > scrollTop;
 
-          // Mark as fixed so we know to handle horizontal scroll
-          thead.dataset.isFixed = 'true';
+        if (tableHasScrolledPastTop && tableBottomBelowViewport) {
+          // Calculate how much space is left at the bottom
+          const spaceBelow = containerRect.bottom - scrollTop - theadRect.height;
+
+          // If there's not enough space below, stick the header to the table bottom
+          // by adjusting the top position
+          let topPosition = scrollTop;
+          if (spaceBelow < 0) {
+            // Move the header up by the amount of space that's missing
+            topPosition = scrollTop + spaceBelow;
+          }
+
+          // Measure column widths from the original header
+          // The second row contains the actual column headers
+          const headerRows = thead.querySelectorAll('tr');
+          const columnRow = headerRows[1]; // Second row has the column headers
+          const columnWidths: number[] = [];
+
+          if (columnRow) {
+            const ths = columnRow.querySelectorAll('th');
+            ths.forEach((th) => {
+              const width = th.getBoundingClientRect().width;
+              columnWidths.push(width);
+            });
+          }
+
+          // Update floating header state
+          newFloatingHeaders[callSiteKey] = {
+            visible: true,
+            top: topPosition,
+            left: containerRect.left,
+            width: theadRect.width,
+            scrollLeft: container.scrollLeft,
+            columnWidths,
+          };
         } else {
-          // Reset to normal flow
-          thead.style.position = '';
-          thead.style.top = '';
-          thead.style.left = '';
-          thead.style.width = '';
-          thead.style.zIndex = '';
-          thead.style.transform = '';
-          delete thead.dataset.isFixed;
+          // Header should not be floating
+          newFloatingHeaders[callSiteKey] = {
+            visible: false,
+            top: 0,
+            left: 0,
+            width: 0,
+            scrollLeft: 0,
+            columnWidths: [],
+          };
         }
       }
+
+      // Update state
+      floatingHeaders = newFloatingHeaders;
     };
 
     const handleScroll = () => {
@@ -1360,16 +1401,8 @@
     for (const callSiteKey in currentContainers) {
       const container = currentContainers[callSiteKey];
       if (container) {
-        const horizontalScrollHandler = () => {
-          // Only update if this table's header is currently fixed
-          const thead = currentHeaders[callSiteKey];
-          if (thead && thead.dataset.isFixed === 'true') {
-            // Use transform to shift the header horizontally based on scroll
-            thead.style.transform = `translateX(-${container.scrollLeft}px)`;
-          }
-        };
-        container.addEventListener('scroll', horizontalScrollHandler, { passive: true });
-        containerScrollListeners.push(() => container.removeEventListener('scroll', horizontalScrollHandler));
+        container.addEventListener('scroll', handleScroll, { passive: true });
+        containerScrollListeners.push(() => container.removeEventListener('scroll', handleScroll));
       }
     }
 
@@ -1387,6 +1420,131 @@
     };
   });
 </script>
+
+{#snippet headerContent(callSite: CallSite, callSiteKey: string, isDashboard: boolean, columnWidths?: number[])}
+  <tr
+    class="call-site-info-row"
+    class:collapsible-header={true}
+    onclick={() => toggleCollapse(callSite)}
+    role="button"
+    tabindex="0"
+    onkeydown={(e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggleCollapse(callSite);
+      }
+    }}
+  >
+    <th
+      colspan={getColumnNames(callSite).length + 2}
+      class="call-site-info"
+    >
+      <div class="header-left">
+        <label class="call-site-checkbox" onclick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={!hiddenCallSites.has(callSiteKey)}
+            onclick={(e) => e.stopPropagation()}
+            onchange={(e) => {
+              e.stopPropagation();
+              if (e.currentTarget.checked) {
+                handleShowCallSite(callSiteKey);
+              } else {
+                handleHideCallSite(callSiteKey);
+              }
+            }}
+          />
+        </label>
+        <CodeLocation
+          filename={callSite.filename}
+          line={callSite.line}
+          functionName={callSite.function_name}
+          className={callSite.class_name}
+        />
+        {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
+          <span class="log-name-header"
+            >{callSite.value_groups[0].name}</span
+          >
+        {/if}
+        {#if isDashboard}
+          <span class="dashboard-badge">dashboard</span>
+        {/if}
+      </div>
+    </th>
+  </tr>
+  <tr>
+    <th class="log-number-header" style={columnWidths && columnWidths[0] ? `width: ${columnWidths[0]}px` : ''}>#</th>
+    {#each getColumnNames(callSite) as columnName, columnIndex}
+    {@const sortable = isColumnSortable(callSite, columnName)}
+    {@const sortState = getColumnSortState(callSite, columnName)}
+    {@const sortPriority = getSortPriority(callSite, columnName)}
+    {@const isDragging = draggedColumn?.callSiteKey === callSiteKey && draggedColumn?.columnName === columnName}
+    {@const isDropTarget = dropTarget?.callSiteKey === callSiteKey && dropTarget?.index === columnIndex}
+    {@const isComputed = columnName.startsWith('computed:')}
+    {@const computedCol = isComputed ? getComputedColumn(callSite, columnName) : undefined}
+    {@const displayName = isComputed && computedCol ? getComputedColumnDisplayName(computedCol) : columnName}
+    {@const thIndex = columnIndex + 1}
+    {@const measuredWidth = columnWidths && columnWidths[thIndex] ? `width: ${columnWidths[thIndex]}px;` : ''}
+    {@const baseStyle = getColumnWidth(callSite, columnName)}
+    <th
+      class="column-header"
+      class:computed-column={isComputed}
+      class:dragging={isDragging}
+      class:drop-target-before={isDropTarget}
+      draggable="true"
+      ondragstart={(e) => handleDragStart(callSite, columnName, e)}
+      ondragover={(e) => handleDragOver(callSite, columnIndex, e)}
+      ondragleave={handleDragLeave}
+      ondrop={(e) => handleDrop(callSite, columnIndex, e)}
+      ondragend={handleDragEnd}
+      ondblclick={() => handleColumnDoubleClick(callSite, columnName)}
+      title={isComputed && computedCol ? `${displayName}\n\nExpression: ${computedCol.expression}` : displayName}
+      style={columnWidths ? measuredWidth : baseStyle}
+    >
+      <div class="column-header-content">
+        {#if isComputed}
+          <span class="computed-icon">ƒ</span>
+        {/if}
+        <span class="column-name">{displayName}</span>
+        <div class="column-menu-container">
+          <button
+            class="filter-menu-button"
+            class:menu-active={sortState !== null}
+            onclick={(e) => toggleDropdown(callSite, columnName, e)}
+            title="Column options"
+          >
+            <ListFilter size={14} />
+            {#if sortPriority !== null && (columnSorts[callSiteKey]?.length ?? 0) > 1}
+              <span class="sort-priority">{sortPriority}</span>
+            {/if}
+          </button>
+        </div>
+        <div
+          class="resize-handle"
+          class:resizing={resizingColumn?.callSiteKey === callSiteKey && resizingColumn?.columnName === columnName}
+          onmousedown={(e) => handleResizeStart(callSite, columnName, e)}
+          title="Drag to resize column"
+        ></div>
+      </div>
+    </th>
+  {/each}
+  {#if dropTarget?.callSiteKey === callSiteKey && dropTarget?.index === getColumnNames(callSite).length}
+    <th class="drop-target-after"></th>
+  {/if}
+  <th class="add-column-header" style={columnWidths && columnWidths[getColumnNames(callSite).length + 1] ? `width: ${columnWidths[getColumnNames(callSite).length + 1]}px` : ''}>
+    <button
+      class="add-column-button"
+      onclick={(e) => {
+        e.stopPropagation();
+        onOpenComputedColumnModal?.(callSite);
+      }}
+      title="Add computed column"
+    >
+      +
+    </button>
+  </th>
+  </tr>
+{/snippet}
 
 {#if data.call_sites.length === 0}
   <p class="empty">No report data available.</p>
@@ -1492,125 +1650,7 @@
             <div class="table-container" bind:this={tableContainers[callSiteKey]}>
               <table class="value-table">
               <thead class="table-header" bind:this={tableHeaders[callSiteKey]}>
-                <tr
-                  class="call-site-info-row"
-                  class:collapsible-header={true}
-                  onclick={() => toggleCollapse(callSite)}
-                  role="button"
-                  tabindex="0"
-                  onkeydown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      toggleCollapse(callSite);
-                    }
-                  }}
-                >
-                  <th
-                    colspan={getColumnNames(callSite).length + 2}
-                    class="call-site-info"
-                  >
-                    <div class="header-left">
-                      <label class="call-site-checkbox" onclick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={!hiddenCallSites.has(callSiteKey)}
-                          onclick={(e) => e.stopPropagation()}
-                          onchange={(e) => {
-                            e.stopPropagation();
-                            if (e.currentTarget.checked) {
-                              handleShowCallSite(callSiteKey);
-                            } else {
-                              handleHideCallSite(callSiteKey);
-                            }
-                          }}
-                        />
-                      </label>
-                      <CodeLocation
-                        filename={callSite.filename}
-                        line={callSite.line}
-                        functionName={callSite.function_name}
-                        className={callSite.class_name}
-                      />
-                      {#if callSite.value_groups.length > 0 && callSite.value_groups[0].name}
-                        <span class="log-name-header"
-                          >{callSite.value_groups[0].name}</span
-                        >
-                      {/if}
-                      {#if isDashboard}
-                        <span class="dashboard-badge">dashboard</span>
-                      {/if}
-                    </div>
-                  </th>
-                </tr>
-                <tr>
-                  <th class="log-number-header">#</th>
-                  {#each getColumnNames(callSite) as columnName, columnIndex}
-                  {@const sortable = isColumnSortable(callSite, columnName)}
-                  {@const sortState = getColumnSortState(callSite, columnName)}
-                  {@const sortPriority = getSortPriority(callSite, columnName)}
-                  {@const isDragging = draggedColumn?.callSiteKey === getCallSiteKey(callSite) && draggedColumn?.columnName === columnName}
-                  {@const isDropTarget = dropTarget?.callSiteKey === getCallSiteKey(callSite) && dropTarget?.index === columnIndex}
-                  {@const isComputed = columnName.startsWith('computed:')}
-                  {@const computedCol = isComputed ? getComputedColumn(callSite, columnName) : undefined}
-                  {@const displayName = isComputed && computedCol ? getComputedColumnDisplayName(computedCol) : columnName}
-                  <th
-                    class="column-header"
-                    class:computed-column={isComputed}
-                    class:dragging={isDragging}
-                    class:drop-target-before={isDropTarget}
-                    draggable="true"
-                    ondragstart={(e) => handleDragStart(callSite, columnName, e)}
-                    ondragover={(e) => handleDragOver(callSite, columnIndex, e)}
-                    ondragleave={handleDragLeave}
-                    ondrop={(e) => handleDrop(callSite, columnIndex, e)}
-                    ondragend={handleDragEnd}
-                    ondblclick={() => handleColumnDoubleClick(callSite, columnName)}
-                    title={isComputed && computedCol ? `${displayName}\n\nExpression: ${computedCol.expression}` : displayName}
-                    style={getColumnWidth(callSite, columnName)}
-                  >
-                    <div class="column-header-content">
-                      {#if isComputed}
-                        <span class="computed-icon">ƒ</span>
-                      {/if}
-                      <span class="column-name">{displayName}</span>
-                      <div class="column-menu-container">
-                        <button
-                          class="filter-menu-button"
-                          class:menu-active={sortState !== null}
-                          onclick={(e) => toggleDropdown(callSite, columnName, e)}
-                          title="Column options"
-                        >
-                          <ListFilter size={14} />
-                          {#if sortPriority !== null && (columnSorts[getCallSiteKey(callSite)]?.length ?? 0) > 1}
-                            <span class="sort-priority">{sortPriority}</span>
-                          {/if}
-                        </button>
-                      </div>
-                      <div
-                        class="resize-handle"
-                        class:resizing={resizingColumn?.callSiteKey === getCallSiteKey(callSite) && resizingColumn?.columnName === columnName}
-                        onmousedown={(e) => handleResizeStart(callSite, columnName, e)}
-                        title="Drag to resize column"
-                      ></div>
-                    </div>
-                  </th>
-                {/each}
-                {#if dropTarget?.callSiteKey === getCallSiteKey(callSite) && dropTarget?.index === getColumnNames(callSite).length}
-                  <th class="drop-target-after"></th>
-                {/if}
-                <th class="add-column-header">
-                  <button
-                    class="add-column-button"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      onOpenComputedColumnModal?.(callSite);
-                    }}
-                    title="Add computed column"
-                  >
-                    +
-                  </button>
-                </th>
-              </tr>
+                {@render headerContent(callSite, callSiteKey, isDashboard)}
             </thead>
             {#if isCollapsed(callSite)}
               <tbody>
@@ -1948,6 +1988,32 @@
   {/if}
 {/if}
 
+<!-- Floating headers (clones that appear when scrolling) -->
+{#each filteredCallSites as callSite (getCallSiteKey(callSite))}
+  {@const callSiteKey = getCallSiteKey(callSite)}
+  {@const isDashboard = callSite.is_dashboard ?? false}
+  {@const floatingState = floatingHeaders[callSiteKey]}
+  {#if floatingState?.visible && getColumnNames(callSite).length > 0}
+    <div
+      class="floating-header"
+      style="
+        position: fixed;
+        top: {floatingState.top}px;
+        left: {floatingState.left}px;
+        width: {floatingState.width}px;
+        z-index: 100;
+        transform: translateX(-{floatingState.scrollLeft}px);
+      "
+    >
+      <table class="value-table floating-header-table">
+        <thead class="table-header">
+          {@render headerContent(callSite, callSiteKey, isDashboard, floatingState.columnWidths)}
+        </thead>
+      </table>
+    </div>
+  {/if}
+{/each}
+
 <style>
   .empty {
     text-align: center;
@@ -2045,6 +2111,18 @@
   .table-header {
     background: #f9f9f9;
     /* Will be positioned via JavaScript - no transition for smoothness */
+    display: table-header-group;
+    width: 100%;
+  }
+
+  .floating-header {
+    pointer-events: auto;
+    overflow: visible;
+  }
+
+  .floating-header-table {
+    table-layout: fixed;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   }
 
   .call-site-info-row {
