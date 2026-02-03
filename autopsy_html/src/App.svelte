@@ -10,6 +10,20 @@
   import * as pako from "pako";
   import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate } from "./vscodeApi";
   import { Table, Logs } from "lucide-svelte";
+  import {
+    saveTestFilter,
+    restoreTestFilter,
+    saveLogMarks,
+    restoreLogMarks,
+    saveRangeFilter,
+    restoreRangeFilter,
+    saveComputedColumns,
+    restoreComputedColumns,
+    saveColumnOrders,
+    restoreColumnOrders,
+    saveHiddenColumns,
+    restoreHiddenColumns,
+  } from "./persistence";
 
   // Conditional imports for live mode
   let createWebSocketConnection: any;
@@ -112,6 +126,9 @@
   let wsConnection = $state<WebSocket | null>(null);
   let connectionStatus = $state<'connected' | 'disconnected' | 'connecting'>('disconnected');
   let lastUpdateTime = $state<string>("");
+
+  // Track if we've restored persisted state
+  let hasRestoredState = $state(false);
 
   // Load data from the injection point or dev data
   async function loadData(): Promise<void> {
@@ -223,6 +240,57 @@
 
   // Load data on mount
   loadData();
+
+  // Restore persisted state after data loads (only once)
+  $effect(() => {
+    // Only restore if we haven't restored yet
+    if (hasRestoredState) return;
+
+    // Wait for data to load
+    if (data.call_sites.length === 0) return;
+
+    // Restore test filter
+    const { testFilter: restoredTestFilter, testFilterEnabled: restoredTestFilterEnabled } = restoreTestFilter(data);
+    if (restoredTestFilter !== null) {
+      testFilter = restoredTestFilter;
+      testFilterEnabled = restoredTestFilterEnabled;
+    }
+
+    // Restore log marks
+    const restoredMarks = restoreLogMarks(data);
+    if (Object.keys(restoredMarks).length > 0) {
+      logMarks = restoredMarks;
+    }
+
+    // Restore range filter (depends on marks being restored)
+    const { rangeStartLogIndex: restoredStart, rangeEndLogIndex: restoredEnd } = restoreRangeFilter(data);
+    if (restoredStart !== null && restoredEnd !== null) {
+      rangeStartLogIndex = restoredStart;
+      rangeEndLogIndex = restoredEnd;
+    }
+
+    // Restore computed columns
+    const restoredColumns = restoreComputedColumns(data);
+    if (Object.keys(restoredColumns).length > 0) {
+      // Use spread operator to ensure proper reactivity in Svelte 5
+      computedColumns = { ...restoredColumns };
+    }
+
+    // Restore column orders
+    const restoredOrders = restoreColumnOrders(data);
+    if (Object.keys(restoredOrders).length > 0) {
+      columnOrders = { ...restoredOrders };
+    }
+
+    // Restore hidden columns
+    const restoredHidden = restoreHiddenColumns(data);
+    if (Object.keys(restoredHidden).length > 0) {
+      hiddenColumns = { ...restoredHidden };
+    }
+
+    // Mark that we've restored state (MUST be last so save effects don't run during restoration)
+    hasRestoredState = true;
+  });
 
   // Sync hash with active tab
   $effect(() => {
@@ -603,6 +671,53 @@
   function getCallSiteKey(callSite: CallSite): string {
     return `${callSite.filename}:${callSite.line}`;
   }
+
+  // Persist state changes to localStorage (only after initial restoration)
+  $effect(() => {
+    // Don't save until we've restored state, to avoid overwriting on initial load
+    if (!hasRestoredState) return;
+    // Save test filter when it changes
+    saveTestFilter(testFilter, testFilterEnabled);
+  });
+
+  $effect(() => {
+    // Don't save until we've restored state
+    if (!hasRestoredState) return;
+    // Save log marks when they change (only if we have data)
+    if (data.call_sites.length > 0) {
+      saveLogMarks(data, logMarks);
+    }
+  });
+
+  $effect(() => {
+    // Don't save until we've restored state
+    if (!hasRestoredState) return;
+    // Save range filter when it changes (only if we have data)
+    if (data.call_sites.length > 0) {
+      saveRangeFilter(data, rangeStartLogIndex, rangeEndLogIndex);
+    }
+  });
+
+  $effect(() => {
+    // Don't save until we've restored state
+    if (!hasRestoredState) return;
+    // Save computed columns when they change
+    saveComputedColumns(computedColumns);
+  });
+
+  $effect(() => {
+    // Don't save until we've restored state
+    if (!hasRestoredState) return;
+    // Save column orders when they change
+    saveColumnOrders(columnOrders);
+  });
+
+  $effect(() => {
+    // Don't save until we've restored state
+    if (!hasRestoredState) return;
+    // Save hidden columns when they change
+    saveHiddenColumns(hiddenColumns);
+  });
 </script>
 
 <div class="app-container">

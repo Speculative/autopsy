@@ -101,6 +101,9 @@
 
   // Column resize state
   let resizingColumn = $state<{ callSiteKey: string; columnName: string; startX: number; startWidth: number } | null>(null);
+
+  // Track computed columns version to detect when they change
+  let computedColumnsVersion = $state<Record<string, number>>({});
   let columnWidths = $state<Record<string, Record<string, number>>>({});
 
   // Track which call sites have expanded filtered logs
@@ -980,6 +983,26 @@
         document.removeEventListener('mousemove', handleMove);
         document.removeEventListener('mouseup', handleUp);
       };
+    }
+  });
+
+  // Clear widths when computed columns change (triggers recalculation in next effect)
+  $effect(() => {
+    const columns = computedColumns;
+
+    // For each call site with computed columns, check if the count changed
+    for (const [callSiteKey, cols] of Object.entries(columns)) {
+      const currentVersion = cols.length;
+      const previousVersion = computedColumnsVersion[callSiteKey] ?? -1;
+
+      if (currentVersion !== previousVersion) {
+        // Computed columns changed, clear width to force recalculation
+        if (columnWidths[callSiteKey]) {
+          delete columnWidths[callSiteKey];
+          columnWidths = { ...columnWidths };
+        }
+        computedColumnsVersion[callSiteKey] = currentVersion;
+      }
     }
   });
 
