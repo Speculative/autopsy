@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn, ColumnFilters, ColumnFilter } from "./types";
+  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn, ColumnFilters, ColumnFilter, LogMark } from "./types";
   import type { EvaluationResult } from "./computedColumns";
   import type { ColumnProfile } from "./columnProfiler";
   import TreeView from "./TreeView.svelte";
@@ -36,11 +36,6 @@
     filtered_value_groups?: ValueGroup[]; // Logs that were filtered out
   }
 
-  export type LogMark = {
-    color: string;
-    note: string;
-  };
-
   interface Props {
     data: AutopsyData;
     highlightedLogIndex?: number | null;
@@ -48,6 +43,7 @@
     hiddenCallSites?: Set<string>;
     frameFilter?: string | null;
     testFilter?: string | null;
+    rangeFilter?: { start: number; end: number } | null;
     hoveredFrameKey?: string | null;
     selectedFrameKeys?: Set<string>;
     columnOrders?: Record<string, string[]>;
@@ -75,6 +71,7 @@
     hiddenCallSites = new Set<string>(),
     frameFilter = null,
     testFilter = null,
+    rangeFilter = null,
     hoveredFrameKey = null,
     selectedFrameKeys = new Set<string>(),
     columnOrders = {},
@@ -671,6 +668,11 @@
       if (testFilter) {
         filteredValueGroups = filteredValueGroups.filter(valueGroup =>
           logBelongsToTest(valueGroup.log_index, testFilter)
+        );
+      }
+      if (rangeFilter) {
+        filteredValueGroups = filteredValueGroups.filter(valueGroup =>
+          valueGroup.log_index >= rangeFilter.start && valueGroup.log_index <= rangeFilter.end
         );
       }
 
@@ -1669,6 +1671,13 @@
                   class:clickable={valueGroup.stack_trace_id !== undefined}
                   data-log-index={valueGroup.log_index}
                   style={mark?.color ? `background-color: ${mark.color};` : ""}
+                  draggable="true"
+                  ondragstart={(e) => {
+                    if (e.dataTransfer) {
+                      e.dataTransfer.setData("text/log-index", valueGroup.log_index.toString());
+                      e.dataTransfer.effectAllowed = "copy";
+                    }
+                  }}
                   onclick={() => handleRowClick(valueGroup)}
                 >
                   <div class="value-group-row">
@@ -1745,6 +1754,13 @@
                     class:clickable={valueGroup.stack_trace_id !== undefined}
                     data-log-index={valueGroup.log_index}
                     style={mark?.color ? `background-color: ${mark.color};` : ""}
+                    draggable="true"
+                    ondragstart={(e) => {
+                      if (e.dataTransfer) {
+                        e.dataTransfer.setData("text/log-index", valueGroup.log_index.toString());
+                        e.dataTransfer.effectAllowed = "copy";
+                      }
+                    }}
                     onclick={() => handleRowClick(valueGroup)}
                     role={valueGroup.stack_trace_id !== undefined
                       ? "button"
@@ -1840,6 +1856,13 @@
                         class:clickable={valueGroup.stack_trace_id !== undefined}
                         data-log-index={valueGroup.log_index}
                         style={mark?.color ? `background-color: ${mark.color};` : ""}
+                        draggable="true"
+                        ondragstart={(e) => {
+                          if (e.dataTransfer) {
+                            e.dataTransfer.setData("text/log-index", valueGroup.log_index.toString());
+                            e.dataTransfer.effectAllowed = "copy";
+                          }
+                        }}
                         onclick={() => handleRowClick(valueGroup)}
                         role={valueGroup.stack_trace_id !== undefined
                           ? "button"

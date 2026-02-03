@@ -1,17 +1,29 @@
 <script lang="ts">
   import { Filter, X } from "lucide-svelte";
+  import LogSelectionWidget from "./LogSelectionWidget.svelte";
+  import type { AutopsyData, LogMark } from "./types";
 
   // Props
   let {
+    data,
+    logMarks = {},
     frameFilter = $bindable<string | null>(null),
     frameFilterEnabled = $bindable(true),
     testFilter = $bindable<string | null>(null),
     testFilterEnabled = $bindable(true),
+    rangeStartLogIndex = $bindable<number | null>(null),
+    rangeEndLogIndex = $bindable<number | null>(null),
+    rangeFilterEnabled = $bindable(true),
   }: {
+    data: AutopsyData;
+    logMarks?: Record<number, LogMark>;
     frameFilter?: string | null;
     frameFilterEnabled?: boolean;
     testFilter?: string | null;
     testFilterEnabled?: boolean;
+    rangeStartLogIndex?: number | null;
+    rangeEndLogIndex?: number | null;
+    rangeFilterEnabled?: boolean;
   } = $props();
 
   // Local state
@@ -22,6 +34,7 @@
     let count = 0;
     if (frameFilter !== null && frameFilterEnabled) count++;
     if (testFilter !== null && testFilterEnabled) count++;
+    if (rangeStartLogIndex !== null && rangeEndLogIndex !== null && rangeFilterEnabled) count++;
     return count;
   });
 
@@ -45,6 +58,16 @@
   function handleTestFilterRemove() {
     testFilter = null;
     testFilterEnabled = true;
+  }
+
+  function handleRangeFilterToggle() {
+    rangeFilterEnabled = !rangeFilterEnabled;
+  }
+
+  function handleRangeFilterRemove() {
+    rangeStartLogIndex = null;
+    rangeEndLogIndex = null;
+    rangeFilterEnabled = true;
   }
 
   // Close menu when clicking outside
@@ -73,9 +96,37 @@
 </script>
 
 <div class="view-filter-menu">
-  {#if isOpen && (frameFilter !== null || testFilter !== null)}
+  {#if isOpen}
     <div class="filter-menu-panel">
       <div class="menu-header">View Filters</div>
+
+      {#if rangeStartLogIndex !== null && rangeEndLogIndex !== null}
+        <div class="filter-section">
+          <div class="section-title">Log Range Filter</div>
+          <div class="filter-item">
+            <label class="filter-checkbox-label">
+              <input
+                type="checkbox"
+                checked={rangeFilterEnabled}
+                onchange={handleRangeFilterToggle}
+                class="filter-checkbox"
+              />
+              <span class="filter-label-text">
+                <span class="filter-label-main">
+                  Between logs #{rangeStartLogIndex} and #{rangeEndLogIndex}
+                </span>
+              </span>
+            </label>
+            <button
+              class="filter-remove-button"
+              onclick={handleRangeFilterRemove}
+              title="Remove filter"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      {/if}
 
       {#if testFilter !== null}
         <div class="filter-section">
@@ -127,6 +178,32 @@
             >
               <X size={16} />
             </button>
+          </div>
+        </div>
+      {/if}
+
+      {#if rangeStartLogIndex === null || rangeEndLogIndex === null}
+        <div class="filter-section setup-section">
+          <div class="section-title">Set Up Log Range Filter</div>
+          <div class="range-setup">
+            <div class="range-input-group">
+              <label class="range-label">Start Log:</label>
+              <LogSelectionWidget
+                {data}
+                {logMarks}
+                bind:selectedLogIndex={rangeStartLogIndex}
+                placeholder="Select start log..."
+              />
+            </div>
+            <div class="range-input-group">
+              <label class="range-label">End Log:</label>
+              <LogSelectionWidget
+                {data}
+                {logMarks}
+                bind:selectedLogIndex={rangeEndLogIndex}
+                placeholder="Select end log..."
+              />
+            </div>
           </div>
         </div>
       {/if}
@@ -209,7 +286,7 @@
     border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     padding: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .menu-header {
@@ -299,5 +376,29 @@
   .filter-remove-button:hover {
     background: #fee2e2;
     color: #dc2626;
+  }
+
+  .setup-section {
+    border-top: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+
+  .range-setup {
+    padding: 0 1rem 0.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .range-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .range-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #374151;
   }
 </style>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AutopsyData, StackTrace, CallSite, ComputedColumn } from "./types";
+  import type { AutopsyData, StackTrace, CallSite, ComputedColumn, LogMark } from "./types";
   import StreamsView from "./StreamsView.svelte";
   import HistoryView from "./HistoryView.svelte";
   import DashboardView from "./DashboardView.svelte";
@@ -55,11 +55,23 @@
   let frameFilterEnabled = $state(true);
   let testFilter = $state<string | null>(null);
   let testFilterEnabled = $state(true);
+  let rangeStartLogIndex = $state<number | null>(null);
+  let rangeEndLogIndex = $state<number | null>(null);
+  let rangeFilterEnabled = $state(true);
   let menuOpenForFrame = $state<string | null>(null);
 
   // Effective frame filter (null when disabled)
   let effectiveFrameFilter = $derived(frameFilter !== null && frameFilterEnabled ? frameFilter : null);
   let effectiveTestFilter = $derived(testFilter !== null && testFilterEnabled ? testFilter : null);
+  let effectiveRangeFilter = $derived.by(() => {
+    if (rangeStartLogIndex !== null && rangeEndLogIndex !== null && rangeFilterEnabled) {
+      // Ensure start is before end
+      const start = Math.min(rangeStartLogIndex, rangeEndLogIndex);
+      const end = Math.max(rangeStartLogIndex, rangeEndLogIndex);
+      return { start, end };
+    }
+    return null;
+  });
 
   // Frame context highlighting state
   let hoveredFrameKey = $state<string | null>(null);
@@ -93,10 +105,6 @@
   } | null>(null);
 
   // Mark state: maps logIndex -> {color, note}
-  export type LogMark = {
-    color: string;
-    note: string;
-  };
   let logMarks = $state<Record<number, LogMark>>({});
 
   // Live mode state
@@ -656,6 +664,7 @@
           {activeTab}
           frameFilter={effectiveFrameFilter}
           testFilter={effectiveTestFilter}
+          rangeFilter={effectiveRangeFilter}
           {hoveredFrameKey}
           {selectedFrameKeys}
           {columnOrders}
@@ -676,6 +685,7 @@
           hiddenCallSites={hiddenCallSites}
           frameFilter={effectiveFrameFilter}
           testFilter={effectiveTestFilter}
+          rangeFilter={effectiveRangeFilter}
           {hoveredFrameKey}
           {selectedFrameKeys}
           {columnOrders}
@@ -907,7 +917,17 @@
     />
   {/if}
 
-  <ViewFilterMenu bind:frameFilter bind:frameFilterEnabled bind:testFilter bind:testFilterEnabled />
+  <ViewFilterMenu
+    {data}
+    {logMarks}
+    bind:frameFilter
+    bind:frameFilterEnabled
+    bind:testFilter
+    bind:testFilterEnabled
+    bind:rangeStartLogIndex
+    bind:rangeEndLogIndex
+    bind:rangeFilterEnabled
+  />
 </div>
 
 <style>

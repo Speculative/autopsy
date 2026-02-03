@@ -1,15 +1,10 @@
 <script lang="ts">
-  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn } from "./types";
+  import type { AutopsyData, CallSite, ValueGroup, ComputedColumn, LogMark } from "./types";
   import type { EvaluationResult } from "./computedColumns";
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, getComputedColumnDisplayName } from "./computedColumns";
-
-  export type LogMark = {
-    color: string;
-    note: string;
-  };
 
   interface Props {
     data: AutopsyData;
@@ -20,6 +15,7 @@
     activeTab?: "streams" | "history" | "dashboard";
     frameFilter?: string | null;
     testFilter?: string | null;
+    rangeFilter?: { start: number; end: number } | null;
     hoveredFrameKey?: string | null;
     selectedFrameKeys?: Set<string>;
     columnOrders?: Record<string, string[]>;
@@ -42,6 +38,7 @@
     activeTab = "history",
     frameFilter = null,
     testFilter = null,
+    rangeFilter = null,
     hoveredFrameKey = null,
     selectedFrameKeys = new Set<string>(),
     columnOrders = {},
@@ -136,8 +133,14 @@
           matchesTestFilter = logBelongsToTest(valueGroup.log_index, testFilter);
         }
 
-        // Entry is hidden if it's explicitly hidden OR doesn't match frame filter OR doesn't match test filter
-        const entryIsHidden = isHidden || !matchesFrameFilter || !matchesTestFilter;
+        // Apply range filter if active
+        let matchesRangeFilter = true;
+        if (rangeFilter) {
+          matchesRangeFilter = valueGroup.log_index >= rangeFilter.start && valueGroup.log_index <= rangeFilter.end;
+        }
+
+        // Entry is hidden if it's explicitly hidden OR doesn't match frame filter OR doesn't match test filter OR doesn't match range filter
+        const entryIsHidden = isHidden || !matchesFrameFilter || !matchesTestFilter || !matchesRangeFilter;
 
         allEntries.push({
           log_index: valueGroup.log_index,
@@ -691,6 +694,13 @@
           class:menu-open={menuOpenFor === entry.log_index}
           data-log-index={entry.log_index}
           style={mark?.color ? `background-color: ${mark.color};` : ""}
+          draggable="true"
+          ondragstart={(e) => {
+            if (e.dataTransfer) {
+              e.dataTransfer.setData("text/log-index", entry.log_index.toString());
+              e.dataTransfer.effectAllowed = "copy";
+            }
+          }}
           onclick={() => handleEntryClick(entry)}
         >
           <span

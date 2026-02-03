@@ -135,3 +135,8 @@ export interface TestResult {
   end_log_index?: number;  // Last log during this test
 }
 
+// Log mark (color and note annotation for a log)
+export interface LogMark {
+  color: string;  // Color hex value (e.g., "#fee2e2")
+  note: string;   // User-provided note/annotation
+}
