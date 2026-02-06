@@ -223,7 +223,15 @@
           jsonString = dataElement.textContent;
         }
 
-        const parsed = JSON.parse(jsonString) as Partial<AutopsyData>;
+        // Use a reviver function to convert string representations of Infinity/NaN back to numbers
+        const parsed = JSON.parse(jsonString, (key, value) => {
+          if (typeof value === "string") {
+            if (value === "Infinity") return Infinity;
+            if (value === "-Infinity") return -Infinity;
+            if (value === "NaN") return NaN;
+          }
+          return value;
+        }) as Partial<AutopsyData>;
         data = {
           generated_at: parsed.generated_at ?? "",
           call_sites: parsed.call_sites ?? [],
@@ -729,6 +737,11 @@
     return `${callSite.filename}:${callSite.line}`;
   }
 
+  function getShortFilename(path: string): string {
+    const parts = path.split(/[\\/]/);
+    return parts[parts.length - 1];
+  }
+
   // Persist state changes to localStorage (only after initial restoration)
   $effect(() => {
     // Don't save until we've restored state, to avoid overwriting on initial load
@@ -1002,11 +1015,11 @@
                       }}
                       title="Navigate to code: {frame.filename}:{frame.line_number}"
                     >
-                      {frame.filename}:{frame.line_number}
+                      {getShortFilename(frame.filename)}:{frame.line_number}
                     </button>
                   {:else}
                     <span class="frame-location">
-                      {frame.filename}:{frame.line_number}
+                      {getShortFilename(frame.filename)}:{frame.line_number}
                     </span>
                   {/if}
                 </div>
@@ -1108,6 +1121,50 @@
 </div>
 
 <style>
+  /* Fix for VS Code webview rendering issues */
+  :global(html),
+  :global(body) {
+    color-scheme: light !important;
+    scrollbar-color: #888 #f1f1f1 !important; /* Firefox */
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Override VS Code theme variables that might affect colors */
+  :global(body) {
+    --vscode-scrollbarSlider-background: #888 !important;
+    --vscode-scrollbarSlider-hoverBackground: #555 !important;
+    --vscode-scrollbarSlider-activeBackground: #333 !important;
+  }
+
+  /* Custom scrollbar styling for VS Code webview compatibility */
+  :global(*::-webkit-scrollbar) {
+    width: 12px !important;
+    height: 12px !important;
+    background: #f1f1f1 !important;
+  }
+
+  :global(*::-webkit-scrollbar-track) {
+    background: #f1f1f1 !important;
+    background-color: #f1f1f1 !important;
+  }
+
+  :global(*::-webkit-scrollbar-thumb) {
+    background: #888 !important;
+    background-color: #888 !important;
+    border-radius: 6px !important;
+    border: 2px solid #f1f1f1 !important;
+  }
+
+  :global(*::-webkit-scrollbar-thumb:hover) {
+    background: #555 !important;
+    background-color: #555 !important;
+  }
+
+  :global(*::-webkit-scrollbar-corner) {
+    background: #f1f1f1 !important;
+  }
+
   .app-container {
     display: flex;
     height: 100vh;
@@ -1148,16 +1205,37 @@
     flex-direction: column;
     overflow-y: auto;
     min-width: 0;
+    background: #ffffff;
+    background-color: #ffffff;
+    scrollbar-color: #888 #f1f1f1;
+  }
+
+  .main-panel::-webkit-scrollbar {
+    width: 12px !important;
+    background: #f1f1f1 !important;
+  }
+
+  .main-panel::-webkit-scrollbar-track {
+    background: #f1f1f1 !important;
+  }
+
+  .main-panel::-webkit-scrollbar-thumb {
+    background: #888 !important;
+    border-radius: 6px !important;
+    border: 2px solid #f1f1f1 !important;
+  }
+
+  .main-panel::-webkit-scrollbar-thumb:hover {
+    background: #555 !important;
   }
 
   .main-panel > .header {
     width: 100%;
-    padding: 0.5rem 2rem 0 2rem;
+    padding-top: 0.25rem;
   }
 
   .main-panel > .tabs {
     width: 100%;
-    padding: 0 2rem;
   }
 
   .main-panel > .content {
@@ -1182,11 +1260,11 @@
     display: flex;
     gap: 0.5rem;
     border-bottom: 2px solid #e5e7eb;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
   }
 
   .tab {
-    padding: 0.75rem 1.5rem;
+    padding: 0.5rem 1.5rem;
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
@@ -1234,7 +1312,8 @@
 
   .sidebar {
     flex-shrink: 0;
-    background: white;
+    background: #ffffff;
+    background-color: #ffffff;
     border-left: 1px solid #e5e5e5;
     display: flex;
     flex-direction: column;
@@ -1327,8 +1406,9 @@
     font-size: 0.85rem;
     border: 1px solid #d1d5db;
     border-radius: 4px;
-    background: white;
-    color: #333;
+    background: #ffffff;
+    background-color: #ffffff;
+    color: #333333;
     cursor: pointer;
     min-width: 140px;
   }
@@ -1348,6 +1428,26 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
+    scrollbar-color: #888 #f1f1f1;
+  }
+
+  .sidebar-body::-webkit-scrollbar {
+    width: 12px !important;
+    background: #f1f1f1 !important;
+  }
+
+  .sidebar-body::-webkit-scrollbar-track {
+    background: #f1f1f1 !important;
+  }
+
+  .sidebar-body::-webkit-scrollbar-thumb {
+    background: #888 !important;
+    border-radius: 6px !important;
+    border: 2px solid #f1f1f1 !important;
+  }
+
+  .sidebar-body::-webkit-scrollbar-thumb:hover {
+    background: #555 !important;
   }
 
   .stack-trace {
@@ -1410,11 +1510,14 @@
     flex-direction: column;
     gap: 0.25rem;
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .frame-menu-container {
     margin-left: auto;
     position: relative;
+    flex-shrink: 0;
   }
 
   .frame-menu-button {
@@ -1467,11 +1570,17 @@
     font-weight: 500;
     color: #475569;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .frame-location {
     color: #64748b;
     font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .frame-location.clickable {
@@ -1481,6 +1590,8 @@
     font: inherit;
     cursor: pointer;
     text-align: left;
+    display: block;
+    width: 100%;
   }
 
   .frame-location.clickable:hover {
@@ -1489,7 +1600,8 @@
   }
 
   .frame-code {
-    background: white;
+    background: #ffffff;
+    background-color: #ffffff;
     padding: 0.5rem;
     border-radius: 4px;
     margin-bottom: 0.5rem;
@@ -1506,7 +1618,8 @@
   .frame-code code {
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     font-size: 0.85rem;
-    color: #333;
+    color: #333333;
+    background: transparent;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1520,7 +1633,8 @@
   }
 
   .frame-variables {
-    background: white;
+    background: #ffffff;
+    background-color: #ffffff;
     padding: 0.5rem;
     border-radius: 4px;
     border: 1px solid #e5e5e5;
@@ -1542,15 +1656,5 @@
     max-width: 100%;
     overflow-x: auto;
     min-width: 0;
-  }
-
-  @media (max-width: 1200px) {
-    .sidebar {
-      width: 100% !important;
-      max-width: 500px;
-    }
-    .resize-handle {
-      display: none;
-    }
   }
 </style>

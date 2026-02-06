@@ -6,7 +6,7 @@
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, getComputedColumnDisplayName } from "./computedColumns";
   import { isVSCodeWebview, navigateToLogInVSCode } from "./vscodeApi";
-  import { FileCodeCorner } from "lucide-svelte";
+  import { FileCodeCorner, Table } from "lucide-svelte";
 
   interface Props {
     data: AutopsyData;
@@ -528,30 +528,22 @@
                     style={skippedMark?.color ? `background-color: ${skippedMark.color};` : ""}
                     onclick={() => handleEntryClick(skippedEntry)}
                   >
-                    <span
-                      class="log-number clickable"
-                      role="button"
-                      tabindex="0"
+                    <span class="log-number">#{skippedEntry.log_index}</span>
+
+                    <button
+                      class="nav-button"
                       onclick={(e) => {
                         e.stopPropagation();
                         onShowInStream?.(skippedEntry.log_index);
                       }}
-                      onkeydown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onShowInStream?.(skippedEntry.log_index);
-                        }
-                      }}
-                      title="Show this log in the Streams view"
+                      title="Jump to Stream"
                     >
-                      <span class="log-number-arrow">⬅️</span>
-                      <span class="log-number-text">#{skippedEntry.log_index}</span>
-                    </span>
+                      <Table size={14} />
+                    </button>
 
                     {#if isVSCodeWebview()}
                       <button
-                        class="nav-to-code-button"
+                        class="nav-button"
                         onclick={(e) => {
                           e.stopPropagation();
                           navigateToLogInVSCode(skippedEntry.log_index);
@@ -718,30 +710,22 @@
           }}
           onclick={() => handleEntryClick(entry)}
         >
-          <span
-            class="log-number clickable"
-            role="button"
-            tabindex="0"
+          <span class="log-number">#{entry.log_index}</span>
+
+          <button
+            class="nav-button"
             onclick={(e) => {
               e.stopPropagation();
               onShowInStream?.(entry.log_index);
             }}
-            onkeydown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                onShowInStream?.(entry.log_index);
-              }
-            }}
-            title="Show this log in the Streams view"
+            title="Jump to Stream"
           >
-            <span class="log-number-arrow">⬅️</span>
-            <span class="log-number-text">#{entry.log_index}</span>
-          </span>
+            <Table size={14} />
+          </button>
 
           {#if isVSCodeWebview()}
             <button
-              class="nav-to-code-button"
+              class="nav-button"
               onclick={(e) => {
                 e.stopPropagation();
                 navigateToLogInVSCode(entry.log_index);
@@ -893,8 +877,8 @@
   }
 
   .history-header {
-    margin-bottom: 1rem;
-    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    padding: 0.4rem 0.6rem;
     background: #f9fafb;
     border: 1px solid #e5e7eb;
     border-radius: 6px;
@@ -928,7 +912,8 @@
     border: 1px solid #e5e5e5;
     border-radius: 6px;
     padding: 0.4rem 0.6rem;
-    background: white;
+    background: #ffffff;
+    background-color: #ffffff;
     transition: border-color 0.2s, background-color 0.2s;
     position: relative;
     display: flex;
@@ -1149,59 +1134,9 @@
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
     background: #eff6ff;
     border-radius: 3px;
-    width: 4rem;
+    padding: 2px 6px;
     flex-shrink: 0;
     align-self: flex-start;
-  }
-
-  .log-number.clickable {
-    cursor: pointer;
-    position: relative;
-    transition: background 0.2s;
-    overflow: hidden;
-    display: flex;
-  }
-
-  .log-number.clickable:hover,
-  .log-number.clickable:focus {
-    background: #dbeafe;
-    outline: 2px solid #2563eb;
-    outline-offset: 2px;
-  }
-
-  .log-number-text,
-  .log-number-arrow {
-    display: inline-block;
-    width: 100%;
-    flex-shrink: 0;
-    padding: 2px 6px;
-    transition: transform 0.2s ease;
-  }
-
-  .log-number-arrow {
-    color: #2563eb;
-    font-weight: 600;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    font-size: 1.2em;
-    text-align: center;
-  }
-
-  .log-number-text {
-    transform: translateX(-100%);
-  }
-
-  .log-number-arrow {
-    transform: translateX(-100%);
-  }
-
-  .log-number.clickable:hover .log-number-text,
-  .log-number.clickable:focus .log-number-text {
-    transform: translateX(0);
-  }
-
-  .log-number.clickable:hover .log-number-arrow,
-  .log-number.clickable:focus .log-number-arrow {
-    transform: translateX(0);
   }
 
 
@@ -1237,16 +1172,6 @@
 
   .value-label {
     display: none;
-  }
-
-  @media (max-width: 768px) {
-    .entry-content {
-      flex-direction: column;
-    }
-
-    .value-item {
-      width: 100%;
-    }
   }
 
   .computed-error {
@@ -1356,12 +1281,11 @@
     margin: 0.25rem 0;
   }
 
-  .nav-to-code-button {
+  .nav-button {
     background: none;
     border: 1px solid #d1d5db;
     border-radius: 4px;
     padding: 2px 6px;
-    margin: 0 4px;
     cursor: pointer;
     opacity: 0.7;
     transition: opacity 0.2s, border-color 0.2s;
@@ -1372,7 +1296,7 @@
     flex-shrink: 0;
   }
 
-  .nav-to-code-button:hover {
+  .nav-button:hover {
     opacity: 1;
     border-color: #3b82f6;
     color: #3b82f6;

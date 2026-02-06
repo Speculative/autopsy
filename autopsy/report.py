@@ -554,7 +554,7 @@ class Report:
             except TypeError:
                 # For unhashable types, use JSON string representation
                 json_value = self._to_json_serializable(value)
-                value_key = json.dumps(json_value, sort_keys=True)
+                value_key = json.dumps(json_value, sort_keys=True, allow_nan=False)
 
             if value_key not in self._counts[call_site]:
                 self._counts[call_site][value_key] = []
@@ -1038,7 +1038,7 @@ class Report:
 
                     # Convert value to JSON-serializable format
                     json_value = self._to_json_serializable(value_key)
-                    json_value_counts[json.dumps(json_value, sort_keys=True)] = {
+                    json_value_counts[json.dumps(json_value, sort_keys=True, allow_nan=False)] = {
                         "count": len(stack_trace_data),
                         "stack_trace_ids": stack_trace_ids,
                         "log_indices": log_indices,
@@ -1188,9 +1188,20 @@ class Report:
         Returns:
             JSON-serializable representation of the value
         """
+        # Handle special float values (infinity and NaN) which are not valid JSON
+        import math
+        if isinstance(value, float):
+            if math.isinf(value):
+                # Return string representation for infinity (valid JSON)
+                return "Infinity" if value > 0 else "-Infinity"
+            elif math.isnan(value):
+                # Return string representation for NaN (valid JSON)
+                return "NaN"
+
         # Try to serialize directly with json.dumps to test if it's already serializable
+        # Use allow_nan=False to ensure we catch any infinity/NaN that slip through
         try:
-            json.dumps(value)
+            json.dumps(value, allow_nan=False)
             return value
         except (TypeError, ValueError):
             # Not directly serializable, try to convert
@@ -1486,7 +1497,7 @@ def generate_html(
 
     # Get JSON data from report
     report_data = report.to_json()
-    json_str = json.dumps(report_data, indent=2)
+    json_str = json.dumps(report_data, indent=2, allow_nan=False)
 
     # Compress JSON data with gzip and encode as base64
     json_bytes = json_str.encode("utf-8")
@@ -1533,7 +1544,7 @@ def generate_json(
 
     # Get JSON data from report
     report_data = report.to_json()
-    json_str = json.dumps(report_data, indent=2)
+    json_str = json.dumps(report_data, indent=2, allow_nan=False)
 
     # Write to file if output_path is provided
     if output_path is not None:

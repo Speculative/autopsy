@@ -111,23 +111,24 @@
 
   .filename {
     font-weight: 600;
-    color: #3b82f6;
+    color: #3b82f6 !important;
     font-size: 1.1rem;
   }
 
   .line-number {
-    color: #6b7280;
+    color: #6b7280 !important;
     font-size: 0.9rem;
     font-weight: 400;
   }
 
   .function-name {
-    color: #6b7280;
+    color: #6b7280 !important;
     margin-left: 0.5rem;
   }
 
   .function-name code {
-    background-color: #f3f4f6;
+    background-color: #f3f4f6 !important;
+    color: #000000 !important;
     padding: 0.125rem 0.375rem;
     border-radius: 0.25rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -137,7 +138,7 @@
   /* Compact mode styles */
   .compact-text {
     font-weight: 400;
-    color: #9ca3af;
+    color: #9ca3af !important;
     font-size: 0.7rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }

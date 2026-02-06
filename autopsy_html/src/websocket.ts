@@ -29,7 +29,15 @@ export function createWebSocketConnection(config: WebSocketConfig): WebSocket {
   };
 
   ws.onmessage = (event) => {
-    const message = JSON.parse(event.data) as IncrementalUpdate;
+    // Use a reviver function to convert string representations of Infinity/NaN back to numbers
+    const message = JSON.parse(event.data, (key, value) => {
+      if (typeof value === "string") {
+        if (value === "Infinity") return Infinity;
+        if (value === "-Infinity") return -Infinity;
+        if (value === "NaN") return NaN;
+      }
+      return value;
+    }) as IncrementalUpdate;
 
     if (message.type === 'snapshot' && message.data) {
       config.onSnapshot(message.data);

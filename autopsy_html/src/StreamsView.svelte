@@ -8,7 +8,7 @@
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId, isFrameIndexStable } from "./computedColumns";
   import { profileColumn } from "./columnProfiler";
-  import { ListFilter, FileCodeCorner } from "lucide-svelte";
+  import { ListFilter, FileCodeCorner, Logs } from "lucide-svelte";
   import { isVSCodeWebview, navigateToLogInVSCode } from "./vscodeApi";
 
   // Drag-and-drop types for stack variables
@@ -1019,8 +1019,8 @@
 
       // Only compute if container exists and no widths set yet
       if (container && !columnWidths[callSiteKey]) {
-        // Subtract space for # column and + column
-        const availableWidth = container.clientWidth - 96 - 56;
+        // Subtract space for # column (with nav buttons) and + column
+        const availableWidth = container.clientWidth - 140 - 56;
         if (availableWidth > 0) {
           columnWidths[callSiteKey] = computeInitialColumnWidths(callSite, availableWidth);
         }
@@ -1803,31 +1803,20 @@
                     }}
                   >
                     <td class="log-number-cell">
-                      <span
-                        class="log-number clickable"
-                        role="button"
-                        tabindex="0"
+                      <span class="log-number">#{valueGroup.log_index}</span>
+                      <button
+                        class="nav-button"
                         onclick={(e) => {
                           e.stopPropagation();
                           onShowInHistory?.(valueGroup.log_index);
                         }}
-                        onkeydown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onShowInHistory?.(valueGroup.log_index);
-                          }
-                        }}
-                        title="Show this log in the History view"
+                        title="Jump to History"
                       >
-                        <span class="log-number-text"
-                          >#{valueGroup.log_index}</span
-                        >
-                        <span class="log-number-arrow">➡️</span>
-                      </span>
+                        <Logs size={14} />
+                      </button>
                       {#if isVSCodeWebview()}
                         <button
-                          class="nav-to-code-button"
+                          class="nav-button"
                           onclick={(e) => {
                             e.stopPropagation();
                             navigateToLogInVSCode(valueGroup.log_index);
@@ -1917,31 +1906,20 @@
                         }}
                       >
                         <td class="log-number-cell">
-                          <span
-                            class="log-number clickable"
-                            role="button"
-                            tabindex="0"
+                          <span class="log-number">#{valueGroup.log_index}</span>
+                          <button
+                            class="nav-button"
                             onclick={(e) => {
                               e.stopPropagation();
                               onShowInHistory?.(valueGroup.log_index);
                             }}
-                            onkeydown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onShowInHistory?.(valueGroup.log_index);
-                              }
-                            }}
-                            title="Show this log in the History view"
+                            title="Jump to History"
                           >
-                            <span class="log-number-text"
-                              >#{valueGroup.log_index}</span
-                            >
-                            <span class="log-number-arrow">➡️</span>
-                          </span>
+                            <Logs size={14} />
+                          </button>
                           {#if isVSCodeWebview()}
                             <button
-                              class="nav-to-code-button"
+                              class="nav-button"
                               onclick={(e) => {
                                 e.stopPropagation();
                                 navigateToLogInVSCode(valueGroup.log_index);
@@ -2107,28 +2085,29 @@
                   }}
                 >
                   <div class="value-group-row">
-                    <span
-                      class="log-number clickable"
-                      role="button"
-                      tabindex="0"
+                    <span class="log-number">#{valueGroup.log_index}</span>
+                    <button
+                      class="nav-button"
                       onclick={(e) => {
                         e.stopPropagation();
                         onShowInHistory?.(valueGroup.log_index);
                       }}
-                      onkeydown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onShowInHistory?.(valueGroup.log_index);
-                        }
-                      }}
-                      title="Show this log in the History view"
+                      title="Jump to History"
                     >
-                      <span class="log-number-text"
-                        >#{valueGroup.log_index}</span
+                      <Logs size={14} />
+                    </button>
+                    {#if isVSCodeWebview()}
+                      <button
+                        class="nav-button"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          navigateToLogInVSCode(valueGroup.log_index);
+                        }}
+                        title="Navigate to code location"
                       >
-                      <span class="log-number-arrow">➡️</span>
-                    </span>
+                        <FileCodeCorner size={14} />
+                      </button>
+                    {/if}
                     {#if valueGroup.values && valueGroup.values.length === 0 && valueGroup.name}
                       <span class="log-name-only">{valueGroup.name}</span>
                     {:else if valueGroup.values}
@@ -2638,8 +2617,8 @@
   }
 
   .log-number-header {
-    width: 4rem;
-    min-width: 4rem;
+    width: 140px;
+    min-width: 140px;
   }
 
   .table-row {
@@ -2730,6 +2709,10 @@
   .log-number-cell {
     padding: 0.4rem 0.6rem;
     vertical-align: top;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
   }
 
   .value-cell {
@@ -2867,57 +2850,7 @@
     text-transform: none;
     letter-spacing: normal;
     flex-shrink: 0;
-    width: 4rem;
-  }
-
-  .log-number.clickable {
-    cursor: pointer;
-    position: relative;
-    transition: background 0.2s;
-    overflow: hidden;
-    display: flex;
-  }
-
-  .log-number.clickable:hover,
-  .log-number.clickable:focus {
-    background: #dbeafe;
-    outline: 2px solid #2563eb;
-    outline-offset: 2px;
-  }
-
-  .log-number-text,
-  .log-number-arrow {
-    display: inline-block;
-    width: 100%;
-    flex-shrink: 0;
     padding: 2px 6px;
-    transition: transform 0.2s ease;
-  }
-
-  .log-number-arrow {
-    color: #2563eb;
-    font-weight: 600;
-    font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    font-size: 1.2em;
-    text-align: center;
-  }
-
-  .log-number-text {
-    transform: translateX(0);
-  }
-
-  .log-number-arrow {
-    transform: translateX(0);
-  }
-
-  .log-number.clickable:hover .log-number-text,
-  .log-number.clickable:focus .log-number-text {
-    transform: translateX(-100%);
-  }
-
-  .log-number.clickable:hover .log-number-arrow,
-  .log-number.clickable:focus .log-number-arrow {
-    transform: translateX(-100%);
   }
 
   .function-name-inline {
@@ -3033,12 +2966,11 @@
     font-size: 0.85rem;
   }
 
-  .nav-to-code-button {
+  .nav-button {
     background: none;
     border: 1px solid #d1d5db;
     border-radius: 4px;
     padding: 2px 6px;
-    margin: 0 4px;
     cursor: pointer;
     opacity: 0.7;
     transition: opacity 0.2s, border-color 0.2s;
@@ -3049,7 +2981,7 @@
     flex-shrink: 0;
   }
 
-  .nav-to-code-button:hover {
+  .nav-button:hover {
     opacity: 1;
     border-color: #3b82f6;
     color: #3b82f6;
