@@ -14,7 +14,7 @@ from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple
 
 from .call_stack import CallStack, StackTrace, call_stack
-from .json_utils import sanitize_float
+from .json_utils import to_json_serializable
 
 
 @dataclass
@@ -554,7 +554,7 @@ class Report:
                 value_key = value
             except TypeError:
                 # For unhashable types, use JSON string representation
-                json_value = self._to_json_serializable(value)
+                json_value = to_json_serializable(value)
                 value_key = json.dumps(json_value, sort_keys=True, allow_nan=False)
 
             if value_key not in self._counts[call_site]:
@@ -887,13 +887,13 @@ class Report:
                                 # Unpickle the value
                                 unpickled = pickle.loads(pickled_value)
                                 # Try to convert to JSON-serializable format
-                                value_data["value"] = self._to_json_serializable(unpickled)
+                                value_data["value"] = to_json_serializable(unpickled)
                             except Exception as e:
                                 # If unpickling fails, store error info
                                 value_data["value"] = f"<UnpickleError: {str(e)}>"
                         else:
                             # Not bytes, try to serialize directly
-                            value_data["value"] = self._to_json_serializable(pickled_value)
+                            value_data["value"] = to_json_serializable(pickled_value)
 
                         json_group.append(value_data)
 
@@ -950,12 +950,8 @@ class Report:
                         )
 
                     # Add type-specific data
-                    if dashboard_type == "count":
-                        value_group_data["value"] = self._to_json_serializable(
-                            dashboard_log.get("value")
-                        )
-                    elif dashboard_type == "hist":
-                        value_group_data["value"] = self._to_json_serializable(
+                    if dashboard_type in ("count", "hist"):
+                        value_group_data["value"] = to_json_serializable(
                             dashboard_log.get("value")
                         )
                     elif dashboard_type == "timeline":
@@ -1040,7 +1036,7 @@ class Report:
                             pass
 
                     # Convert value to JSON-serializable format
-                    json_value = self._to_json_serializable(value_key)
+                    json_value = to_json_serializable(value_key)
                     json_value_counts[json.dumps(json_value, sort_keys=True, allow_nan=False)] = {
                         "count": len(stack_trace_data),
                         "stack_trace_ids": stack_trace_ids,
@@ -1072,7 +1068,7 @@ class Report:
                 for num, stack_trace_id, log_index in values:
                     json_values.append(
                         {
-                            "value": self._to_json_serializable(num),
+                            "value": to_json_serializable(num),
                             "stack_trace_id": (
                                 str(stack_trace_id) if stack_trace_id != -1 else None
                             ),
@@ -1181,41 +1177,6 @@ class Report:
 
             return result
 
-    def _to_json_serializable(self, value: Any) -> Any:
-        """
-        Convert a value to JSON-serializable format.
-
-        Args:
-            value: Value to convert
-
-        Returns:
-            JSON-serializable representation of the value
-        """
-        # Handle special float values (infinity and NaN) which are not valid JSON
-        if isinstance(value, float):
-            return sanitize_float(value)
-
-        # Handle compound types recursively to convert any infinity values inside
-        if isinstance(value, (list, tuple)):
-            return [self._to_json_serializable(item) for item in value]
-        elif isinstance(value, dict):
-            return {str(k): self._to_json_serializable(v) for k, v in value.items()}
-
-        # For simple types, try to serialize directly to test if it's already serializable
-        if isinstance(value, (int, str, bool, type(None))):
-            return value
-
-        # For other types, try json.dumps to see if it's serializable
-        try:
-            json.dumps(value, allow_nan=False)
-            return value
-        except (TypeError, ValueError, OverflowError):
-            # Not serializable, convert to string representation
-            try:
-                return f"<{type(value).__name__}: {repr(value)}>"
-            except Exception:
-                return f"<{type(value).__name__}: (unable to represent)>"
-
     def _broadcast_log_update(
         self, call_site: Tuple[str, int], log_group: dict, stack_trace_id: Optional[int]
     ):
@@ -1247,11 +1208,11 @@ class Report:
                 elif isinstance(pickled_value, bytes):
                     try:
                         unpickled = pickle.loads(pickled_value)
-                        value_data["value"] = self._to_json_serializable(unpickled)
+                        value_data["value"] = to_json_serializable(unpickled)
                     except Exception as e:
                         value_data["value"] = f"<UnpickleError: {str(e)}>"
                 else:
-                    value_data["value"] = self._to_json_serializable(pickled_value)
+                    value_data["value"] = to_json_serializable(pickled_value)
 
                 json_values.append(value_data)
 
@@ -1332,12 +1293,10 @@ class Report:
                 value_group_data["stack_trace_id"] = str(dashboard_log["stack_trace_id"])
 
             # Add type-specific data
-            if dashboard_type == "count":
-                value_group_data["value"] = self._to_json_serializable(
+            if dashboard_type in ("count", "hist"):
+                value_group_data["value"] = to_json_serializable(
                     dashboard_log.get("value")
                 )
-            elif dashboard_type == "hist":
-                value_group_data["value"] = dashboard_log.get("value")
             elif dashboard_type == "timeline":
                 value_group_data["event_name"] = dashboard_log.get("event_name")
                 value_group_data["timestamp"] = dashboard_log.get("timestamp")

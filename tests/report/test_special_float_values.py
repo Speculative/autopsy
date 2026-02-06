@@ -1,7 +1,6 @@
 """Test serialization of special float values (Infinity, -Infinity, NaN)."""
 
 import json
-import math
 
 from autopsy.report import Report, ReportConfiguration
 
@@ -136,22 +135,22 @@ def test_nested_infinity():
 
 
 def test_to_json_serializable():
-    """Test the _to_json_serializable method directly."""
-    report = Report(ReportConfiguration(auto_stack_trace=False))
+    """Test the to_json_serializable function directly."""
+    from autopsy.json_utils import to_json_serializable
 
     # Test individual values
-    assert report._to_json_serializable(float('inf')) == 'Infinity'
-    assert report._to_json_serializable(float('-inf')) == '-Infinity'
-    assert report._to_json_serializable(float('nan')) == 'NaN'
+    assert to_json_serializable(float('inf')) == 'Infinity'
+    assert to_json_serializable(float('-inf')) == '-Infinity'
+    assert to_json_serializable(float('nan')) == 'NaN'
 
     # Test in lists
-    result = report._to_json_serializable([float('inf'), 1.5, float('-inf')])
+    result = to_json_serializable([float('inf'), 1.5, float('-inf')])
     assert result == ['Infinity', 1.5, '-Infinity']
 
     # Test in dicts
-    result = report._to_json_serializable({'a': float('inf'), 'b': float('nan')})
+    result = to_json_serializable({'a': float('inf'), 'b': float('nan')})
     assert result == {'a': 'Infinity', 'b': 'NaN'}
 
     # Verify all results are JSON serializable with allow_nan=False
-    json.dumps(report._to_json_serializable(float('inf')), allow_nan=False)
-    json.dumps(report._to_json_serializable([float('inf'), float('nan')]), allow_nan=False)
+    json.dumps(to_json_serializable(float('inf')), allow_nan=False)
+    json.dumps(to_json_serializable([float('inf'), float('nan')]), allow_nan=False)
