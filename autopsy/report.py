@@ -954,7 +954,9 @@ class Report:
                             dashboard_log.get("value")
                         )
                     elif dashboard_type == "hist":
-                        value_group_data["value"] = dashboard_log.get("value")
+                        value_group_data["value"] = self._to_json_serializable(
+                            dashboard_log.get("value")
+                        )
                     elif dashboard_type == "timeline":
                         value_group_data["event_name"] = dashboard_log.get("event_name")
                         value_group_data["timestamp"] = dashboard_log.get("timestamp")
@@ -1069,7 +1071,7 @@ class Report:
                 for num, stack_trace_id, log_index in values:
                     json_values.append(
                         {
-                            "value": num,
+                            "value": self._to_json_serializable(num),
                             "stack_trace_id": (
                                 str(stack_trace_id) if stack_trace_id != -1 else None
                             ),
@@ -1198,25 +1200,26 @@ class Report:
                 # Return string representation for NaN (valid JSON)
                 return "NaN"
 
-        # Try to serialize directly with json.dumps to test if it's already serializable
-        # Use allow_nan=False to ensure we catch any infinity/NaN that slip through
+        # Handle compound types recursively to convert any infinity values inside
+        if isinstance(value, (list, tuple)):
+            return [self._to_json_serializable(item) for item in value]
+        elif isinstance(value, dict):
+            return {str(k): self._to_json_serializable(v) for k, v in value.items()}
+
+        # For simple types, try to serialize directly to test if it's already serializable
+        if isinstance(value, (int, str, bool, type(None))):
+            return value
+
+        # For other types, try json.dumps to see if it's serializable
         try:
             json.dumps(value, allow_nan=False)
             return value
-        except (TypeError, ValueError):
-            # Not directly serializable, try to convert
-            if isinstance(value, (int, float, str, bool, type(None))):
-                return value
-            elif isinstance(value, (list, tuple)):
-                return [self._to_json_serializable(item) for item in value]
-            elif isinstance(value, dict):
-                return {str(k): self._to_json_serializable(v) for k, v in value.items()}
-            else:
-                # For other types, try to get a string representation
-                try:
-                    return f"<{type(value).__name__}: {repr(value)}>"
-                except Exception:
-                    return f"<{type(value).__name__}: (unable to represent)>"
+        except (TypeError, ValueError, OverflowError):
+            # Not serializable, convert to string representation
+            try:
+                return f"<{type(value).__name__}: {repr(value)}>"
+            except Exception:
+                return f"<{type(value).__name__}: (unable to represent)>"
 
     def _broadcast_log_update(
         self, call_site: Tuple[str, int], log_group: dict, stack_trace_id: Optional[int]
