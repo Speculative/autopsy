@@ -117,3 +117,23 @@ export interface LogLocation {
   timelineEventCount?: number  // Number of timeline events
   happenedCount?: number  // Number of happened events
 }
+
+/**
+ * Individual log entry for navigation
+ */
+export interface LogEntry {
+  logIndex: number
+  filename: string
+  line: number
+  callSite: CallSite
+  stackTraceId?: string
+}
+
+/**
+ * Navigation context for stepping through logs
+ */
+export interface NavigationContext {
+  currentLogIndex: number | null
+  logEntries: LogEntry[]  // Sorted by log_index for stepping
+  logIndexMap: Map<number, LogEntry>  // O(1) lookup
+}

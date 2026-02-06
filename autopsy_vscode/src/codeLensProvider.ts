@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { LogLocation } from './types';
+import { LogLocation, NavigationContext } from './types';
 
 /**
  * Provides CodeLens for log locations
@@ -10,6 +10,7 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
   public readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
   private outputChannel: vscode.OutputChannel;
+  private navigationContext: { currentLogIndex: number; context: NavigationContext } | null = null;
 
   constructor(outputChannel: vscode.OutputChannel) {
     this.outputChannel = outputChannel;
@@ -30,6 +31,26 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     // Notify VS Code to refresh CodeLens
+    this._onDidChangeCodeLenses.fire();
+  }
+
+  /**
+   * Set navigation context for log stepping
+   */
+  setNavigationContext(currentLogIndex: number, context: NavigationContext) {
+    this.outputChannel.appendLine(`setNavigationContext called with currentLogIndex: ${currentLogIndex}`);
+    this.navigationContext = { currentLogIndex, context };
+    this.outputChannel.appendLine(`Navigation context updated, firing CodeLens change event`);
+    this._onDidChangeCodeLenses.fire();
+    this.outputChannel.appendLine(`CodeLens change event fired`);
+  }
+
+  /**
+   * Clear navigation context
+   */
+  clearNavigationContext() {
+    this.outputChannel.appendLine(`clearNavigationContext called`);
+    this.navigationContext = null;
     this._onDidChangeCodeLenses.fire();
   }
 
@@ -63,6 +84,69 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
       const codeLens = this.createCodeLens(location, range);
       if (codeLens) {
         codeLenses.push(codeLens);
+      }
+    }
+
+    // Add navigation CodeLens if we're in navigation mode
+    if (this.navigationContext) {
+      this.outputChannel.appendLine(`Navigation mode active for ${filename}, currentLogIndex: ${this.navigationContext.currentLogIndex}`);
+      const { currentLogIndex, context } = this.navigationContext;
+      const currentEntry = context.logIndexMap.get(currentLogIndex);
+
+      if (currentEntry) {
+        this.outputChannel.appendLine(`Current entry found: ${currentEntry.filename}:${currentEntry.line}, comparing to ${filename}`);
+      } else {
+        this.outputChannel.appendLine(`WARNING: Current entry not found for logIndex ${currentLogIndex}`);
+      }
+
+      if (currentEntry && currentEntry.filename === filename) {
+        const line = currentEntry.line - 1;
+        this.outputChannel.appendLine(`Adding navigation CodeLens at line ${line} for ${filename}`);
+
+        // Find previous and next log indices
+        const currentIdx = context.logEntries.findIndex(e => e.logIndex === currentLogIndex);
+        const hasPrevious = currentIdx > 0;
+        const hasNext = currentIdx < context.logEntries.length - 1;
+        this.outputChannel.appendLine(`Current index: ${currentIdx}, hasPrevious: ${hasPrevious}, hasNext: ${hasNext}`);
+
+        // Previous log CodeLens
+        if (hasPrevious) {
+          const prevEntry = context.logEntries[currentIdx - 1];
+          codeLenses.push(new vscode.CodeLens(
+            new vscode.Range(line, 0, line, 0),
+            {
+              title: `$(arrow-left) Previous log (#${prevEntry.logIndex})`,
+              tooltip: `Go to previous log at ${prevEntry.filename}:${prevEntry.line}`,
+              command: 'autopsy.navigateToPreviousLog',
+              arguments: []
+            }
+          ));
+        }
+
+        // Current log indicator
+        codeLenses.push(new vscode.CodeLens(
+          new vscode.Range(line, 0, line, 0),
+          {
+            title: `$(debug-breakpoint) Current log (#${currentLogIndex})`,
+            tooltip: 'Currently viewing this log',
+            command: '',  // No command, just an indicator
+            arguments: []
+          }
+        ));
+
+        // Next log CodeLens
+        if (hasNext) {
+          const nextEntry = context.logEntries[currentIdx + 1];
+          codeLenses.push(new vscode.CodeLens(
+            new vscode.Range(line, 0, line, 0),
+            {
+              title: `$(arrow-right) Next log (#${nextEntry.logIndex})`,
+              tooltip: `Go to next log at ${nextEntry.filename}:${nextEntry.line}`,
+              command: 'autopsy.navigateToNextLog',
+              arguments: []
+            }
+          ));
+        }
       }
     }
 

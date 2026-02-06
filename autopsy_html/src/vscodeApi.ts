@@ -66,3 +66,34 @@ export function sendLogDataUpdate(data: any): boolean {
     return false;
   }
 }
+
+export function navigateToLogInVSCode(logIndex: number): boolean {
+  const api = getVSCodeApi();
+  if (!api) return false;
+
+  api.postMessage({
+    type: 'navigateToLog',
+    logIndex
+  });
+  return true;
+}
+
+// Message handler system for incoming messages from extension
+export type MessageHandler = (message: any) => void;
+let messageHandlers: MessageHandler[] = [];
+
+export function addMessageHandler(handler: MessageHandler) {
+  messageHandlers.push(handler);
+}
+
+export function removeMessageHandler(handler: MessageHandler) {
+  messageHandlers = messageHandlers.filter(h => h !== handler);
+}
+
+// Initialize listener once
+if (typeof window !== 'undefined' && window.vscode) {
+  window.addEventListener('message', (event) => {
+    const message = event.data;
+    messageHandlers.forEach(handler => handler(message));
+  });
+}

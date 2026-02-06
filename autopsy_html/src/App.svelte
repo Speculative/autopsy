@@ -8,7 +8,7 @@
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import ViewFilterMenu from "./ViewFilterMenu.svelte";
   import * as pako from "pako";
-  import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate } from "./vscodeApi";
+  import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate, addMessageHandler, removeMessageHandler, navigateToLogInVSCode } from "./vscodeApi";
   import { Table, Logs } from "lucide-svelte";
   import {
     saveTestFilter,
@@ -320,6 +320,63 @@
       sendLogDataUpdate(data);
     }
   });
+
+  // Handle incoming messages from VS Code extension
+  $effect(() => {
+    if (!isVSCodeWebview()) return;
+
+    console.log('[App] Registering message handler for VS Code messages');
+
+    const messageHandler = (message: any) => {
+      console.log('[App] Received message from VS Code:', message);
+      if (message.type === 'highlightLog') {
+        console.log('[App] highlightLog message received, logIndex:', message.logIndex);
+        handleHighlightFromVSCode(message.logIndex);
+      } else {
+        console.log('[App] Unknown message type:', message.type);
+      }
+    };
+
+    addMessageHandler(messageHandler);
+
+    return () => {
+      console.log('[App] Unregistering message handler');
+      removeMessageHandler(messageHandler);
+    };
+  });
+
+  function handleHighlightFromVSCode(logIndex: number) {
+    console.log('[App] handleHighlightFromVSCode called with logIndex:', logIndex);
+    console.log('[App] Current activeTab:', activeTab);
+
+    // Highlight the log (existing highlightedLogIndex state handles the visual)
+    highlightedLogIndex = logIndex;
+    console.log('[App] Set highlightedLogIndex to:', logIndex);
+
+    // Stay in current view (History or Streams) - the existing scroll-to-highlighted logic will handle scrolling
+    // If not in a log view, default to History
+    if (activeTab !== "history" && activeTab !== "streams") {
+      console.log('[App] Not in history or streams view, switching to history');
+      activeTab = "history";
+    }
+
+    // Clear highlight after animation
+    setTimeout(() => {
+      console.log('[App] Clearing highlightedLogIndex');
+      highlightedLogIndex = null;
+    }, 2000);
+  }
+
+  function findLogIndexForFrame(filename: string, lineNumber: number): number | null {
+    for (const callSite of data.call_sites) {
+      if (callSite.filename === filename && callSite.line === lineNumber) {
+        if (callSite.value_groups.length > 0) {
+          return callSite.value_groups[0].log_index;
+        }
+      }
+    }
+    return null;
+  }
 
   function handleShowInHistory(logIndex: number) {
     highlightedLogIndex = logIndex;
@@ -852,21 +909,21 @@
           <button
             class="nav-button"
             onclick={() =>
-              selectedLogIndex !== null && handleShowInStream(selectedLogIndex)}
-            disabled={selectedLogIndex === null}
-            title="Jump to Stream"
-          >
-            <Table size={18} />
-          </button>
-          <button
-            class="nav-button"
-            onclick={() =>
               selectedLogIndex !== null &&
               handleShowInHistory(selectedLogIndex)}
             disabled={selectedLogIndex === null}
             title="Jump to History"
           >
             <Logs size={18} />
+          </button>
+          <button
+            class="nav-button"
+            onclick={() =>
+              selectedLogIndex !== null && handleShowInStream(selectedLogIndex)}
+            disabled={selectedLogIndex === null}
+            title="Jump to Stream"
+          >
+            <Table size={18} />
           </button>
           <button class="close-button" onclick={closeSidebar}>×</button>
         </div>
@@ -936,9 +993,14 @@
                       class="frame-location clickable"
                       onclick={(e) => {
                         e.stopPropagation();
-                        openFileInVSCode(frame.filename, frame.line_number);
+                        const logIndex = findLogIndexForFrame(frame.filename, frame.line_number);
+                        if (logIndex !== null) {
+                          navigateToLogInVSCode(logIndex);
+                        } else {
+                          openFileInVSCode(frame.filename, frame.line_number);
+                        }
                       }}
-                      title="Open in editor: {frame.filename}:{frame.line_number}"
+                      title="Navigate to code: {frame.filename}:{frame.line_number}"
                     >
                       {frame.filename}:{frame.line_number}
                     </button>

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { AutopsyData, LogLocation } from './types';
+import { AutopsyData, LogLocation, NavigationContext, LogEntry } from './types';
+import { AutopsyCodeLensProvider } from './codeLensProvider';
 
 export class AutopsyPanel {
   public static currentPanel: AutopsyPanel | undefined;
@@ -11,15 +12,25 @@ export class AutopsyPanel {
   private _onLogDataUpdate = new vscode.EventEmitter<LogLocation[]>();
   public readonly onLogDataUpdate = this._onLogDataUpdate.event;
   private static _logDataUpdateCallback?: (locations: LogLocation[]) => void;
+  private static _codeLensProvider?: AutopsyCodeLensProvider;
+  private _navigationContext: NavigationContext = {
+    currentLogIndex: null,
+    logEntries: [],
+    logIndexMap: new Map()
+  };
 
   public static createOrShow(
     extensionUri: vscode.Uri,
     outputChannel: vscode.OutputChannel,
-    logDataUpdateCallback?: (locations: LogLocation[]) => void
+    logDataUpdateCallback?: (locations: LogLocation[]) => void,
+    codeLensProvider?: AutopsyCodeLensProvider
   ) {
-    // Store the callback for use by new or existing panel
+    // Store the callback and provider for use by new or existing panel
     if (logDataUpdateCallback) {
       AutopsyPanel._logDataUpdateCallback = logDataUpdateCallback;
+    }
+    if (codeLensProvider) {
+      AutopsyPanel._codeLensProvider = codeLensProvider;
     }
 
     // If panel exists, reveal it
@@ -230,6 +241,10 @@ export class AutopsyPanel {
           message.column || 0
         );
         break;
+      case 'navigateToLog':
+        this._outputChannel.appendLine(`Navigating to log: ${message.logIndex}`);
+        await this._handleNavigateToLog(message.logIndex);
+        break;
       case 'console':
         // Forward console messages from webview to output channel
         const level = message.level || 'log';
@@ -254,6 +269,10 @@ export class AutopsyPanel {
       const locations = this._extractLogLocations(data);
       this._outputChannel.appendLine(`Extracted ${locations.length} log locations`);
       this._onLogDataUpdate.fire(locations);
+
+      // Build navigation context for log stepping
+      this._navigationContext = this._buildNavigationContext(data);
+      this._outputChannel.appendLine(`Built navigation context with ${this._navigationContext.logEntries.length} log entries`);
 
       // Also call the static callback if registered
       if (AutopsyPanel._logDataUpdateCallback) {
@@ -355,6 +374,38 @@ export class AutopsyPanel {
     return locations;
   }
 
+  /**
+   * Build navigation context from autopsy data
+   */
+  private _buildNavigationContext(data: AutopsyData): NavigationContext {
+    const logEntries: LogEntry[] = [];
+
+    // Extract all value groups from all call sites
+    for (const callSite of data.call_sites) {
+      for (const valueGroup of callSite.value_groups) {
+        logEntries.push({
+          logIndex: valueGroup.log_index,
+          filename: callSite.filename,
+          line: callSite.line,
+          callSite: callSite,
+          stackTraceId: valueGroup.stack_trace_id
+        });
+      }
+    }
+
+    // Sort by log_index for sequential navigation
+    logEntries.sort((a, b) => a.logIndex - b.logIndex);
+
+    // Build map for O(1) lookup
+    const logIndexMap = new Map(logEntries.map(e => [e.logIndex, e]));
+
+    return {
+      currentLogIndex: null,
+      logEntries,
+      logIndexMap
+    };
+  }
+
   private async _openFileAtLocation(
     filename: string,
     line: number,
@@ -412,6 +463,110 @@ export class AutopsyPanel {
       return vscode.ViewColumn.Two;
     } else {
       return vscode.ViewColumn.One;
+    }
+  }
+
+  /**
+   * Handle navigation to a specific log
+   */
+  private async _handleNavigateToLog(logIndex: number) {
+    this._outputChannel.appendLine(`_handleNavigateToLog called with logIndex: ${logIndex}`);
+
+    const entry = this._navigationContext.logIndexMap.get(logIndex);
+    if (!entry) {
+      this._outputChannel.appendLine(`Log index ${logIndex} not found in navigation context`);
+      return;
+    }
+
+    this._outputChannel.appendLine(`Found entry at ${entry.filename}:${entry.line}`);
+
+    // Update current log index
+    this._navigationContext.currentLogIndex = logIndex;
+    this._outputChannel.appendLine(`Updated currentLogIndex to ${logIndex}`);
+
+    // Open file at location
+    await this._openFileAtLocation(entry.filename, entry.line, 0);
+    this._outputChannel.appendLine(`Opened file at location`);
+
+    // Update CodeLens provider with current context
+    if (AutopsyPanel._codeLensProvider) {
+      this._outputChannel.appendLine(`Updating CodeLens provider with logIndex ${logIndex}`);
+      AutopsyPanel._codeLensProvider.setNavigationContext(logIndex, this._navigationContext);
+      this._outputChannel.appendLine(`CodeLens provider updated`);
+    } else {
+      this._outputChannel.appendLine(`WARNING: CodeLens provider not available`);
+    }
+
+    // Send highlight message to webview
+    this._outputChannel.appendLine(`Sending highlight message for logIndex ${logIndex}`);
+    this._sendHighlightMessage(logIndex);
+    this._outputChannel.appendLine(`Highlight message sent`);
+  }
+
+  /**
+   * Send highlight message to webview
+   */
+  private _sendHighlightMessage(logIndex: number) {
+    try {
+      this._panel.webview.postMessage({
+        type: 'highlightLog',
+        logIndex: logIndex
+      });
+      this._outputChannel.appendLine(`Successfully posted highlightLog message with logIndex: ${logIndex}`);
+    } catch (error) {
+      this._outputChannel.appendLine(`ERROR posting highlightLog message: ${error}`);
+    }
+  }
+
+  /**
+   * Navigate to previous log
+   */
+  public async navigateToPreviousLog() {
+    this._outputChannel.appendLine(`navigateToPreviousLog called, current: ${this._navigationContext.currentLogIndex}`);
+
+    if (this._navigationContext.currentLogIndex === null) {
+      this._outputChannel.appendLine('No current log index for navigation');
+      return;
+    }
+
+    const currentIdx = this._navigationContext.logEntries.findIndex(
+      e => e.logIndex === this._navigationContext.currentLogIndex
+    );
+
+    this._outputChannel.appendLine(`Current index in array: ${currentIdx}`);
+
+    if (currentIdx > 0) {
+      const prevEntry = this._navigationContext.logEntries[currentIdx - 1];
+      this._outputChannel.appendLine(`Navigating to previous log: ${prevEntry.logIndex} at ${prevEntry.filename}:${prevEntry.line}`);
+      await this._handleNavigateToLog(prevEntry.logIndex);
+    } else {
+      this._outputChannel.appendLine('Already at first log');
+    }
+  }
+
+  /**
+   * Navigate to next log
+   */
+  public async navigateToNextLog() {
+    this._outputChannel.appendLine(`navigateToNextLog called, current: ${this._navigationContext.currentLogIndex}`);
+
+    if (this._navigationContext.currentLogIndex === null) {
+      this._outputChannel.appendLine('No current log index for navigation');
+      return;
+    }
+
+    const currentIdx = this._navigationContext.logEntries.findIndex(
+      e => e.logIndex === this._navigationContext.currentLogIndex
+    );
+
+    this._outputChannel.appendLine(`Current index in array: ${currentIdx}, total entries: ${this._navigationContext.logEntries.length}`);
+
+    if (currentIdx < this._navigationContext.logEntries.length - 1) {
+      const nextEntry = this._navigationContext.logEntries[currentIdx + 1];
+      this._outputChannel.appendLine(`Navigating to next log: ${nextEntry.logIndex} at ${nextEntry.filename}:${nextEntry.line}`);
+      await this._handleNavigateToLog(nextEntry.logIndex);
+    } else {
+      this._outputChannel.appendLine('Already at last log');
     }
   }
 

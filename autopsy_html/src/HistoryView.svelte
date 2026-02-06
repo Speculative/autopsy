@@ -5,6 +5,8 @@
   import CodeLocation from "./CodeLocation.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, getComputedColumnDisplayName } from "./computedColumns";
+  import { isVSCodeWebview, navigateToLogInVSCode } from "./vscodeApi";
+  import { FileCodeCorner } from "lucide-svelte";
 
   interface Props {
     data: AutopsyData;
@@ -547,6 +549,19 @@
                       <span class="log-number-text">#{skippedEntry.log_index}</span>
                     </span>
 
+                    {#if isVSCodeWebview()}
+                      <button
+                        class="nav-to-code-button"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          navigateToLogInVSCode(skippedEntry.log_index);
+                        }}
+                        title="Navigate to code location"
+                      >
+                        <FileCodeCorner size={14} />
+                      </button>
+                    {/if}
+
                     <div class="entry-content">
                       {#if showCodeLocations}
                         <CodeLocation
@@ -723,6 +738,19 @@
             <span class="log-number-arrow">⬅️</span>
             <span class="log-number-text">#{entry.log_index}</span>
           </span>
+
+          {#if isVSCodeWebview()}
+            <button
+              class="nav-to-code-button"
+              onclick={(e) => {
+                e.stopPropagation();
+                navigateToLogInVSCode(entry.log_index);
+              }}
+              title="Navigate to code location"
+            >
+              <FileCodeCorner size={14} />
+            </button>
+          {/if}
 
           <div class="entry-content">
             {#if showCodeLocations}
@@ -1326,5 +1354,27 @@
     height: 1px;
     background: #e5e5e5;
     margin: 0.25rem 0;
+  }
+
+  .nav-to-code-button {
+    background: none;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: 0 4px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s, border-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #6b7280;
+    flex-shrink: 0;
+  }
+
+  .nav-to-code-button:hover {
+    opacity: 1;
+    border-color: #3b82f6;
+    color: #3b82f6;
   }
 </style>
