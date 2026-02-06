@@ -14,6 +14,7 @@ from .autopsy_result import (
     _AttributeProxy,
     _capture_error_location,
 )
+from .json_utils import sanitize_float
 
 
 @dataclass
@@ -440,6 +441,9 @@ class CallStack:
             # Truncate long strings
             if isinstance(value, str) and len(value) > 1000:
                 return value[:997] + "..."
+            # Handle special float values (infinity and NaN) which are not valid JSON
+            if isinstance(value, float):
+                return sanitize_float(value)
             return value
 
         # Handle circular references

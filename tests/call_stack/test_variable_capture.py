@@ -463,6 +463,70 @@ def test_max_depth_handling():
     test_function()
 
 
+def test_special_float_values_in_variables():
+    """Test that inf, -inf, and NaN in local variables are JSON-serializable.
+
+    This is a regression test for a bug where float('inf') in captured local
+    variables (e.g. from a Floyd-Warshall distance matrix) would cause
+    json.dumps(..., allow_nan=False) to fail with:
+    'Out of range float values are not JSON compliant: inf'
+    """
+
+    def test_function():
+        inf_var = float('inf')  # noqa: F841
+        neg_inf_var = float('-inf')  # noqa: F841
+        nan_var = float('nan')  # noqa: F841
+        normal_var = 42.5  # noqa: F841
+
+        cs = call_stack()
+        trace = cs.capture_stack_trace()
+
+        for frame in trace.frames:
+            if frame.function_name == "test_function":
+                local_vars = frame.local_variables
+                # Values should be converted to string representations
+                assert local_vars["inf_var"] == "Infinity"
+                assert local_vars["neg_inf_var"] == "-Infinity"
+                assert local_vars["nan_var"] == "NaN"
+                # Normal floats should remain as floats
+                assert local_vars["normal_var"] == 42.5
+
+                # The entire local_vars dict must be JSON-serializable
+                # with allow_nan=False (matching how report.py serializes)
+                json_str = json.dumps(local_vars, allow_nan=False)
+                parsed = json.loads(json_str)
+                assert parsed["inf_var"] == "Infinity"
+                assert parsed["neg_inf_var"] == "-Infinity"
+                assert parsed["nan_var"] == "NaN"
+                assert parsed["normal_var"] == 42.5
+                break
+
+    test_function()
+
+
+def test_special_float_values_in_nested_structures():
+    """Test that inf/NaN inside lists and dicts in local variables are handled."""
+
+    def test_function():
+        distances = [0, float('inf'), 3.5, float('-inf')]  # noqa: F841
+        matrix = {"a": float('inf'), "b": float('nan'), "c": 1.0}  # noqa: F841
+
+        cs = call_stack()
+        trace = cs.capture_stack_trace()
+
+        for frame in trace.frames:
+            if frame.function_name == "test_function":
+                local_vars = frame.local_variables
+                assert local_vars["distances"] == [0, "Infinity", 3.5, "-Infinity"]
+                assert local_vars["matrix"] == {"a": "Infinity", "b": "NaN", "c": 1.0}
+
+                # Must be JSON-serializable with allow_nan=False
+                json.dumps(local_vars, allow_nan=False)
+                break
+
+    test_function()
+
+
 def test_mixed_filtering():
     """Test filtering with a mix of all skippable types."""
 

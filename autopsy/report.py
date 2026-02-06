@@ -14,6 +14,7 @@ from threading import RLock
 from typing import Any, Dict, List, Optional, Tuple
 
 from .call_stack import CallStack, StackTrace, call_stack
+from .json_utils import sanitize_float
 
 
 @dataclass
@@ -1191,14 +1192,8 @@ class Report:
             JSON-serializable representation of the value
         """
         # Handle special float values (infinity and NaN) which are not valid JSON
-        import math
         if isinstance(value, float):
-            if math.isinf(value):
-                # Return string representation for infinity (valid JSON)
-                return "Infinity" if value > 0 else "-Infinity"
-            elif math.isnan(value):
-                # Return string representation for NaN (valid JSON)
-                return "NaN"
+            return sanitize_float(value)
 
         # Handle compound types recursively to convert any infinity values inside
         if isinstance(value, (list, tuple)):
