@@ -1386,7 +1386,7 @@ def _atexit_handler():
     Automatically write out HTML report if:
     1. The report was initialized (had at least one log call)
     2. The report was not already written to a file
-    3. We're not in live mode
+    3. We're not in live mode (or in live mode, wait for client to receive logs)
     4. Atexit is enabled (not disabled for tests)
     """
     if not _atexit_enabled:
@@ -1402,7 +1402,37 @@ def _atexit_handler():
         return
 
     if _report_instance._config.live_mode:
-        # In live mode, don't auto-write
+        # In live mode, wait for logs to be transmitted to a client before exiting
+        try:
+            from autopsy import live_server
+            import time
+
+            # Check if there's any data to transmit
+            has_data = (
+                _report_instance._logs
+                or _report_instance._dashboard_logs
+                or _report_instance._timeline
+                or _report_instance._happened
+            )
+
+            if has_data:
+                print("\n⏳ Waiting for client to connect and receive logs...", file=sys.stderr)
+
+                # Wait for logs to be transmitted (with timeout)
+                timeout = 300  # 5 minutes
+                start_time = time.time()
+                while not live_server.logs_transmitted():
+                    if time.time() - start_time > timeout:
+                        print("\n⚠️  Timeout: No client connected to receive logs.", file=sys.stderr)
+                        break
+                    time.sleep(0.1)
+
+                if live_server.logs_transmitted():
+                    print("✓ Logs transmitted to client successfully.", file=sys.stderr)
+        except Exception as e:
+            print(f"\nWarning: Error waiting for client: {e}", file=sys.stderr)
+
+        # Don't auto-write HTML in live mode
         return
 
     # Check if there's any data to write

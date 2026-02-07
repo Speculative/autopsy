@@ -170,7 +170,7 @@
             console.log('WebSocket closed');
             connectionStatus = 'disconnected';
             // Attempt reconnect after 2s
-            setTimeout(() => loadData(), 2000);
+            setTimeout(() => loadData(), 200);
           }
         });
 

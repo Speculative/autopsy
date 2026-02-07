@@ -166,3 +166,41 @@ def pytest_configure(config):
     # Reset test capture at start of pytest session
     global _test_capture
     _test_capture = AutopsyTestCapture()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Called after whole test session finishes, right before returning exit status to system."""
+    # In live mode, wait for logs to be transmitted to a client before finishing
+    report = get_report()
+
+    if report._config.live_mode and report._initialized:
+        try:
+            from autopsy import live_server
+            import time
+            import sys
+
+            # Check if there's any data to transmit
+            has_data = (
+                report._logs
+                or report._dashboard_logs
+                or report._timeline
+                or report._happened
+            )
+
+            if has_data and not live_server.logs_transmitted():
+                print("\n⏳ Waiting for client to connect and receive logs...", file=sys.stderr)
+
+                # Wait for logs to be transmitted (with timeout)
+                timeout = 300  # 5 minutes
+                start_time = time.time()
+                while not live_server.logs_transmitted():
+                    if time.time() - start_time > timeout:
+                        print("\n⚠️  Timeout: No client connected to receive logs.", file=sys.stderr)
+                        break
+                    time.sleep(0.1)
+
+                if live_server.logs_transmitted():
+                    print("✓ Logs transmitted to client successfully.", file=sys.stderr)
+        except Exception as e:
+            import sys
+            print(f"\nWarning: Error waiting for client: {e}", file=sys.stderr)

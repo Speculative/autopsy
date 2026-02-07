@@ -21,11 +21,14 @@ connections: Set[WebSocket] = set()
 _server_thread = None
 _server = None
 _loop = None
+_logs_transmitted = False  # Track if logs have been sent to a client at least once
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for streaming autopsy report updates."""
+    global _logs_transmitted
+
     await websocket.accept()
     connections.add(websocket)
 
@@ -37,6 +40,9 @@ async def websocket_endpoint(websocket: WebSocket):
             "data": report.to_json()
         }
         await websocket.send_json(snapshot)
+
+        # Mark that logs have been transmitted to at least one client
+        _logs_transmitted = True
 
         # Keep connection alive and listen for messages
         while True:
@@ -159,3 +165,14 @@ def queue_broadcast(update: dict):
     if _loop and _loop.is_running():
         # Schedule the coroutine on the server's event loop
         asyncio.run_coroutine_threadsafe(broadcast_update(update), _loop)
+
+
+def logs_transmitted() -> bool:
+    """
+    Check if logs have been transmitted to at least one client.
+
+    Returns:
+        True if logs have been sent to a client, False otherwise
+    """
+    global _logs_transmitted
+    return _logs_transmitted
