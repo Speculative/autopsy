@@ -536,7 +536,8 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .test-name {
@@ -547,12 +548,15 @@
     line-height: 1.4;
     display: flex;
     align-items: center;
+    flex-shrink: 0;
   }
 
   .inline-location {
-    flex-shrink: 0;
+    flex: 1;
     display: flex;
     align-items: center;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .expand-indicator {
@@ -560,6 +564,7 @@
     color: #6b7280;
     margin-left: 4px;
     transition: transform 0.15s;
+    flex-shrink: 0;
   }
 
   .test-logs {
@@ -568,6 +573,9 @@
     background: #f3f4f6;
     padding: 2px 8px;
     border-radius: 4px;
+    flex-shrink: 0;
+    min-width: 60px;
+    text-align: center;
   }
 
   .test-error-summary {
@@ -606,6 +614,7 @@
   .test-menu {
     position: relative;
     margin-left: auto;
+    flex-shrink: 0;
   }
 
   .test-menu-button {

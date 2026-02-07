@@ -141,6 +141,10 @@
     color: #9ca3af !important;
     font-size: 0.7rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
   }
 
   .code-location.clickable.compact:hover .compact-text {
