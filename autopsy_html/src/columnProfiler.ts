@@ -218,49 +218,68 @@ function detectDataType(values: unknown[], options: ProfileOptions): ColumnDataT
 function profileNumeric(values: unknown[], options: ProfileOptions): NumericProfile {
   const numBins = options.numHistogramBins ?? 20;
 
-  const numbers = values.filter(v => typeof v === 'number') as number[];
-  const nullCount = values.length - numbers.length;
-
-  if (numbers.length === 0) {
-    return {
-      type: 'numeric',
-      min: 0,
-      max: 0,
-      count: 0,
-      nullCount,
-      bins: []
-    };
-  }
-
-  const min = Math.min(...numbers);
-  const max = Math.max(...numbers);
-  const range = max - min;
+  // Separate finite numbers from special values
+  const allNumbers = values.filter(v => typeof v === 'number') as number[];
+  const finiteNumbers = allNumbers.filter(v => isFinite(v));
+  const negInfCount = allNumbers.filter(v => v === -Infinity).length;
+  const posInfCount = allNumbers.filter(v => v === Infinity).length;
+  const nanCount = allNumbers.filter(v => Number.isNaN(v)).length;
+  const nullCount = values.length - allNumbers.length;
 
   // Create histogram bins
   const bins: Array<{ min: number; max: number; count: number }> = [];
-  if (range === 0) {
-    // All same value
-    bins.push({ min, max, count: numbers.length });
-  } else {
-    const binSize = range / numBins;
-    for (let i = 0; i < numBins; i++) {
-      const binMin = min + i * binSize;
-      const binMax = min + (i + 1) * binSize;
-      bins.push({ min: binMin, max: binMax, count: 0 });
-    }
 
-    // Count values in each bin
-    for (const num of numbers) {
-      const binIndex = Math.min(Math.floor((num - min) / binSize), numBins - 1);
-      bins[binIndex].count++;
+  // Add -Infinity bin if present
+  if (negInfCount > 0) {
+    bins.push({ min: -Infinity, max: -Infinity, count: negInfCount });
+  }
+
+  // Add regular numeric bins if we have finite numbers
+  if (finiteNumbers.length > 0) {
+    const min = Math.min(...finiteNumbers);
+    const max = Math.max(...finiteNumbers);
+    const range = max - min;
+
+    if (range === 0) {
+      // All same value - this bin goes after the -Inf bin if it exists
+      bins.push({ min, max, count: finiteNumbers.length });
+    } else {
+      const binSize = range / numBins;
+      for (let i = 0; i < numBins; i++) {
+        const binMin = min + i * binSize;
+        const binMax = min + (i + 1) * binSize;
+        bins.push({ min: binMin, max: binMax, count: 0 });
+      }
+
+      // Count values in each bin
+      // Note: bins array already has the -Inf bin if it exists, so offset by that
+      const binOffset = negInfCount > 0 ? 1 : 0;
+      for (const num of finiteNumbers) {
+        const binIndex = Math.min(Math.floor((num - min) / binSize), numBins - 1);
+        bins[binOffset + binIndex].count++;
+      }
     }
   }
 
+  // Add Infinity bin if present
+  if (posInfCount > 0) {
+    bins.push({ min: Infinity, max: Infinity, count: posInfCount });
+  }
+
+  // Add NaN bin if present (rightmost)
+  if (nanCount > 0) {
+    bins.push({ min: NaN, max: NaN, count: nanCount });
+  }
+
+  // Calculate overall min/max for the profile (excluding special values)
+  const profileMin = finiteNumbers.length > 0 ? Math.min(...finiteNumbers) : 0;
+  const profileMax = finiteNumbers.length > 0 ? Math.max(...finiteNumbers) : 0;
+
   return {
     type: 'numeric',
-    min,
-    max,
-    count: numbers.length,
+    min: profileMin,
+    max: profileMax,
+    count: allNumbers.length,
     nullCount,
     bins
   };

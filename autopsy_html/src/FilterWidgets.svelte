@@ -207,6 +207,18 @@
     }
   }
 
+  // Helper to format bin labels
+  function formatBinLabel(min: number, max: number): string {
+    // Handle special values
+    if (Number.isNaN(min)) return 'NaN';
+    if (min === -Infinity) return '-∞';
+    if (min === Infinity) return '∞';
+
+    // Handle regular numeric ranges
+    if (min === max) return min.toFixed(2);
+    return `${min.toFixed(2)} - ${max.toFixed(2)}`;
+  }
+
   // Derived values
   const maxBinCount = $derived(
     profile.type === 'numeric' ? Math.max(...profile.bins.map(b => b.count), 1) : 1
@@ -237,10 +249,13 @@
       <div class="histogram">
         {#each profile.bins as bin}
           {@const height = (bin.count / maxBinCount) * 100}
+          {@const label = formatBinLabel(bin.min, bin.max)}
+          {@const isSpecial = !isFinite(bin.min) || Number.isNaN(bin.min)}
           <div
             class="histogram-bar"
+            class:special-value={isSpecial}
             style="height: {height}%"
-            title="{bin.min.toFixed(2)} - {bin.max.toFixed(2)}: {bin.count} values"
+            title="{label}: {bin.count} values"
           ></div>
         {/each}
       </div>
@@ -452,6 +467,11 @@
     background: linear-gradient(to top, #3b82f6, #60a5fa);
     min-height: 2px;
     transition: opacity 0.2s;
+  }
+
+  .histogram-bar.special-value {
+    background: linear-gradient(to top, #f59e0b, #fbbf24);
+    border-left: 1px solid #d97706;
   }
 
   .histogram-bar:hover {
