@@ -93,6 +93,17 @@ class AutopsyTestCapture:
         self.test_results.append(test_result)
         self.test_start_log_index = None
 
+        # Broadcast test update in live mode
+        if report._live_mode_enabled:
+            try:
+                from autopsy import live_server
+                live_server.queue_broadcast({
+                    "type": "test",
+                    "test": test_result.to_dict(),
+                })
+            except Exception:
+                pass
+
     def get_results(self) -> List[Dict[str, Any]]:
         """Get all test results as JSON-serializable dicts."""
         return [result.to_dict() for result in self.test_results]

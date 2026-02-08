@@ -10,7 +10,7 @@ export interface WebSocketConfig {
 }
 
 export interface IncrementalUpdate {
-  type: 'log' | 'count' | 'hist' | 'timeline' | 'happened' | 'snapshot';
+  type: 'log' | 'count' | 'hist' | 'timeline' | 'happened' | 'snapshot' | 'test';
   call_site?: {
     filename: string;
     line: number;
@@ -20,6 +20,7 @@ export interface IncrementalUpdate {
   value_group?: any;
   stack_trace?: Record<string, StackTrace>;
   data?: AutopsyData;
+  test?: any;
 }
 
 export function createWebSocketConnection(config: WebSocketConfig): WebSocket {
@@ -144,6 +145,10 @@ export function mergeIncrementalUpdate(
       update.call_site,
       update.value_group
     );
+  }
+
+  if (update.type === 'test' && update.test) {
+    updated.tests = [...(current.tests || []), update.test];
   }
 
   if (update.stack_trace) {
