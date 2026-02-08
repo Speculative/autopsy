@@ -11,9 +11,24 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
   public readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
   private outputChannel: vscode.OutputChannel;
   private navigationContext: { currentLogIndex: number; context: NavigationContext } | null = null;
+  private _codeLensDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly CODELENS_DEBOUNCE_MS = 300;
 
   constructor(outputChannel: vscode.OutputChannel) {
     this.outputChannel = outputChannel;
+  }
+
+  /**
+   * Debounced CodeLens refresh - coalesces rapid updates into a single refresh.
+   */
+  private _debouncedFireCodeLens() {
+    if (this._codeLensDebounceTimer !== null) {
+      clearTimeout(this._codeLensDebounceTimer);
+    }
+    this._codeLensDebounceTimer = setTimeout(() => {
+      this._codeLensDebounceTimer = null;
+      this._onDidChangeCodeLenses.fire();
+    }, AutopsyCodeLensProvider.CODELENS_DEBOUNCE_MS);
   }
 
   /**
@@ -30,8 +45,8 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
       this.logLocations.set(location.filename, existing);
     }
 
-    // Notify VS Code to refresh CodeLens
-    this._onDidChangeCodeLenses.fire();
+    // Notify VS Code to refresh CodeLens (debounced)
+    this._debouncedFireCodeLens();
   }
 
   /**
@@ -208,6 +223,10 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
    */
   clear() {
     this.logLocations.clear();
+    if (this._codeLensDebounceTimer !== null) {
+      clearTimeout(this._codeLensDebounceTimer);
+      this._codeLensDebounceTimer = null;
+    }
     this._onDidChangeCodeLenses.fire();
   }
 
@@ -215,6 +234,10 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
    * Dispose of resources
    */
   dispose() {
+    if (this._codeLensDebounceTimer !== null) {
+      clearTimeout(this._codeLensDebounceTimer);
+      this._codeLensDebounceTimer = null;
+    }
     this._onDidChangeCodeLenses.dispose();
     this.clear();
   }

@@ -334,10 +334,9 @@
     return () => window.removeEventListener("hashchange", handleHashChange);
   });
 
-  // Send data updates to VS Code extension when data changes
+  // Send data updates to VS Code extension when data changes (debounced in vscodeApi)
   $effect(() => {
     if (isVSCodeWebview() && data.call_sites.length > 0) {
-      console.log("Sending log data update to VS Code extension");
       sendLogDataUpdate(data);
     }
   });

@@ -27,7 +27,6 @@ export function activate(context: vscode.ExtensionContext) {
   // Register command to open the Autopsy viewer
   const openViewerCmd = vscode.commands.registerCommand('autopsy.openViewer', () => {
     outputChannel.appendLine('Opening Autopsy Viewer...');
-    outputChannel.show(true); // Show output channel (preserveFocus=true)
     try {
       AutopsyPanel.createOrShow(context.extensionUri, outputChannel, handleLogDataUpdate, codeLensProvider);
       outputChannel.appendLine('Autopsy Viewer panel created successfully');
