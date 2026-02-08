@@ -5,7 +5,7 @@
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
   import FilterWidgets from "./FilterWidgets.svelte";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId, isFrameIndexStable } from "./computedColumns";
   import { profileColumn } from "./columnProfiler";
   import { ListFilter, FileCodeCorner, Logs } from "lucide-svelte";
@@ -110,6 +110,9 @@
   // Track which call sites have expanded filtered logs
   let expandedFilteredLogs = $state<Set<string>>(new Set());
 
+  // Track which call sites have expanded all logs (default shows first 20)
+  let expandedAllLogs = $state<Set<string>>(new Set());
+
   // Track table container refs for initial width computation
   let tableContainers = $state<Record<string, HTMLDivElement | null>>({});
 
@@ -134,6 +137,24 @@
 
   // Cache for Python expression filter results (callSiteKey:columnName -> log_index -> boolean)
   let pythonFilterCache = $state<Map<string, Map<number, boolean>>>(new Map());
+
+  // Cache for getColumnNames results (callSiteKey -> column names array)
+  let columnNamesCache = $state<Map<string, string[]>>(new Map());
+
+  // Cache for isColumnSortable results (callSiteKey:columnName -> boolean)
+  let columnSortableCache = $state<Map<string, boolean>>(new Map());
+
+  // Cache for valueGroup.values lookups (WeakMap so it doesn't prevent GC)
+  const valueGroupCache = new WeakMap<ValueGroup, Map<string, unknown>>();
+
+  // Invalidate columnNamesCache when dependencies change
+  $effect(() => {
+    // Trigger reactivity on dependencies that affect column names
+    const _ = [data, computedColumns, hiddenColumns, columnOrders];
+    // Clear the cache when any dependency changes
+    columnNamesCache = new Map();
+    columnSortableCache = new Map();
+  });
 
   // Pre-compute all computed columns when data or columns change
   $effect(() => {
@@ -300,6 +321,57 @@
     expandedFilteredLogs = newSet;
   }
 
+  function toggleAllLogs(callSite: CallSite) {
+    const key = getCallSiteKey(callSite);
+    const newSet = new Set(expandedAllLogs);
+    if (newSet.has(key)) {
+      newSet.delete(key);
+    } else {
+      newSet.add(key);
+    }
+    expandedAllLogs = newSet;
+  }
+
+  // Unified toggle for handling both short view and filtered logs
+  function toggleExpandLogs(callSite: FilteredCallSite) {
+    const key = getCallSiteKey(callSite);
+    const isAllExpanded = expandedAllLogs.has(key);
+    const isFilteredExpanded = expandedFilteredLogs.has(key);
+    const hasFilteredLogs = (callSite.filtered_value_groups?.length ?? 0) > 0;
+    const MAX_INITIAL_ROWS = 20;
+    const hasMoreLogs = callSite.value_groups.length > MAX_INITIAL_ROWS;
+
+    // Case 1: In short view with filtered logs - first click expands to show all unfiltered
+    if (!isAllExpanded && hasMoreLogs && hasFilteredLogs) {
+      const newSet = new Set(expandedAllLogs);
+      newSet.add(key);
+      expandedAllLogs = newSet;
+    }
+    // Case 2: In long view (or short view without more logs) with filtered logs - click shows filtered
+    else if (hasFilteredLogs && !isFilteredExpanded) {
+      const newSet = new Set(expandedFilteredLogs);
+      newSet.add(key);
+      expandedFilteredLogs = newSet;
+    }
+    // Case 3: Already expanded filtered logs - collapse them
+    else if (isFilteredExpanded) {
+      const newSet = new Set(expandedFilteredLogs);
+      newSet.delete(key);
+      expandedFilteredLogs = newSet;
+    }
+    // Case 4: In short view without filtered logs - expand to show all
+    else if (!isAllExpanded && hasMoreLogs) {
+      const newSet = new Set(expandedAllLogs);
+      newSet.add(key);
+      expandedAllLogs = newSet;
+    }
+  }
+
+  function isAllLogsExpanded(callSite: CallSite): boolean {
+    const key = getCallSiteKey(callSite);
+    return expandedAllLogs.has(key);
+  }
+
   function isCollapsed(callSite: CallSite): boolean {
     const key = getCallSiteKey(callSite);
     // Dashboard call sites are collapsed by default
@@ -328,47 +400,64 @@
   function getColumnNames(callSite: CallSite | FilteredCallSite): string[] {
     const callSiteKey = getCallSiteKey(callSite);
 
-    // Get regular columns from both visible and filtered value groups
-    const columnNames = new Set<string>();
-    const allValueGroups = [
-      ...callSite.value_groups,
-      ...((callSite as FilteredCallSite).filtered_value_groups || [])
-    ];
+    // Check cache first
+    const cached = columnNamesCache.get(callSiteKey);
+    if (cached) {
+      return cached;
+    }
 
-    for (const valueGroup of allValueGroups) {
-      if (valueGroup.values) {
-        for (const value of valueGroup.values) {
-          if (value.name) {
-            columnNames.add(value.name);
+    // Get regular columns from both visible and filtered value groups
+    // Use untrack() to avoid Svelte tracking individual array accesses (cache invalidation is explicit)
+    const result = untrack(() => {
+      const columnNames = new Set<string>();
+      const allValueGroups = [
+        ...callSite.value_groups,
+        ...((callSite as FilteredCallSite).filtered_value_groups || [])
+      ];
+
+      for (const valueGroup of allValueGroups) {
+        if (valueGroup.values) {
+          for (const value of valueGroup.values) {
+            if (value.name) {
+              columnNames.add(value.name);
+            }
           }
         }
       }
-    }
 
-    const regularColumns = Array.from(columnNames);
+      const regularColumns = Array.from(columnNames);
 
-    // Get computed columns for this call site
-    const computed = computedColumns[callSiteKey] || [];
-    const computedColumnNames = computed.map(col => `computed:${col.id}`);
+      // Get computed columns for this call site
+      const computed = computedColumns[callSiteKey] || [];
+      const computedColumnNames = computed.map(col => `computed:${col.id}`);
 
-    const allColumns = [...regularColumns, ...computedColumnNames];
+      const allColumns = [...regularColumns, ...computedColumnNames];
 
-    // Filter out hidden columns
-    const hiddenCols = hiddenColumns[callSiteKey] || new Set<string>();
-    const visibleColumns = allColumns.filter(col => !hiddenCols.has(col));
+      // Filter out hidden columns
+      const hiddenCols = hiddenColumns[callSiteKey] || new Set<string>();
+      const visibleColumns = allColumns.filter(col => !hiddenCols.has(col));
 
-    // If we have a stored order, use it and append any new columns
-    const storedOrder = columnOrders[callSiteKey];
-    if (storedOrder) {
-      // Filter stored order to only include columns that still exist and are visible
-      const orderedCols = storedOrder.filter(col => visibleColumns.includes(col));
-      // Add any new columns not in stored order (preserve original order)
-      const newCols = visibleColumns.filter(col => !storedOrder.includes(col));
-      return [...orderedCols, ...newCols];
-    }
+      // If we have a stored order, use it and append any new columns
+      const storedOrder = columnOrders[callSiteKey];
+      if (storedOrder) {
+        // Use Sets for O(1) lookup instead of array.includes O(n)
+        const visibleSet = new Set(visibleColumns);
+        const storedSet = new Set(storedOrder);
 
-    // Return columns in their natural order from the data (matches call site order)
-    return visibleColumns;
+        // Filter stored order to only include columns that still exist and are visible
+        const orderedCols = storedOrder.filter(col => visibleSet.has(col));
+        // Add any new columns not in stored order (preserve original order)
+        const newCols = visibleColumns.filter(col => !storedSet.has(col));
+        return [...orderedCols, ...newCols];
+      } else {
+        // Return columns in their natural order from the data (matches call site order)
+        return visibleColumns;
+      }
+    });
+
+    // Cache the result
+    columnNamesCache.set(callSiteKey, result);
+    return result;
   }
 
   // Check if a value is a primitive type that can be sorted
@@ -380,30 +469,51 @@
 
   // Check if a column is sortable (all non-undefined values are primitives)
   function isColumnSortable(callSite: CallSite, columnName: string): boolean {
+    const callSiteKey = getCallSiteKey(callSite);
+    const cacheKey = `${callSiteKey}:${columnName}`;
+
+    // Check cache first
+    const cached = columnSortableCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    let result: boolean;
+
     // Check if computed column
     if (columnName.startsWith('computed:')) {
       const columnId = columnName.substring('computed:'.length);
-      const callSiteKey = getCallSiteKey(callSite);
-      const cacheKey = `${callSiteKey}:${columnId}`;
+      const computedCacheKey = `${callSiteKey}:${columnId}`;
 
       // Use cached results for sortability check
-      const cachedResults = computedColumnCache.get(cacheKey);
-      if (!cachedResults) return false;
+      const cachedResults = computedColumnCache.get(computedCacheKey);
+      if (!cachedResults) {
+        result = false;
+      } else {
+        const results = callSite.value_groups.map(vg =>
+          cachedResults.get(vg.log_index) || { value: undefined }
+        );
+        result = isComputedColumnSortable(results);
+      }
+    } else {
+      // Regular column check - sample first 100 rows instead of checking ALL rows
+      const SAMPLE_SIZE = 100;
+      const samplesToCheck = Math.min(SAMPLE_SIZE, callSite.value_groups.length);
 
-      const results = callSite.value_groups.map(vg =>
-        cachedResults.get(vg.log_index) || { value: undefined }
-      );
-      return isComputedColumnSortable(results);
-    }
-
-    // Regular column check
-    for (const valueGroup of callSite.value_groups) {
-      const value = getValueForColumn(valueGroup, columnName, callSite);
-      if (value !== undefined && !isSortable(value)) {
-        return false;
+      result = true;
+      for (let i = 0; i < samplesToCheck; i++) {
+        const valueGroup = callSite.value_groups[i];
+        const value = getValueForColumn(valueGroup, columnName, callSite);
+        if (value !== undefined && !isSortable(value)) {
+          result = false;
+          break;
+        }
       }
     }
-    return true;
+
+    // Cache the result
+    columnSortableCache.set(cacheKey, result);
+    return result;
   }
 
   // Get the current sort state for a column
@@ -730,9 +840,10 @@
         });
       }
 
-      // Calculate filtered-out logs
+      // Calculate filtered-out logs using Set for O(1) lookup
+      const filteredValueGroupsSet = new Set(filteredValueGroups);
       const filteredOutLogs = originalValueGroups.filter(
-        vg => !filteredValueGroups.includes(vg)
+        vg => !filteredValueGroupsSet.has(vg)
       );
 
       // Create filtered call site with both visible and filtered logs
@@ -778,8 +889,14 @@
 
     // Regular column
     if (!valueGroup.values) return undefined;
-    const value = valueGroup.values.find((v) => v.name === columnName);
-    return value?.value;
+
+    // Use cached Map for O(1) lookup instead of O(n) find
+    let valueMap = valueGroupCache.get(valueGroup);
+    if (!valueMap) {
+      valueMap = new Map(valueGroup.values.map(v => [v.name, v.value]));
+      valueGroupCache.set(valueGroup, valueMap);
+    }
+    return valueMap.get(columnName);
   }
 
   function handleRowClick(valueGroup: ValueGroup) {
@@ -1685,8 +1802,12 @@
               ...{callSite.value_groups.length} {callSite.value_groups.length === 1 ? "invocation" : "invocations"}
             </div>
           {:else}
+            {@const MAX_INITIAL_ROWS = 20}
+            {@const isAllExpanded = isAllLogsExpanded(callSite)}
+            {@const visibleGroups = isAllExpanded ? callSite.value_groups : callSite.value_groups.slice(0, MAX_INITIAL_ROWS)}
+            {@const hasMoreLogs = callSite.value_groups.length > MAX_INITIAL_ROWS}
             <div class="value-groups">
-              {#each callSite.value_groups as valueGroup}
+              {#each visibleGroups as valueGroup}
                 {@const mark = logMarks[valueGroup.log_index]}
                 <div
                   class="value-group"
@@ -1724,6 +1845,80 @@
                   </div>
                 </div>
               {/each}
+              {#if callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0 && expandedFilteredLogs.has(callSiteKey)}
+              <!-- Show filtered logs if expanded for dashboard view -->
+                {#each callSite.filtered_value_groups as valueGroup}
+                  {@const mark = logMarks[valueGroup.log_index]}
+                  <div
+                    class="value-group filtered-value-group"
+                    class:highlighted={highlightedLogIndex === valueGroup.log_index}
+                    class:selected={selectedLogIndex === valueGroup.log_index}
+                    class:clickable={valueGroup.stack_trace_id !== undefined}
+                    data-log-index={valueGroup.log_index}
+                    style={mark?.color ? `background-color: ${mark.color};` : ""}
+                    draggable="true"
+                    ondragstart={(e) => {
+                      if (e.dataTransfer) {
+                        e.dataTransfer.setData("text/log-index", valueGroup.log_index.toString());
+                        e.dataTransfer.effectAllowed = "copy";
+                      }
+                    }}
+                    onclick={() => handleRowClick(valueGroup)}
+                  >
+                    <div class="value-group-row">
+                      <span class="log-number">#{valueGroup.log_index}</span>
+                      {#if valueGroup.dashboard_type === "count"}
+                        <span class="dashboard-label">count:</span>
+                        <TreeView value={valueGroup.value} />
+                      {:else if valueGroup.dashboard_type === "hist"}
+                        <span class="dashboard-label">hist:</span>
+                        <TreeView value={valueGroup.value} />
+                      {:else if valueGroup.dashboard_type === "timeline"}
+                        <span class="dashboard-label">timeline:</span>
+                        <span class="dashboard-text">{valueGroup.event_name}</span>
+                      {:else if valueGroup.dashboard_type === "happened"}
+                        <span class="dashboard-label">happened</span>
+                        {#if valueGroup.message}
+                          <span class="dashboard-text">: {valueGroup.message}</span>
+                        {/if}
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              {/if}
+              {#if (hasMoreLogs && !isAllExpanded) || (callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0)}
+              <!-- Unified toggle for dashboard view -->
+                {@const hasFilteredLogs = callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0}
+                <div
+                  class="show-more-logs-div"
+                  onclick={() => toggleExpandLogs(callSite)}
+                  role="button"
+                  tabindex="0"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleExpandLogs(callSite);
+                    }
+                  }}
+                >
+                  {#if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
+                    <!-- Both short view and filtered logs active -->
+                    ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
+                    {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"},
+                    {callSite.filtered_value_groups.length}
+                    filtered
+                  {:else if hasMoreLogs && !isAllExpanded}
+                    <!-- Only short view active -->
+                    ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
+                    {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"}
+                  {:else if hasFilteredLogs}
+                    <!-- Only filtered logs (in long view) -->
+                    ...{callSite.filtered_value_groups.length}
+                    {callSite.filtered_value_groups.length === 1 ? "row" : "rows"}
+                    filtered
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
         {:else if getColumnNames(callSite).length > 0}
@@ -1765,8 +1960,12 @@
                 </tr>
               </tbody>
             {:else}
+              {@const MAX_INITIAL_ROWS = 20}
+              {@const isAllExpanded = isAllLogsExpanded(callSite)}
+              {@const visibleGroups = isAllExpanded ? callSite.value_groups : callSite.value_groups.slice(0, MAX_INITIAL_ROWS)}
+              {@const hasMoreLogs = callSite.value_groups.length > MAX_INITIAL_ROWS}
               <tbody>
-                {#each callSite.value_groups as valueGroup, groupIndex}
+                {#each visibleGroups as valueGroup, groupIndex}
                   {@const mark = logMarks[valueGroup.log_index]}
                   {@const frameContextHighlight = shouldHighlightForFrameContext(valueGroup.stack_trace_id)}
                   <tr
@@ -1865,10 +2064,8 @@
                     {/each}
                   </tr>
                 {/each}
-                {#if callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0}
-                  {@const isExpanded = expandedFilteredLogs.has(callSiteKey)}
-                  <!-- Show filtered logs if expanded -->
-                  {#if isExpanded}
+                <!-- Show filtered logs if expanded -->
+                {#if callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0 && expandedFilteredLogs.has(callSiteKey)}
                     {#each callSite.filtered_value_groups as valueGroup, groupIndex}
                       {@const mark = logMarks[valueGroup.log_index]}
                       {@const frameContextHighlight = shouldHighlightForFrameContext(valueGroup.stack_trace_id)}
@@ -1969,25 +2166,44 @@
                       </tr>
                     {/each}
                   {/if}
-                  <!-- "...n logs" row -->
+
+                {#if (hasMoreLogs && !isAllExpanded) || (callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0)}
+                <!-- Unified toggle row -->
+                  {@const hasFilteredLogs = callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0}
                   <tr
-                    class="filtered-logs-toggle-row"
-                    onclick={() => toggleFilteredLogs(callSite)}
+                    class="unified-logs-toggle-row"
+                    class:has-more-logs={hasMoreLogs && !isAllExpanded}
+                    class:has-filtered-logs={hasFilteredLogs}
+                    onclick={() => toggleExpandLogs(callSite)}
                     role="button"
                     tabindex="0"
                     onkeydown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        toggleFilteredLogs(callSite);
+                        toggleExpandLogs(callSite);
                       }
                     }}
                   >
                     <td
                       colspan={getColumnNames(callSite).length + 1}
-                      class="filtered-logs-summary"
+                      class="unified-logs-summary"
                     >
-                      ...{callSite.filtered_value_groups.length}
-                      {callSite.filtered_value_groups.length === 1 ? "log" : "logs"}
+                      {#if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
+                        <!-- Both short view and filtered logs active -->
+                        ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
+                        {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"},
+                        {callSite.filtered_value_groups.length}
+                        filtered
+                      {:else if hasMoreLogs && !isAllExpanded}
+                        <!-- Only short view active -->
+                        ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
+                        {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"}
+                      {:else if hasFilteredLogs}
+                        <!-- Only filtered logs (in long view) -->
+                        ...{callSite.filtered_value_groups.length}
+                        {callSite.filtered_value_groups.length === 1 ? "row" : "rows"}
+                        filtered
+                      {/if}
                     </td>
                   </tr>
                 {/if}
@@ -2056,8 +2272,12 @@
               {callSite.value_groups.length === 1 ? "log" : "logs"}
             </div>
           {:else}
+            {@const MAX_INITIAL_ROWS = 20}
+            {@const isAllExpanded = isAllLogsExpanded(callSite)}
+            {@const visibleGroups = isAllExpanded ? callSite.value_groups : callSite.value_groups.slice(0, MAX_INITIAL_ROWS)}
+            {@const hasMoreLogs = callSite.value_groups.length > MAX_INITIAL_ROWS}
             <div class="value-groups">
-              {#each callSite.value_groups as valueGroup, groupIndex}
+              {#each visibleGroups as valueGroup, groupIndex}
                 {@const mark = logMarks[valueGroup.log_index]}
                 <div
                   class="value-group"
@@ -2132,6 +2352,108 @@
                   </div>
                 </div>
               {/each}
+              <!-- Show filtered logs if expanded for value-groups view -->
+              {#if callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0 && expandedFilteredLogs.has(callSiteKey)}
+                {#each callSite.filtered_value_groups as valueGroup, groupIndex}
+                  {@const mark = logMarks[valueGroup.log_index]}
+                  <div
+                    class="value-group filtered-value-group"
+                    class:highlighted={highlightedLogIndex === valueGroup.log_index}
+                    class:selected={selectedLogIndex === valueGroup.log_index}
+                    class:clickable={valueGroup.stack_trace_id !== undefined}
+                    data-log-index={valueGroup.log_index}
+                    style={mark?.color ? `background-color: ${mark.color};` : ""}
+                    draggable="true"
+                    ondragstart={(e) => {
+                      if (e.dataTransfer) {
+                        e.dataTransfer.setData("text/log-index", valueGroup.log_index.toString());
+                        e.dataTransfer.effectAllowed = "copy";
+                      }
+                    }}
+                    onclick={() => handleRowClick(valueGroup)}
+                  >
+                    <div class="value-group-row">
+                      <span class="log-number">#{valueGroup.log_index}</span>
+                      <button
+                        class="nav-button"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          onShowInHistory?.(valueGroup.log_index);
+                        }}
+                        title="Jump to History"
+                      >
+                        <Logs size={14} />
+                      </button>
+                      {#if isVSCodeWebview()}
+                        <button
+                          class="nav-button"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            navigateToLogInVSCode(valueGroup.log_index);
+                          }}
+                          title="Navigate to code location"
+                        >
+                          <FileCodeCorner size={14} />
+                        </button>
+                      {/if}
+                      {#if valueGroup.values && valueGroup.values.length === 0 && valueGroup.name}
+                        <span class="log-name-only">{valueGroup.name}</span>
+                      {:else if valueGroup.values}
+                        <div class="values">
+                          {#if valueGroup.function_name !== callSite.function_name || valueGroup.class_name !== callSite.class_name}
+                            <span class="function-name-inline">
+                              in {#if valueGroup.class_name}{valueGroup.class_name}.{/if}{valueGroup.function_name}
+                            </span>
+                          {/if}
+                          {#each valueGroup.values as valueWithName, valueIndex}
+                            <div class="value-item">
+                              {#if valueWithName.name}
+                                <div class="value-label">
+                                  {valueWithName.name}:
+                                </div>
+                              {/if}
+                              <TreeView value={valueWithName.value} />
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              {/if}
+              {#if (hasMoreLogs && !isAllExpanded) || (callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0)}
+              <!-- Unified toggle for value-groups view -->
+                {@const hasFilteredLogs = callSite.filtered_value_groups && callSite.filtered_value_groups.length > 0}
+                <div
+                  class="show-more-logs-div"
+                  onclick={() => toggleExpandLogs(callSite)}
+                  role="button"
+                  tabindex="0"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleExpandLogs(callSite);
+                    }
+                  }}
+                >
+                  {#if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
+                    <!-- Both short view and filtered logs active -->
+                    ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
+                    {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"},
+                    {callSite.filtered_value_groups.length}
+                    filtered
+                  {:else if hasMoreLogs && !isAllExpanded}
+                    <!-- Only short view active -->
+                    ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
+                    {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"}
+                  {:else if hasFilteredLogs}
+                    <!-- Only filtered logs (in long view) -->
+                    ...{callSite.filtered_value_groups.length}
+                    {callSite.filtered_value_groups.length === 1 ? "row" : "rows"}
+                    filtered
+                  {/if}
+                </div>
+              {/if}
             </div>
           {/if}
         {/if}
@@ -2703,7 +3025,66 @@
     color: #64748b;
     font-size: 0.875rem;
     font-style: italic;
+  }
+
+  .unified-logs-toggle-row {
+    border-top: 1px dashed #cbd5e1;
+    border-bottom: 1px solid #e5e5e5;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    background-color: #fafafa;
+  }
+
+  .unified-logs-toggle-row:hover {
+    background-color: #f0f0f0;
+  }
+
+  .unified-logs-summary {
+    padding: 0.5rem;
+    text-align: center;
+    color: #64748b;
+    font-size: 0.875rem;
+    font-style: italic;
     user-select: none;
+  }
+
+  .show-more-logs-row {
+    border-top: 1px solid #e5e5e5;
+    border-bottom: 1px solid #e5e5e5;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    background-color: #f9fafb;
+  }
+
+  .show-more-logs-row:hover {
+    background-color: #f3f4f6;
+  }
+
+  .show-more-summary {
+    padding: 0.5rem;
+    text-align: center;
+    color: #6b7280;
+    font-size: 0.875rem;
+    font-style: italic;
+    user-select: none;
+  }
+
+  .show-more-logs-div {
+    padding: 0.75rem;
+    text-align: center;
+    color: #6b7280;
+    font-size: 0.875rem;
+    font-style: italic;
+    cursor: pointer;
+    background-color: #f9fafb;
+    border-top: 1px solid #e5e5e5;
+    border-bottom: 1px solid #e5e5e5;
+    transition: background-color 0.2s;
+    user-select: none;
+  }
+
+  .show-more-logs-div:hover {
+    background-color: #f3f4f6;
   }
 
   .log-number-cell {
@@ -2778,6 +3159,32 @@
   }
 
   .value-group.selected:hover {
+    background: #dbeafe;
+  }
+
+  .filtered-value-group {
+    opacity: 0.6;
+    background-color: #f9fafb;
+    border-left-color: #94a3b8;
+  }
+
+  .filtered-value-group:hover {
+    opacity: 0.8;
+    background-color: #f3f4f6;
+  }
+
+  .filtered-value-group.highlighted {
+    opacity: 1;
+    border-left-color: #2563eb;
+  }
+
+  .filtered-value-group.selected {
+    opacity: 1;
+    background: #eff6ff;
+    border-left-color: #2563eb;
+  }
+
+  .filtered-value-group.selected:hover {
     background: #dbeafe;
   }
 

@@ -162,6 +162,19 @@
               lastUpdateTime = new Date().toLocaleString();
             }
           },
+          onBatchUpdate: (updates: any[]) => {
+            // Process all updates in the batch and only trigger ONE reactive update
+            if (mergeIncrementalUpdate && updates.length > 0) {
+              console.log(`Processing batch of ${updates.length} updates`);
+              let mergedData = data;
+              for (const update of updates) {
+                mergedData = mergeIncrementalUpdate(mergedData, update);
+              }
+              // Only assign once, triggering a single reactive update
+              data = mergedData;
+              lastUpdateTime = new Date().toLocaleString();
+            }
+          },
           onError: (error: Event) => {
             console.error('WebSocket error:', error);
             connectionStatus = 'disconnected';

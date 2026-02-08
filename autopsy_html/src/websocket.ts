@@ -4,6 +4,7 @@ export interface WebSocketConfig {
   url: string;
   onSnapshot: (data: AutopsyData) => void;
   onUpdate: (update: IncrementalUpdate) => void;
+  onBatchUpdate?: (updates: IncrementalUpdate[]) => void;  // Batch version for efficiency
   onError: (error: Event) => void;
   onClose: () => void;
 }
@@ -24,6 +25,38 @@ export interface IncrementalUpdate {
 export function createWebSocketConnection(config: WebSocketConfig): WebSocket {
   const ws = new WebSocket(config.url);
 
+  // Batch updates for better performance during high-frequency streaming
+  let updateBatch: IncrementalUpdate[] = [];
+  let batchTimer: number | null = null;
+  const BATCH_INTERVAL_MS = 50; // Flush every 50ms
+  const MAX_BATCH_SIZE = 100; // Or every 100 updates, whichever comes first
+
+  const flushBatch = () => {
+    if (updateBatch.length === 0) return;
+
+    console.log(`Flushing batch of ${updateBatch.length} updates`);
+
+    // If the config provides a batch handler, use it to process all updates at once
+    // This allows the client to merge all updates before triggering reactive updates
+    if (config.onBatchUpdate) {
+      config.onBatchUpdate([...updateBatch]);
+    } else {
+      // Fallback: process updates one by one (less efficient)
+      for (const update of updateBatch) {
+        config.onUpdate(update);
+      }
+    }
+
+    updateBatch = [];
+    batchTimer = null;
+  };
+
+  const scheduleBatchFlush = () => {
+    if (batchTimer === null) {
+      batchTimer = window.setTimeout(flushBatch, BATCH_INTERVAL_MS);
+    }
+  };
+
   ws.onopen = () => {
     console.log('WebSocket connected');
   };
@@ -40,14 +73,43 @@ export function createWebSocketConnection(config: WebSocketConfig): WebSocket {
     }) as IncrementalUpdate;
 
     if (message.type === 'snapshot' && message.data) {
+      // Snapshots should flush any pending batch and be processed immediately
+      if (updateBatch.length > 0) {
+        if (batchTimer !== null) {
+          clearTimeout(batchTimer);
+          batchTimer = null;
+        }
+        flushBatch();
+      }
       config.onSnapshot(message.data);
     } else {
-      config.onUpdate(message);
+      // Batch incremental updates
+      updateBatch.push(message);
+
+      // Flush immediately if batch is full, otherwise schedule a flush
+      if (updateBatch.length >= MAX_BATCH_SIZE) {
+        if (batchTimer !== null) {
+          clearTimeout(batchTimer);
+          batchTimer = null;
+        }
+        flushBatch();
+      } else {
+        scheduleBatchFlush();
+      }
     }
   };
 
   ws.onerror = config.onError;
-  ws.onclose = config.onClose;
+
+  ws.onclose = () => {
+    // Flush any pending updates before closing
+    if (batchTimer !== null) {
+      clearTimeout(batchTimer);
+      batchTimer = null;
+    }
+    flushBatch();
+    config.onClose();
+  };
 
   return ws;
 }
