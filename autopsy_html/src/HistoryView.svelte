@@ -3,6 +3,7 @@
   import type { EvaluationResult } from "./computedColumns";
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
+  import VirtualList from "./VirtualList.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, getComputedColumnDisplayName } from "./computedColumns";
   import { isVSCodeWebview, navigateToLogInVSCode } from "./vscodeApi";
@@ -328,6 +329,34 @@
   let menuOpenFor: number | null = $state(null);
   let expandedSkipMarkers = $state<Set<number>>(new Set());
   let lastProcessedLogIndex: number | null = $state(null);
+  let virtualList: VirtualList<HistoryEntry | { type: "skip"; count: number; entries: HistoryEntry[] }> | undefined = $state();
+
+  // Estimate height for each item in the virtual list
+  // Note: This is an estimate - actual heights may vary based on content
+  function estimateItemHeight(
+    item: HistoryEntry | { type: "skip"; count: number; entries: HistoryEntry[] },
+    index: number
+  ): number {
+    // Base entry height: padding (0.4rem * 2 ≈ 6.4px) + border (2px) + content (~30-35px) ≈ 40px
+    const ENTRY_HEIGHT = 42; // Estimated height for a regular entry
+
+    if ("type" in item && item.type === "skip") {
+      if (hideSkippedLogs) {
+        return 0; // Hidden skip markers take no space
+      }
+      const isExpanded = expandedSkipMarkers.has(index);
+      if (isExpanded) {
+        // Expanded: only the entries contribute to height (skip marker button is absolutely positioned)
+        return item.entries.length * ENTRY_HEIGHT;
+      } else {
+        // Collapsed: skip marker button is absolutely positioned, so 0 height
+        return 0;
+      }
+    } else {
+      // Regular entry: estimate based on content
+      return ENTRY_HEIGHT;
+    }
+  }
 
   // Mark colors available for selection
   const MARK_COLORS = [
@@ -401,12 +430,13 @@
   $effect(() => {
     if (highlightedLogIndex !== null && highlightedLogIndex !== lastProcessedLogIndex) {
       lastProcessedLogIndex = highlightedLogIndex;
-      
+
       // Capture the current historyEntries to avoid reactivity issues
       const entries = historyEntries;
-      
-      // Find which skip marker (if any) contains this log index
+
+      // Find which skip marker (if any) contains this log index and the index in the list
       let skipMarkerIndex: number | null = null;
+      let targetIndex = -1;
       let entryIndex = 0;
       for (const item of entries) {
         if ("type" in item && item.type === "skip") {
@@ -415,6 +445,13 @@
           );
           if (containsLogIndex) {
             skipMarkerIndex = entryIndex;
+            targetIndex = entryIndex;
+            break;
+          }
+        } else {
+          const entry = item as HistoryEntry;
+          if (entry.log_index === highlightedLogIndex) {
+            targetIndex = entryIndex;
             break;
           }
         }
@@ -429,13 +466,10 @@
         expandedSkipMarkers = newSet;
       }
 
-      // Wait for the DOM to update
+      // Wait for the DOM to update, then scroll
       tick().then(() => {
-        const element = document.querySelector(
-          `[data-log-index="${highlightedLogIndex}"]`
-        );
-        if (element) {
-          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (targetIndex >= 0 && virtualList) {
+          virtualList.scrollToIndex(targetIndex, "smooth");
         }
       });
     } else if (highlightedLogIndex === null) {
@@ -489,7 +523,15 @@
     </label>
   </div>
   <div class="history">
-    {#each historyEntries as item, index}
+    <VirtualList
+      bind:this={virtualList}
+      items={historyEntries}
+      itemHeight={estimateItemHeight}
+      overscan={10}
+      useWindowScroll={false}
+      containerHeight="calc(100vh - 120px)"
+    >
+      {#snippet children(item, index)}
       {#if "type" in item && item.type === "skip"}
         {#if !hideSkippedLogs}
           {@const isExpanded = isSkipMarkerExpanded(index)}
@@ -865,7 +907,8 @@
           </div>
         </div>
       {/if}
-    {/each}
+      {/snippet}
+    </VirtualList>
   </div>
 {/if}
 
@@ -901,11 +944,28 @@
   }
 
   .history {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    margin-left: 2rem;
     position: relative;
+  }
+
+  .history :global(.virtual-list-container) {
+    scrollbar-width: thin;
+  }
+
+  .history :global(.virtual-list-container)::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .history :global(.virtual-list-container)::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  .history :global(.virtual-list-container)::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+  }
+
+  .history :global(.virtual-list-container)::-webkit-scrollbar-thumb:hover {
+    background: #555;
   }
 
   .history-entry {
