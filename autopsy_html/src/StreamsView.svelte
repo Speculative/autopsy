@@ -8,7 +8,7 @@
   import { tick, untrack } from "svelte";
   import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId, isFrameIndexStable } from "./computedColumns";
   import { profileColumn } from "./columnProfiler";
-  import { ListFilter, FileCodeCorner, Logs } from "lucide-svelte";
+  import { ListFilter, FileCodeCorner, Logs, ArrowUpNarrowWide } from "lucide-svelte";
   import { isVSCodeWebview, navigateToLogInVSCode } from "./vscodeApi";
 
   // Drag-and-drop types for stack variables
@@ -1901,7 +1901,9 @@
                     }
                   }}
                 >
-                  {#if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
+                  {#if expandedFilteredLogs.has(callSiteKey)}
+                    <ArrowUpNarrowWide size={14} /> Hide filtered rows
+                  {:else if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
                     <!-- Both short view and filtered logs active -->
                     ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
                     {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"},
@@ -2188,7 +2190,9 @@
                       colspan={getColumnNames(callSite).length + 1}
                       class="unified-logs-summary"
                     >
-                      {#if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
+                      {#if expandedFilteredLogs.has(callSiteKey)}
+                        <ArrowUpNarrowWide size={14} /> Hide filtered rows
+                      {:else if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
                         <!-- Both short view and filtered logs active -->
                         ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
                         {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"},
@@ -2436,7 +2440,9 @@
                     }
                   }}
                 >
-                  {#if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
+                  {#if expandedFilteredLogs.has(callSiteKey)}
+                    <ArrowUpNarrowWide size={14} /> Hide filtered rows
+                  {:else if hasMoreLogs && !isAllExpanded && hasFilteredLogs}
                     <!-- Both short view and filtered logs active -->
                     ...{callSite.value_groups.length - MAX_INITIAL_ROWS} more
                     {callSite.value_groups.length - MAX_INITIAL_ROWS === 1 ? "row" : "rows"},

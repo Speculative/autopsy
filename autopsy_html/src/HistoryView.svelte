@@ -947,6 +947,10 @@
     position: relative;
   }
 
+  .history :global(.virtual-item:has(.menu-open)) {
+    z-index: 100;
+  }
+
   .history :global(.virtual-list-container) {
     scrollbar-width: thin;
   }
@@ -980,7 +984,7 @@
     flex-direction: row;
     align-items: flex-start;
     gap: 0.5rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 
   .history-entry.clickable {
@@ -1066,8 +1070,9 @@
     flex-direction: row;
     align-items: center;
     gap: 0.5rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: flex-start;
+    overflow-x: auto;
   }
 
   .entry-menu-container {
@@ -1210,14 +1215,14 @@
   }
 
   .value-item {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
     padding: 2px;
     background: none;
     border: 1px solid transparent;
     border-radius: 3px;
     overflow-x: visible;
-    max-width: 100%;
+    white-space: nowrap;
     display: inline-flex;
     flex-direction: row;
     gap: 0;
