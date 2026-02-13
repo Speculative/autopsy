@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   COMPUTED_COLUMNS: 'autopsy:computedColumns',
   COLUMN_ORDERS: 'autopsy:columnOrders',
   HIDDEN_COLUMNS: 'autopsy:hiddenColumns',
+  NOTEBOOK_CELLS: 'autopsy:notebookCells',
 } as const;
 
 // Persisted state structure
@@ -421,6 +422,45 @@ export function restoreHiddenColumns(data: AutopsyData): Record<string, Set<stri
   } catch (e) {
     console.warn('Failed to restore hidden columns:', e);
     return {};
+  }
+}
+
+/**
+ * Persisted notebook cell structure
+ */
+export interface PersistedNotebookCell {
+  id: string;
+  type: "markdown" | "history" | "stream" | "visualization";
+  markdownContent?: string;
+  historyTestFilter?: string | null;
+  historyFrameFilter?: string | null;
+  historyRangeFilter?: { start: number; end: number } | null;
+  streamCallSiteKey?: string | null;
+  isExpanded?: boolean;
+}
+
+/**
+ * Save notebook cells to localStorage
+ */
+export function saveNotebookCells(cells: PersistedNotebookCell[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.NOTEBOOK_CELLS, JSON.stringify(cells));
+  } catch (e) {
+    console.warn('Failed to save notebook cells:', e);
+  }
+}
+
+/**
+ * Restore notebook cells from localStorage
+ */
+export function restoreNotebookCells(): PersistedNotebookCell[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEYS.NOTEBOOK_CELLS);
+    if (!stored) return [];
+    return JSON.parse(stored) as PersistedNotebookCell[];
+  } catch (e) {
+    console.warn('Failed to restore notebook cells:', e);
+    return [];
   }
 }
 

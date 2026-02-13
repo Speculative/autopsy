@@ -4,6 +4,7 @@
   import HistoryView from "./HistoryView.svelte";
   import DashboardView from "./DashboardView.svelte";
   import TestsView from "./TestsView.svelte";
+  import NotebookView from "./NotebookView.svelte";
   import TreeView from "./TreeView.svelte";
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import ViewFilterMenu from "./ViewFilterMenu.svelte";
@@ -40,9 +41,9 @@
   }
 
   // Get initial tab from hash or default to history
-  function getInitialTab(): "streams" | "history" | "dashboard" | "tests" {
+  function getInitialTab(): "streams" | "history" | "dashboard" | "tests" | "notebook" {
     const hash = window.location.hash.slice(1); // Remove the '#'
-    if (hash === "streams" || hash === "history" || hash === "dashboard" || hash === "tests") {
+    if (hash === "streams" || hash === "history" || hash === "dashboard" || hash === "tests" || hash === "notebook") {
       return hash;
     }
     return "history";
@@ -53,7 +54,7 @@
     call_sites: [],
     stack_traces: {},
   });
-  let activeTab = $state<"streams" | "history" | "dashboard" | "tests">(getInitialTab());
+  let activeTab = $state<"streams" | "history" | "dashboard" | "tests" | "notebook">(getInitialTab());
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
   let selectedStackTrace = $state<StackTrace | null>(null);
@@ -325,7 +326,7 @@
   $effect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.slice(1);
-      if (hash === "streams" || hash === "history" || hash === "dashboard" || hash === "tests") {
+      if (hash === "streams" || hash === "history" || hash === "dashboard" || hash === "tests" || hash === "notebook") {
         activeTab = hash;
       }
     };
@@ -848,6 +849,15 @@
       >
         Tests
       </button>
+      <div class="tab-spacer"></div>
+      <button
+        class="tab notebook-tab"
+        class:active={activeTab === "notebook"}
+        onclick={() => (activeTab = "notebook")}
+        title="Open Notebook"
+      >
+        {#if activeTab === "notebook"}Notebook{:else}+{/if}
+      </button>
     </div>
 
     <div class="content">
@@ -913,6 +923,15 @@
           testFilter={effectiveTestFilter}
           onShowInHistory={handleShowInHistory}
           onSetTestFilter={handleSetTestFilter}
+        />
+      {:else if activeTab === "notebook"}
+        <NotebookView
+          {data}
+          {logMarks}
+          {computedColumns}
+          {columnOrders}
+          onMarkLog={handleMarkLog}
+          onEntryClick={handleEntryClick}
         />
       {/if}
     </div>
@@ -1296,6 +1315,14 @@
   .tab.active {
     color: #2563eb;
     border-bottom-color: #2563eb;
+  }
+
+  .tab-spacer {
+    flex: 1;
+  }
+
+  .notebook-tab {
+    font-weight: 600;
   }
 
   .resize-handle {
