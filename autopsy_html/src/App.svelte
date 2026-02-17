@@ -142,8 +142,7 @@
 
       await liveModeCodeLoaded;
 
-      // In VS Code mode, auto-enable live mode without requiring URL param
-      const shouldEnableLiveMode = (typeof __VSCODE_MODE__ !== 'undefined' && __VSCODE_MODE__) || liveModeParam === 'true';
+      const shouldEnableLiveMode = liveModeParam === 'true';
 
       if (shouldEnableLiveMode && wsUrl && createWebSocketConnection) {
         liveMode = true;
@@ -350,7 +349,17 @@
 
     const messageHandler = (message: any) => {
       console.log('[App] Received message from VS Code:', message);
-      if (message.type === 'highlightLog') {
+      if (message.type === 'loadData' && message.data) {
+        console.log('[App] loadData message received, replacing data');
+        const parsed = message.data as Partial<AutopsyData>;
+        data = {
+          generated_at: parsed.generated_at ?? "",
+          call_sites: parsed.call_sites ?? [],
+          stack_traces: parsed.stack_traces ?? {},
+          dashboard: parsed.dashboard,
+          tests: parsed.tests,
+        };
+      } else if (message.type === 'highlightLog') {
         console.log('[App] highlightLog message received, logIndex:', message.logIndex);
         handleHighlightFromVSCode(message.logIndex);
       } else {

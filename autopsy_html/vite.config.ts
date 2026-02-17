@@ -4,7 +4,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  const isLiveBuild = mode === 'live' || mode === 'vscode';
+  const isLiveBuild = mode === 'live';
   const isVSCodeBuild = mode === 'vscode';
 
   return {

@@ -4,7 +4,7 @@ import pytest
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 
-from .report import get_report
+from .report import get_report, generate_html, generate_json
 
 
 class AutopsyTestResult:
@@ -181,14 +181,16 @@ def pytest_configure(config):
 
 def pytest_sessionfinish(session, exitstatus):
     """Called after whole test session finishes, right before returning exit status to system."""
-    # In live mode, wait for logs to be transmitted to a client before finishing
+    import sys
     report = get_report()
 
-    if report._config.live_mode and report._initialized:
+    if not report._initialized or report._written:
+        return
+
+    if report._config.live_mode:
         try:
             from autopsy import live_server
             import time
-            import sys
 
             # Check if there's any data to transmit
             has_data = (
@@ -213,5 +215,21 @@ def pytest_sessionfinish(session, exitstatus):
                 if live_server.logs_transmitted():
                     print("✓ Logs transmitted to client successfully.", file=sys.stderr)
         except Exception as e:
-            import sys
             print(f"\nWarning: Error waiting for client: {e}", file=sys.stderr)
+        return
+
+    # Generate report: JSON by default, HTML if configured
+    if report._config.html:
+        output_path = "autopsy_report.html"
+        try:
+            generate_html(report, output_path)
+            print(f"\n→ Autopsy report saved to {output_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"\nWarning: Failed to generate autopsy report: {e}", file=sys.stderr)
+    else:
+        output_path = "autopsy_report.json"
+        try:
+            generate_json(report, output_path)
+            print(f"\n→ Autopsy report saved to {output_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"\nWarning: Failed to generate autopsy report: {e}", file=sys.stderr)

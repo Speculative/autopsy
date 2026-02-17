@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { AutopsyPanel } from './webviewPanel';
 import { AutopsyCodeLensProvider } from './codeLensProvider';
 
@@ -81,6 +82,26 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // Watch for autopsy_report.json in the workspace
+  const jsonWatcher = vscode.workspace.createFileSystemWatcher('**/autopsy_report.json');
+
+  const loadJsonReport = (uri: vscode.Uri) => {
+    if (!AutopsyPanel.currentPanel) {
+      return;
+    }
+    try {
+      const content = fs.readFileSync(uri.fsPath, 'utf8');
+      const data = JSON.parse(content);
+      outputChannel.appendLine(`Loaded autopsy_report.json (${content.length} bytes)`);
+      AutopsyPanel.currentPanel.loadJsonData(data);
+    } catch (error) {
+      outputChannel.appendLine(`Error loading autopsy_report.json: ${error}`);
+    }
+  };
+
+  jsonWatcher.onDidCreate(loadJsonReport);
+  jsonWatcher.onDidChange(loadJsonReport);
+
   context.subscriptions.push(openViewerCmd);
   context.subscriptions.push(showCallSiteCmd);
   context.subscriptions.push(showLogsCmd);
@@ -89,6 +110,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(codeLensDisposable);
   context.subscriptions.push(outputChannel);
   context.subscriptions.push(codeLensProvider);
+  context.subscriptions.push(jsonWatcher);
 }
 
 export function deactivate() {

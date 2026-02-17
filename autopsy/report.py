@@ -22,6 +22,7 @@ class ReportConfiguration:
     """Configuration for Report behavior."""
 
     auto_stack_trace: bool = True
+    html: bool = False
     live_mode: bool = False
     live_mode_host: str = "localhost"
     live_mode_port: int = 8765
@@ -1443,13 +1444,21 @@ def _atexit_handler():
         # No data collected, nothing to write
         return
 
-    # Auto-generate HTML report with default filename
-    output_path = "autopsy_report.html"
-    try:
-        generate_html(_report_instance, output_path)
-        print(f"\n→ Autopsy report automatically saved to {output_path}", file=sys.stderr)
-    except Exception as e:
-        print(f"\nWarning: Failed to auto-generate autopsy report: {e}", file=sys.stderr)
+    # Auto-generate report: JSON by default, HTML if configured
+    if _report_instance._config.html:
+        output_path = "autopsy_report.html"
+        try:
+            generate_html(_report_instance, output_path)
+            print(f"\n→ Autopsy report automatically saved to {output_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"\nWarning: Failed to auto-generate autopsy report: {e}", file=sys.stderr)
+    else:
+        output_path = "autopsy_report.json"
+        try:
+            generate_json(_report_instance, output_path)
+            print(f"\n→ Autopsy report automatically saved to {output_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"\nWarning: Failed to auto-generate autopsy report: {e}", file=sys.stderr)
 
 
 # Register atexit handler

@@ -570,6 +570,16 @@ export class AutopsyPanel {
     }
   }
 
+  /**
+   * Send JSON report data to the webview, replacing existing data.
+   */
+  public loadJsonData(data: AutopsyData) {
+    this._panel.webview.postMessage({
+      type: 'loadData',
+      data
+    });
+  }
+
   public dispose() {
     AutopsyPanel.currentPanel = undefined;
     this._panel.dispose();
