@@ -6,6 +6,7 @@ to this module so that concerns like float('inf') handling live in
 exactly one place.
 """
 
+import dataclasses
 import json
 import math
 from typing import Any, Union
@@ -55,6 +56,15 @@ def to_json_serializable(value: Any) -> Any:
 
     if isinstance(value, (int, str, bool, type(None))):
         return value
+
+    # Handle dataclasses by converting to dict
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        try:
+            # Convert dataclass to dict and recursively process
+            return to_json_serializable(dataclasses.asdict(value))
+        except Exception:
+            # If conversion fails, fall through to string representation
+            pass
 
     # For other types, test whether json.dumps can handle them directly.
     try:
