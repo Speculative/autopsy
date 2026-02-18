@@ -5,6 +5,7 @@
   import NotebookStreamCell from "./NotebookStreamCell.svelte";
   import NotebookVisualizationCell from "./NotebookVisualizationCell.svelte";
   import { saveNotebookCells, restoreNotebookCells, type PersistedNotebookCell } from "./persistence";
+  import { isVSCodeWebview } from "./vscodeApi";
 
   interface NotebookCell {
     id: string;
@@ -35,8 +36,9 @@
     onEntryClick,
   }: Props = $props();
 
+  // Initialize cells - skip localStorage restore in VS Code webview
   let cells = $state<NotebookCell[]>(
-    restoreNotebookCells().map(c => ({
+    isVSCodeWebview() ? [] : restoreNotebookCells().map(c => ({
       id: c.id,
       type: c.type,
       markdownContent: c.markdownContent,
@@ -48,8 +50,11 @@
     }))
   );
 
-  // Persist cells to localStorage when they change
+  // Persist cells to localStorage when they change (skip in VS Code webview)
   $effect(() => {
+    // Skip persistence in VS Code webview
+    if (isVSCodeWebview()) return;
+
     const toSave: PersistedNotebookCell[] = cells.map(c => ({
       id: c.id,
       type: c.type,

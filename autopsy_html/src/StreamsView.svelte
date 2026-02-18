@@ -689,6 +689,10 @@
     const newHidden = new Set(currentHidden);
     newHidden.add(columnName);
     hiddenColumns[callSiteKey] = newHidden;
+
+    // Trigger reactivity
+    hiddenColumns = { ...hiddenColumns };
+
     onHideColumn?.(callSiteKey, columnName);
     closeDropdown();
   }

@@ -29,6 +29,31 @@ export interface PersistedState {
 }
 
 /**
+ * Generic helper to reconcile any state keyed by call site keys.
+ * Only keeps entries for call sites that still exist.
+ */
+export function reconcileByCallSiteKey<T>(
+  state: Record<string, T>,
+  data: AutopsyData
+): Record<string, T> {
+  const reconciled: Record<string, T> = {};
+
+  // Build set of existing call site keys
+  const existingCallSiteKeys = new Set(
+    data.call_sites.map(cs => `${cs.filename}:${cs.line}`)
+  );
+
+  // Only keep entries for call sites that still exist
+  for (const [callSiteKey, value] of Object.entries(state)) {
+    if (existingCallSiteKeys.has(callSiteKey)) {
+      reconciled[callSiteKey] = value;
+    }
+  }
+
+  return reconciled;
+}
+
+/**
  * Create a signature for a log entry based on its explicit logged values and call stack structure.
  * This allows matching logs across sessions even if log indices change.
  */
@@ -140,6 +165,27 @@ export function saveTestFilter(testFilter: string | null, enabled: boolean): voi
 }
 
 /**
+ * Reconcile test filter with current data.
+ * Returns null if test no longer exists.
+ */
+export function reconcileTestFilter(
+  testFilter: string | null,
+  data: AutopsyData
+): string | null {
+  if (!testFilter) return null;
+
+  // Verify the test still exists
+  if (data.tests) {
+    const testExists = data.tests.some(t => t.nodeid === testFilter);
+    if (testExists) {
+      return testFilter;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Restore test filter from localStorage
  */
 export function restoreTestFilter(data: AutopsyData): {
@@ -150,12 +196,9 @@ export function restoreTestFilter(data: AutopsyData): {
     const testFilter = localStorage.getItem(STORAGE_KEYS.TEST_FILTER);
     const enabled = localStorage.getItem(STORAGE_KEYS.TEST_FILTER_ENABLED) === 'true';
 
-    // Verify the test still exists
-    if (testFilter && data.tests) {
-      const testExists = data.tests.some(t => t.nodeid === testFilter);
-      if (testExists) {
-        return { testFilter, testFilterEnabled: enabled };
-      }
+    const reconciledFilter = reconcileTestFilter(testFilter, data);
+    if (reconciledFilter) {
+      return { testFilter: reconciledFilter, testFilterEnabled: enabled };
     }
   } catch (e) {
     console.warn('Failed to restore test filter:', e);
@@ -301,6 +344,17 @@ export function saveComputedColumns(computedColumns: Record<string, ComputedColu
 }
 
 /**
+ * Reconcile computed columns with current data.
+ * Only keeps columns for call sites that still exist.
+ */
+export function reconcileComputedColumns(
+  computedColumns: Record<string, ComputedColumn[]>,
+  data: AutopsyData
+): Record<string, ComputedColumn[]> {
+  return reconcileByCallSiteKey(computedColumns, data);
+}
+
+/**
  * Restore computed columns from localStorage
  * Only restores columns where the call site still exists
  */
@@ -310,21 +364,7 @@ export function restoreComputedColumns(data: AutopsyData): Record<string, Comput
     if (!stored) return {};
 
     const persistedColumns = JSON.parse(stored) as Record<string, ComputedColumn[]>;
-    const restoredColumns: Record<string, ComputedColumn[]> = {};
-
-    // Build set of existing call site keys
-    const existingCallSiteKeys = new Set(
-      data.call_sites.map(cs => `${cs.filename}:${cs.line}`)
-    );
-
-    // Only restore columns for call sites that still exist
-    for (const [callSiteKey, columns] of Object.entries(persistedColumns)) {
-      if (existingCallSiteKeys.has(callSiteKey)) {
-        restoredColumns[callSiteKey] = columns;
-      }
-    }
-
-    return restoredColumns;
+    return reconcileComputedColumns(persistedColumns, data);
   } catch (e) {
     console.warn('Failed to restore computed columns:', e);
     return {};
@@ -348,6 +388,17 @@ export function saveColumnOrders(columnOrders: Record<string, string[]>): void {
 }
 
 /**
+ * Reconcile column orders with current data.
+ * Only keeps orders for call sites that still exist.
+ */
+export function reconcileColumnOrders(
+  columnOrders: Record<string, string[]>,
+  data: AutopsyData
+): Record<string, string[]> {
+  return reconcileByCallSiteKey(columnOrders, data);
+}
+
+/**
  * Restore column orders from localStorage
  * Only restores orders for call sites that still exist
  */
@@ -357,21 +408,7 @@ export function restoreColumnOrders(data: AutopsyData): Record<string, string[]>
     if (!stored) return {};
 
     const persistedOrders = JSON.parse(stored) as Record<string, string[]>;
-    const restoredOrders: Record<string, string[]> = {};
-
-    // Build set of existing call site keys
-    const existingCallSiteKeys = new Set(
-      data.call_sites.map(cs => `${cs.filename}:${cs.line}`)
-    );
-
-    // Only restore orders for call sites that still exist
-    for (const [callSiteKey, order] of Object.entries(persistedOrders)) {
-      if (existingCallSiteKeys.has(callSiteKey)) {
-        restoredOrders[callSiteKey] = order;
-      }
-    }
-
-    return restoredOrders;
+    return reconcileColumnOrders(persistedOrders, data);
   } catch (e) {
     console.warn('Failed to restore column orders:', e);
     return {};
@@ -395,6 +432,17 @@ export function saveHiddenColumns(hiddenColumns: Record<string, Set<string>>): v
 }
 
 /**
+ * Reconcile hidden columns with current data.
+ * Only keeps hidden columns for call sites that still exist.
+ */
+export function reconcileHiddenColumns(
+  hiddenColumns: Record<string, Set<string>>,
+  data: AutopsyData
+): Record<string, Set<string>> {
+  return reconcileByCallSiteKey(hiddenColumns, data);
+}
+
+/**
  * Restore hidden columns from localStorage
  * Only restores for call sites that still exist
  */
@@ -404,21 +452,14 @@ export function restoreHiddenColumns(data: AutopsyData): Record<string, Set<stri
     if (!stored) return {};
 
     const persistedHidden = JSON.parse(stored) as Record<string, string[]>;
-    const restoredHidden: Record<string, Set<string>> = {};
 
-    // Build set of existing call site keys
-    const existingCallSiteKeys = new Set(
-      data.call_sites.map(cs => `${cs.filename}:${cs.line}`)
-    );
-
-    // Only restore for call sites that still exist
+    // Convert arrays to Sets
+    const hiddenColumns: Record<string, Set<string>> = {};
     for (const [callSiteKey, hiddenArray] of Object.entries(persistedHidden)) {
-      if (existingCallSiteKeys.has(callSiteKey)) {
-        restoredHidden[callSiteKey] = new Set(hiddenArray);
-      }
+      hiddenColumns[callSiteKey] = new Set(hiddenArray);
     }
 
-    return restoredHidden;
+    return reconcileHiddenColumns(hiddenColumns, data);
   } catch (e) {
     console.warn('Failed to restore hidden columns:', e);
     return {};

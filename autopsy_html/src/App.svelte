@@ -24,6 +24,11 @@
     restoreColumnOrders,
     saveHiddenColumns,
     restoreHiddenColumns,
+    reconcileComputedColumns,
+    reconcileColumnOrders,
+    reconcileHiddenColumns,
+    reconcileTestFilter,
+    reconcileByCallSiteKey,
   } from "./persistence";
 
   // Conditional imports for live mode
@@ -263,7 +268,17 @@
   loadData();
 
   // Restore persisted state after data loads (only once)
+  // Skip persistence restore in VS Code webview
   $effect(() => {
+    // Skip if in VS Code webview - we don't restore from localStorage
+    if (isVSCodeWebview()) {
+      // Just mark as restored so we don't try again
+      if (!hasRestoredState && data.call_sites.length > 0) {
+        hasRestoredState = true;
+      }
+      return;
+    }
+
     // Only restore if we haven't restored yet
     if (hasRestoredState) return;
 
@@ -352,13 +367,20 @@
       if (message.type === 'loadData' && message.data) {
         console.log('[App] loadData message received, replacing data');
         const parsed = message.data as Partial<AutopsyData>;
-        data = {
+        const newData: AutopsyData = {
           generated_at: parsed.generated_at ?? "",
           call_sites: parsed.call_sites ?? [],
           stack_traces: parsed.stack_traces ?? {},
           dashboard: parsed.dashboard,
           tests: parsed.tests,
         };
+
+        // Reconcile existing view customizations with new data
+        // This preserves user's view state while adapting to new call sites
+        reconcileViewState(newData);
+
+        // Update data after reconciliation
+        data = newData;
       } else if (message.type === 'highlightLog') {
         console.log('[App] highlightLog message received, logIndex:', message.logIndex);
         handleHighlightFromVSCode(message.logIndex);
@@ -764,8 +786,36 @@
     return parts[parts.length - 1];
   }
 
+  /**
+   * Reconcile existing view customizations with new data.
+   * Removes customizations for call sites that no longer exist.
+   * Only used in VS Code webview where we keep state in memory but don't persist.
+   */
+  function reconcileViewState(newData: AutopsyData) {
+    // Use shared reconciliation logic from persistence.ts
+    computedColumns = reconcileComputedColumns(computedColumns, newData);
+    columnOrders = reconcileColumnOrders(columnOrders, newData);
+    hiddenColumns = reconcileHiddenColumns(hiddenColumns, newData);
+
+    // Use generic reconciler for other call-site-keyed state
+    collapsedCallSites = reconcileByCallSiteKey(collapsedCallSites, newData);
+    columnSorts = reconcileByCallSiteKey(columnSorts, newData);
+    columnFilters = reconcileByCallSiteKey(columnFilters, newData);
+
+    // Reconcile test filter
+    testFilter = reconcileTestFilter(testFilter, newData);
+
+    // Note: We don't reconcile logMarks or range filters based on signatures
+    // because that would be too complex for in-memory state. We just keep them
+    // and they'll naturally not match if the data has changed significantly.
+    // Users can manually clear filters if needed.
+  }
+
   // Persist state changes to localStorage (only after initial restoration)
+  // Skip all persistence in VS Code webview
   $effect(() => {
+    // Skip persistence in VS Code webview
+    if (isVSCodeWebview()) return;
     // Don't save until we've restored state, to avoid overwriting on initial load
     if (!hasRestoredState) return;
     // Save test filter when it changes
@@ -773,6 +823,8 @@
   });
 
   $effect(() => {
+    // Skip persistence in VS Code webview
+    if (isVSCodeWebview()) return;
     // Don't save until we've restored state
     if (!hasRestoredState) return;
     // Save log marks when they change (only if we have data)
@@ -782,6 +834,8 @@
   });
 
   $effect(() => {
+    // Skip persistence in VS Code webview
+    if (isVSCodeWebview()) return;
     // Don't save until we've restored state
     if (!hasRestoredState) return;
     // Save range filter when it changes (only if we have data)
@@ -791,6 +845,8 @@
   });
 
   $effect(() => {
+    // Skip persistence in VS Code webview
+    if (isVSCodeWebview()) return;
     // Don't save until we've restored state
     if (!hasRestoredState) return;
     // Save computed columns when they change
@@ -798,6 +854,8 @@
   });
 
   $effect(() => {
+    // Skip persistence in VS Code webview
+    if (isVSCodeWebview()) return;
     // Don't save until we've restored state
     if (!hasRestoredState) return;
     // Save column orders when they change
@@ -805,6 +863,8 @@
   });
 
   $effect(() => {
+    // Skip persistence in VS Code webview
+    if (isVSCodeWebview()) return;
     // Don't save until we've restored state
     if (!hasRestoredState) return;
     // Save hidden columns when they change
