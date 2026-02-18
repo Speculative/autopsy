@@ -41,7 +41,6 @@
   function loadLiveModeCode() {
     if (liveModeCodeLoaded === null) {
       liveModeCodeLoaded = import('./websocket').then(module => {
-        console.log("Loaded websocket code")
         createWebSocketConnection = module.createWebSocketConnection;
         mergeIncrementalUpdate = module.mergeIncrementalUpdate;
       });
@@ -58,7 +57,7 @@
     return "history";
   }
 
-  let data: AutopsyData = $state({
+  let data: AutopsyData = $state.raw({
     generated_at: "",
     call_sites: [],
     stack_traces: {},

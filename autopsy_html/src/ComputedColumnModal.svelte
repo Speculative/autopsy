@@ -20,6 +20,7 @@
   // Form state
   let title = $state(existingColumn?.title || '');
   let expression = $state(existingColumn?.expression || '');
+
   let previewResults = $state<Map<number, {value: unknown, error?: string}>>(new Map());
   let lastValidResults = $state<Map<number, {value: unknown, error?: string}>>(new Map());
   let lastValidExpression = $state(existingColumn?.expression || '');
@@ -50,6 +51,7 @@
   let evaluationTimeout: number | null = null;
   $effect(() => {
     if (evaluationTimeout) clearTimeout(evaluationTimeout);
+
 
     if (!expression.trim()) {
       previewResults = new Map();

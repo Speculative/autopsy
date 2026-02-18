@@ -1482,11 +1482,8 @@
     // Find the actual scrolling container (main-panel)
     const scrollContainer = document.querySelector('.main-panel');
     if (!scrollContainer) {
-      console.log('[Sticky Headers] Could not find .main-panel scrolling container');
       return;
     }
-
-    console.log('[Sticky Headers] Found scroll container:', scrollContainer);
 
     let rafId: number | null = null;
 
@@ -1576,7 +1573,6 @@
     };
 
     // Add scroll listener to the actual scrolling element
-    console.log('[Sticky Headers] Setting up scroll listener on .main-panel', Object.keys(currentHeaders));
     scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
 
     // Also add horizontal scroll listeners to each table container
@@ -1593,7 +1589,6 @@
     updateHeaders();
 
     return () => {
-      console.log('[Sticky Headers] Cleaning up scroll listener');
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }

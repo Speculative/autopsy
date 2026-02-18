@@ -107,7 +107,7 @@ export interface AutopsyData {
 export interface ComputedColumn {
   id: string;              // Unique identifier
   title?: string;          // Optional display name
-  expression: string;      // JMESPath expression
+  expression: string;      // Python code expression
   callSiteKey: string;     // Which call site this belongs to
 }
 
