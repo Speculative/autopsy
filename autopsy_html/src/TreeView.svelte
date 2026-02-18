@@ -156,8 +156,6 @@
   }
 
   function handleDragStart(event: DragEvent) {
-    console.log("Drag started", { enableDrag, frameIndex, sourceLogIndex, path: currentPath });
-
     if (!enableDrag || !event.dataTransfer || frameIndex === undefined || sourceLogIndex === undefined) {
       return;
     }
@@ -223,14 +221,8 @@
         class="key"
         class:draggable={enableDrag && key !== undefined}
         draggable={enableDrag && key !== undefined}
-        ondragstart={(e) => {
-          console.log("Drag start event")
-          handleDragStart(e)
-        }}
-        onclick={(e) => {
-          console.log("Clicked")
-          toggle(e);
-        }}
+        ondragstart={(e) => handleDragStart(e)}
+        onclick={(e) => toggle(e)}
         onkeydown={handleKeydown}
         role="button"
         tabindex="0"

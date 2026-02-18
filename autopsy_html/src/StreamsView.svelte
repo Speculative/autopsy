@@ -1165,11 +1165,8 @@
     e.preventDefault();
     const callSiteKey = getCallSiteKey(callSite);
 
-    console.log("handleDragOver", { types: e.dataTransfer?.types, callSiteKey, index });
-
     // Check for stack variable drag (external)
     if (e.dataTransfer?.types.includes('application/json')) {
-      console.log("Detected stack variable drag");
       e.dataTransfer.dropEffect = 'copy';
       dropTarget = { callSiteKey, index };
       return;
@@ -1201,17 +1198,12 @@
     e.preventDefault();
     const callSiteKey = getCallSiteKey(callSite);
 
-    console.log("handleDrop", { callSiteKey, targetIndex });
-
     // Check for stack variable drag (external)
     const jsonData = e.dataTransfer?.getData('application/json');
-    console.log("Drop JSON data:", jsonData);
     if (jsonData) {
       try {
         const payload: StackVariableDragPayload = JSON.parse(jsonData);
-        console.log("Parsed payload:", payload);
         if (payload.type === 'stack-variable') {
-          console.log("Calling handleStackVariableDrop");
           handleStackVariableDrop(callSite, callSiteKey, targetIndex, payload);
           dropTarget = null;
           return;
@@ -1259,14 +1251,14 @@
     targetIndex: number,
     payload: StackVariableDragPayload
   ) {
-    console.log("handleStackVariableDrop called", { callSiteKey, targetIndex, payload });
-
     // Validate: check that sourceLogIndex belongs to this call site
+    // Check both visible and filtered value groups
+    const filteredCallSite = callSite as FilteredCallSite;
     const belongsToCallSite = callSite.value_groups.some(
       vg => vg.log_index === payload.sourceLogIndex
-    );
-
-    console.log("Validation result:", { belongsToCallSite, sourceLogIndex: payload.sourceLogIndex, valueGroups: callSite.value_groups.map(vg => vg.log_index) });
+    ) || (filteredCallSite.filtered_value_groups?.some(
+      vg => vg.log_index === payload.sourceLogIndex
+    ) ?? false);
 
     if (!belongsToCallSite) {
       console.warn('Cannot drop: stack trace is from a different call site');
@@ -1279,12 +1271,13 @@
       return;
     }
 
-    // Generate expression and title
-    const expression = generatePythonExpression(payload, callSite);
-    const title = generateColumnTitle(payload);
+    // Use the original unfiltered call site for expression generation so that
+    // isFrameIndexStable checks against all value groups, not just filtered ones
+    const originalCallSite = data.call_sites.find(cs => getCallSiteKey(cs) === callSiteKey) || callSite;
 
-    console.log("Generated expression:", expression);
-    console.log("Generated title:", title);
+    // Generate expression and title
+    const expression = generatePythonExpression(payload, originalCallSite);
+    const title = generateColumnTitle(payload);
 
     // Create computed column
     const column: ComputedColumn = {
@@ -1294,22 +1287,17 @@
       callSiteKey,
     };
 
-    console.log("Created column:", column);
-
     // Get current column order BEFORE saving (so it doesn't include the new column yet)
     const columns = getColumnNames(callSite);
     const newColumnName = `computed:${column.id}`;
     const newOrder = [...columns];
     newOrder.splice(targetIndex, 0, newColumnName);
-    console.log("Updating column order:", { newOrder, targetIndex });
 
     // Save the column (this makes it available in computedColumns)
     onSaveComputedColumn?.(column);
-    console.log("Called onSaveComputedColumn");
 
     // Update column order to insert at target position
     onColumnOrderChange?.(callSiteKey, newOrder);
-    console.log("Done with handleStackVariableDrop");
   }
 
   function generatePythonExpression(payload: StackVariableDragPayload, callSite: CallSite): string {
@@ -2033,13 +2021,10 @@
                       {@const stackTrace = valueGroup.stack_trace_id ? data.stack_traces[valueGroup.stack_trace_id] : undefined}
                       {@const firstFrame = stackTrace?.frames[0]}
                       {@const isComputedColumn = columnName.startsWith('computed:')}
-                      {@const isSimpleVariable = !isComputedColumn && firstFrame && columnName in firstFrame.local_variables}
-                      {@const canDrag = !!firstFrame && (isComputedColumn || isSimpleVariable)}
+                      {@const canDrag = !!firstFrame}
                       {@const baseExpr = isComputedColumn
                         ? getComputedColumn(callSite, columnName)?.expression
-                        : isSimpleVariable
-                          ? columnName
-                          : undefined}
+                        : columnName}
                       <td
                         class="value-cell"
                         style={getColumnWidth(callSite, columnName)}
@@ -2134,13 +2119,10 @@
                           {@const stackTrace = valueGroup.stack_trace_id ? data.stack_traces[valueGroup.stack_trace_id] : undefined}
                           {@const firstFrame = stackTrace?.frames[0]}
                           {@const isComputedColumn = columnName.startsWith('computed:')}
-                          {@const isSimpleVariable = !isComputedColumn && firstFrame && columnName in firstFrame.local_variables}
-                          {@const canDrag = !!firstFrame && (isComputedColumn || isSimpleVariable)}
+                          {@const canDrag = !!firstFrame}
                           {@const baseExpr = isComputedColumn
                             ? getComputedColumn(callSite, columnName)?.expression
-                            : isSimpleVariable
-                              ? columnName
-                              : undefined}
+                            : columnName}
                           <td
                             class="value-cell"
                             style={getColumnWidth(callSite, columnName)}

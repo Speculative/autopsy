@@ -146,6 +146,7 @@ __results
     // We need to handle the return statement by wrapping in a function that we create dynamically
     const pythonCode = `
 import json
+import keyword as __kw
 
 # Parse input data
 __data_items = json.loads('''${this.escapeString(dataJson)}''')
@@ -163,9 +164,11 @@ for __item, __locals in zip(__data_items, __locals_items):
         if __item is None:
             __results.append({'value': None, 'error': None})
         else:
-            # Build parameter list from locals keys
+            # Build parameter list from locals keys, filtering out invalid identifiers
+            # and names that conflict with 'trace'
             __locals_dict = __locals if __locals is not None else {}
-            __param_names = ', '.join(__locals_dict.keys()) if __locals_dict else ''
+            __valid_locals = {k: v for k, v in __locals_dict.items() if k.isidentifier() and k != 'trace' and not __kw.iskeyword(k)}
+            __param_names = ', '.join(__valid_locals.keys()) if __valid_locals else ''
 
             # Create a function with these parameters plus trace
             if __param_names:
@@ -179,7 +182,7 @@ for __item, __locals in zip(__data_items, __locals_items):
 
             # Call the function with trace and unpacked locals
             if __param_names:
-                __result = __namespace['__autopsy_eval_fn'](__item, *__locals_dict.values())
+                __result = __namespace['__autopsy_eval_fn'](__item, *__valid_locals.values())
             else:
                 __result = __namespace['__autopsy_eval_fn'](__item)
 

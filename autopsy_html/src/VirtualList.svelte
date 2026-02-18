@@ -1,5 +1,5 @@
 <script lang="ts" generics="T">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
 
   interface Props {
     items: T[];
@@ -19,8 +19,55 @@
     children,
   }: Props = $props();
 
+  // Measured heights from ResizeObserver override estimates
+  let measuredHeights = $state<Map<number, number>>(new Map());
+
+  // Clear measured heights when items array changes (indices shift)
+  let prevItemsRef: T[] | undefined;
+  $effect.pre(() => {
+    if (items !== prevItemsRef) {
+      prevItemsRef = items;
+      measuredHeights = new Map();
+    }
+  });
+
   function getItemHeight(item: T, index: number): number {
+    const measured = measuredHeights.get(index);
+    if (measured !== undefined) return measured;
     return typeof itemHeight === "function" ? itemHeight(item, index) : itemHeight;
+  }
+
+  // ResizeObserver to track actual rendered heights of items
+  const resizeObserver = new ResizeObserver((entries) => {
+    let changed = false;
+    for (const entry of entries) {
+      const el = entry.target as HTMLElement;
+      const indexStr = el.dataset.virtualIndex;
+      if (indexStr === undefined) continue;
+      const index = parseInt(indexStr, 10);
+      const height = el.offsetHeight;
+      if (height > 0 && measuredHeights.get(index) !== height) {
+        measuredHeights.set(index, height);
+        changed = true;
+      }
+    }
+    if (changed) {
+      measuredHeights = new Map(measuredHeights);
+    }
+  });
+
+  // Svelte action to observe/unobserve item elements for size changes
+  function observeItem(node: HTMLElement, index: number) {
+    node.dataset.virtualIndex = String(index);
+    resizeObserver.observe(node);
+    return {
+      update(newIndex: number) {
+        node.dataset.virtualIndex = String(newIndex);
+      },
+      destroy() {
+        resizeObserver.unobserve(node);
+      },
+    };
   }
 
   let containerElement: HTMLDivElement | undefined = $state();
@@ -105,10 +152,16 @@
       return () => {
         window.removeEventListener("scroll", handleScroll);
         window.removeEventListener("resize", handleScroll);
+        resizeObserver.disconnect();
       };
-    } else if (containerElement) {
-      containerClientHeight = containerElement.clientHeight;
-      scrollTop = containerElement.scrollTop;
+    } else {
+      if (containerElement) {
+        containerClientHeight = containerElement.clientHeight;
+        scrollTop = containerElement.scrollTop;
+      }
+      return () => {
+        resizeObserver.disconnect();
+      };
     }
   });
 
@@ -141,7 +194,7 @@
 {#if useWindowScroll}
   <div bind:this={containerElement} class="virtual-list-window" style="height: {totalHeight}px;">
     {#each visibleItems as { item, index, offset }}
-      <div class="virtual-item" style="position: absolute; top: {offset}px; left: 0; right: 0;">
+      <div class="virtual-item" use:observeItem={index} style="position: absolute; top: {offset}px; left: 0; right: 0;">
         {@render children(item, index)}
       </div>
     {/each}
@@ -155,7 +208,7 @@
   >
     <div class="virtual-list-inner" style="height: {totalHeight}px; position: relative;">
       {#each visibleItems as { item, index, offset }}
-        <div class="virtual-item" style="position: absolute; top: {offset}px; left: 0; right: 0;">
+        <div class="virtual-item" use:observeItem={index} style="position: absolute; top: {offset}px; left: 0; right: 0;">
           {@render children(item, index)}
         </div>
       {/each}
