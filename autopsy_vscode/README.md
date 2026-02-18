@@ -17,7 +17,7 @@ Live debugging visualization for Python autopsy logs within VS Code.
    ```bash
    cd ../autopsy_html
    npm install
-   npm run build:vscode
+   npm run build
    ```
 
 2. Build the extension:
@@ -85,7 +85,7 @@ The extension creates an output channel called **"Autopsy Viewer"** that logs al
 
 **Blank white screen:**
 - Check the Output panel (select "Autopsy Viewer") for errors
-- The webview HTML file might be missing - run `cd ../autopsy_html && npm run build:vscode`
+- The webview HTML file might be missing - run `cd ../autopsy_html && npm run build`
 - Look for "ERROR: Failed to read HTML file" in the output
 
 **F5 doesn't show debug options:**
@@ -107,7 +107,7 @@ The extension creates an output channel called **"Autopsy Viewer"** that logs al
 npm run watch
 
 # Build webview
-cd ../autopsy_html && npm run build:vscode
+cd ../autopsy_html && npm run build
 ```
 
 ### Testing

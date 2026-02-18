@@ -11,6 +11,7 @@ wheels/
 
 # Generated HTML reports (but keep autopsy/template.html)
 *.html
+autopsy_report.html
+autopsy_report.json
 !autopsy/template.html
-!autopsy/live.html
 !autopsy_html/index.html

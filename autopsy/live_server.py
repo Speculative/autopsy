@@ -80,13 +80,13 @@ AUTOPSY_DIR = os.path.join(os.path.dirname(__file__))
 @app.get("/")
 async def serve_live_html():
     """Serve the live mode HTML interface."""
-    html_path = os.path.join(AUTOPSY_DIR, "live.html")
+    html_path = os.path.join(AUTOPSY_DIR, "template.html")
     if os.path.exists(html_path):
         return FileResponse(html_path)
     else:
         return {
-            "error": "Live mode HTML not built",
-            "instructions": "Run: cd autopsy_html && npm run build:live"
+            "error": "HTML template not built",
+            "instructions": "Run: cd autopsy_html && npm run build"
         }
 
 

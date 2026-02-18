@@ -6,7 +6,7 @@
 # 1. Build the webview
 cd ../autopsy_html
 npm install
-npm run build:vscode
+npm run build
 
 # 2. Build the extension
 cd ../autopsy_vscode
@@ -69,7 +69,7 @@ vsce package
 - Run `npm run compile` to rebuild
 
 **"Could not find webview.html"**
-- Run `cd ../autopsy_html && npm run build:vscode`
+- Run `cd ../autopsy_html && npm run build`
 
 **F5 doesn't work**
 - Make sure you opened the `autopsy_vscode` folder specifically

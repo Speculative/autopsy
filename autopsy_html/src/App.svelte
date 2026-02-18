@@ -35,14 +35,18 @@
   let createWebSocketConnection: any;
   let mergeIncrementalUpdate: any;
 
-  // Dynamic import for live mode (only if enabled at build time)
-  let liveModeCodeLoaded: Promise<void>;
-  if (typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__) {
-    liveModeCodeLoaded = import('./websocket').then(module => {
-      console.log("Loaded websocket code")
-      createWebSocketConnection = module.createWebSocketConnection;
-      mergeIncrementalUpdate = module.mergeIncrementalUpdate;
-    });
+  // Dynamic import for live mode (loaded on demand at runtime)
+  let liveModeCodeLoaded: Promise<void> | null = null;
+
+  function loadLiveModeCode() {
+    if (liveModeCodeLoaded === null) {
+      liveModeCodeLoaded = import('./websocket').then(module => {
+        console.log("Loaded websocket code")
+        createWebSocketConnection = module.createWebSocketConnection;
+        mergeIncrementalUpdate = module.mergeIncrementalUpdate;
+      });
+    }
+    return liveModeCodeLoaded;
   }
 
   // Get initial tab from hash or default to history
@@ -138,18 +142,20 @@
 
   // Load data from the injection point or dev data
   async function loadData(): Promise<void> {
-    // Check for live mode (only if this is a live build)
-    if (typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__) {
+    // Check for live mode via URL parameters (runtime detection)
+    const params = new URLSearchParams(window.location.search);
+    const liveModeParam = params.get('live');
+    const wsUrl = params.get('ws') || "ws://localhost:8765/ws";
+
+    const shouldEnableLiveMode = liveModeParam === 'true';
+
+    if (shouldEnableLiveMode && wsUrl) {
       console.log("Loading live mode data...")
-      const params = new URLSearchParams(window.location.search);
-      const liveModeParam = params.get('live');
-      const wsUrl = params.get('ws') || "ws://localhost:8765/ws";
 
-      await liveModeCodeLoaded;
+      // Dynamically load websocket code when needed
+      await loadLiveModeCode();
 
-      const shouldEnableLiveMode = liveModeParam === 'true';
-
-      if (shouldEnableLiveMode && wsUrl && createWebSocketConnection) {
+      if (createWebSocketConnection) {
         liveMode = true;
         connectionStatus = 'connecting';
         console.log("Trying to initialize live mode ws")
@@ -876,7 +882,7 @@
   <main class="main-panel">
     <div class="header">
       <div class="header-top">
-        {#if typeof __LIVE_MODE_ENABLED__ !== 'undefined' && __LIVE_MODE_ENABLED__ && liveMode}
+        {#if liveMode}
           <div class="timestamp">
             <span class="live-indicator {connectionStatus}">●</span>
             <span>Live - Last updated: {lastUpdateTime || 'Connecting...'}</span>

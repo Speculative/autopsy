@@ -142,7 +142,7 @@ export class AutopsyPanel {
           <body>
             <h1>Error Loading Autopsy Viewer</h1>
             <p>Could not find webview.html at: ${htmlPath.fsPath}</p>
-            <p>Please run: <code>cd autopsy_html && npm run build:vscode</code></p>
+            <p>Please run: <code>cd autopsy_html && npm run build</code></p>
           </body>
         </html>
       `;
