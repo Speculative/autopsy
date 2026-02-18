@@ -1,0 +1,10 @@
+# Node modules
+node_modules/
+
+# Playwright test artifacts
+playwright-report/
+test-results/
+playwright/.cache/
+
+# Fixtures (generated HTML reports)
+fixtures/*.html

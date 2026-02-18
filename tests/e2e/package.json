@@ -1,0 +1,18 @@
+{
+  "name": "autopsy-e2e-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:scenarios": "uv run python scenarios/basic_logging.py && uv run python scenarios/history_stream.py",
+    "test:e2e": "npm run test:scenarios && playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/node": "^24.10.0"
+  }
+}
