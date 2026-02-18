@@ -70,10 +70,13 @@ export async function evaluateComputedColumnBatch(
     });
 
     // Execute Python code in batch
+    // structuredClone strips Svelte $state proxies — without this, JSON.stringify
+    // triggers proxy traps (get/ownKeys/getOwnPropertyDescriptor) that each do
+    // Array.includes for dependency tracking, resulting in O(n²) serialization.
     const results = await pythonExecutor.executeBatchWithLocals(
       pythonCode,
-      traces,
-      topFrameLocals
+      structuredClone(traces),
+      structuredClone(topFrameLocals)
     );
 
     return results;
