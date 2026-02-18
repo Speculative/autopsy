@@ -207,12 +207,13 @@ export class AutopsyPanel {
 
     // Set CSP - allow inline scripts with nonce, allow WebSocket connections
     // Note: Svelte requires unsafe-inline and unsafe-eval for the bundled app
+    // Allow Pyodide CDN for computed columns feature
     const csp = `
       <meta http-equiv="Content-Security-Policy" content="
         default-src 'none';
         style-src ${webview.cspSource} 'unsafe-inline';
-        script-src 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval';
-        connect-src ws://localhost:* wss://localhost:* http://localhost:* https://localhost:*;
+        script-src 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;
+        connect-src ws://localhost:* wss://localhost:* http://localhost:* https://localhost:* https://cdn.jsdelivr.net;
         img-src ${webview.cspSource} data: blob:;
         font-src ${webview.cspSource} data:;
       ">
