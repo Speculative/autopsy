@@ -1522,18 +1522,19 @@
             topPosition = scrollTop + spaceBelow;
           }
 
-          // Measure column widths from the original header
-          // The second row contains the actual column headers
-          const headerRows = thead.querySelectorAll('tr');
-          const columnRow = headerRows[1]; // Second row has the column headers
+          // Instead of measuring header widths, use the actual column widths
+          // from the data cells to ensure alignment
+          const tbody = container.querySelector('tbody');
+          const firstRow = tbody?.querySelector('tr.table-row');
           const columnWidths: number[] = [];
 
-          if (columnRow) {
-            const ths = columnRow.querySelectorAll('th');
-            ths.forEach((th) => {
-              const width = th.getBoundingClientRect().width;
-              columnWidths.push(width);
+          if (firstRow) {
+            const cells = firstRow.querySelectorAll('td');
+            cells.forEach((cell) => {
+              columnWidths.push(cell.getBoundingClientRect().width);
             });
+            // Add width for the add-column-header button (at the end)
+            columnWidths.push(50);
           }
 
           // Update floating header state
@@ -2538,7 +2539,14 @@
         transform: translateX(-{floatingState.scrollLeft}px);
       "
     >
-      <table class="value-table floating-header-table">
+      <table class="value-table floating-header-table" style="width: {floatingState.columnWidths.length > 0 ? floatingState.columnWidths.reduce((s, w) => s + w, 0) : floatingState.width}px">
+        {#if floatingState.columnWidths.length > 0}
+          <colgroup>
+            {#each floatingState.columnWidths as width}
+              <col style="width: {width}px" />
+            {/each}
+          </colgroup>
+        {/if}
         <thead class="table-header">
           {@render headerContent(callSite, callSiteKey, isDashboard, floatingState.columnWidths)}
         </thead>
