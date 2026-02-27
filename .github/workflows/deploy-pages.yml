@@ -35,6 +35,8 @@ jobs:
         run: |
           cd examples
           python order_pipeline.py
+        env:
+          AUTOPSY_HTML: "1"
 
       - name: Prepare GitHub Pages content
         run: |
