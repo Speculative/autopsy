@@ -107,6 +107,9 @@
   let computedColumnsVersion = $state<Record<string, number>>({});
   let columnWidths = $state<Record<string, Record<string, number>>>({});
 
+  // Track container widths to detect when resize should trigger column recalculation
+  let containerWidths = $state<Record<string, number>>({});
+
   // Track which call sites have expanded filtered logs
   let expandedFilteredLogs = $state<Set<string>>(new Set());
 
@@ -1128,7 +1131,50 @@
     }
   });
 
-  // Initialize column widths when table containers are mounted
+  // Watch for container size changes and trigger column width recalculation
+  $effect(() => {
+    const containers = tableContainers;
+    const resizeObserver = new ResizeObserver((entries) => {
+      // Skip if currently manually resizing columns
+      if (resizingColumn) return;
+
+      for (const entry of entries) {
+        const container = entry.target as HTMLDivElement;
+        const callSiteKey = Object.keys(containers).find(
+          key => containers[key] === container
+        );
+
+        if (callSiteKey) {
+          const newWidth = container.clientWidth;
+          const oldWidth = containerWidths[callSiteKey];
+
+          // Only recalculate if width changed significantly (>10px) to avoid jitter
+          if (oldWidth === undefined || Math.abs(newWidth - oldWidth) > 10) {
+            containerWidths[callSiteKey] = newWidth;
+            // Clear column widths to trigger recalculation in next effect
+            if (columnWidths[callSiteKey]) {
+              delete columnWidths[callSiteKey];
+              columnWidths = { ...columnWidths };
+            }
+          }
+        }
+      }
+    });
+
+    // Observe all containers
+    for (const container of Object.values(containers)) {
+      if (container) {
+        resizeObserver.observe(container);
+      }
+    }
+
+    // Cleanup
+    return () => {
+      resizeObserver.disconnect();
+    };
+  });
+
+  // Initialize column widths when table containers are mounted or when widths are cleared
   $effect(() => {
     // Trigger on tableContainers and filteredCallSites changes
     const containers = tableContainers;
@@ -1138,7 +1184,7 @@
       const callSiteKey = getCallSiteKey(callSite);
       const container = containers[callSiteKey];
 
-      // Only compute if container exists and no widths set yet
+      // Compute if container exists and no widths set (either initial or after resize clear)
       if (container && !columnWidths[callSiteKey]) {
         // Subtract space for # column (with nav buttons) and + column
         const availableWidth = container.clientWidth - 140 - 56;
