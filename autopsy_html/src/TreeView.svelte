@@ -39,6 +39,8 @@
   let expandedStringWidth = $state(0); // Track width of original string element
   let stringSpanRef: HTMLSpanElement | null = null;
   let expandedInputRef: HTMLInputElement | null = null;
+  let isDragging = $state(false); // Track if currently dragging
+  let lastDragEndTime = $state(0); // Track when last drag ended
 
   // Compute current path by appending current key to pathPrefix
   const currentPath = $derived.by(() => {
@@ -93,11 +95,13 @@
   }
 
   function toggle(event: MouseEvent | KeyboardEvent) {
-    console.log("toggle called", { isExpandable: isObject(value) || isArray(value), expanded, value });
     event.stopPropagation();
+    // Don't toggle if we're in the middle of a drag operation
+    if (isDragging) {
+      return;
+    }
     if (isObject(value) || isArray(value)) {
       expanded = !expanded;
-      console.log("toggled to", expanded);
     }
   }
 
@@ -109,24 +113,14 @@
   }
 
   function handleStringDoubleClick(event: MouseEvent) {
-    console.log("handleStringDoubleClick called", {
-      valueType: getType(value),
-      isString: getType(value) === "string",
-      stringLength: getType(value) === "string" ? (value as string).length : null,
-      isTruncated: getType(value) === "string" && (value as string).length > 50,
-      currentStringExpanded: stringExpanded,
-      value: value
-    });
     event.stopPropagation();
     event.preventDefault();
     if (getType(value) === "string" && (value as string).length > 50) {
       // Capture the width before expanding
       if (!stringExpanded && stringSpanRef) {
         expandedStringWidth = stringSpanRef.offsetWidth;
-        console.log("Captured width:", expandedStringWidth);
       }
       stringExpanded = !stringExpanded;
-      console.log("Toggled stringExpanded to:", stringExpanded);
 
       // Focus the input after it's rendered
       if (stringExpanded) {
@@ -137,8 +131,6 @@
           }
         }, 0);
       }
-    } else {
-      console.log("Did not toggle - conditions not met");
     }
   }
 
@@ -159,6 +151,9 @@
     if (!enableDrag || !event.dataTransfer || frameIndex === undefined || sourceLogIndex === undefined) {
       return;
     }
+
+    // Set dragging flag to prevent toggle on click
+    isDragging = true;
 
     const payload = {
       type: 'stack-variable',
@@ -183,6 +178,35 @@
     document.body.appendChild(ghost);
     event.dataTransfer.setDragImage(ghost, 0, 0);
     setTimeout(() => document.body.removeChild(ghost), 0);
+  }
+
+  function handleDragEnd(event: DragEvent) {
+    lastDragEndTime = Date.now();
+
+    // Reset dragging flag after a delay to ensure click events are ignored
+    setTimeout(() => {
+      isDragging = false;
+    }, 150);
+  }
+
+  function handleClick(event: MouseEvent) {
+    // If we're dragging, prevent the click from triggering toggle
+    if (isDragging) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    // Also prevent click if it happened very soon after drag ended (within 200ms)
+    // This handles cases where click event fires after isDragging was reset
+    const timeSinceDragEnd = Date.now() - lastDragEndTime;
+    if (lastDragEndTime > 0 && timeSinceDragEnd < 200) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    toggle(event);
   }
 
   function generatePathPreview(path: PathSegment[]): string {
@@ -222,7 +246,8 @@
         class:draggable={enableDrag && key !== undefined}
         draggable={enableDrag && key !== undefined}
         ondragstart={(e) => handleDragStart(e)}
-        onclick={(e) => toggle(e)}
+        ondragend={(e) => handleDragEnd(e)}
+        onclick={(e) => handleClick(e)}
         onkeydown={handleKeydown}
         role="button"
         tabindex="0"
@@ -239,9 +264,8 @@
       class="value-wrapper"
       class:expandable={isObject(value) || isArray(value)}
       onclick={(e) => {
-        console.log("value-wrapper clicked", { isExpandable: isObject(value) || isArray(value) });
         if (isObject(value) || isArray(value)) {
-          toggle(e);
+          handleClick(e);
         }
       }}
       onkeydown={(e) =>
@@ -284,10 +308,7 @@
             class="value-preview literal"
             class:truncated-string={getType(value) === "string" && (value as string).length > 50}
             style="color: {getTypeColor(getType(value))}"
-            ondblclick={(e) => {
-              console.log("Span double-clicked");
-              handleStringDoubleClick(e);
-            }}
+            ondblclick={(e) => handleStringDoubleClick(e)}
           >
             {getValuePreview(value)}
           </span>

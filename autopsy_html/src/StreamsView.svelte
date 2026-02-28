@@ -1716,7 +1716,7 @@
   </tr>
   <tr>
     <th class="log-number-header" style={columnWidths && columnWidths[0] ? `width: ${columnWidths[0]}px` : ''}>#</th>
-    {#each getColumnNames(callSite) as columnName, columnIndex}
+    {#each getColumnNames(callSite) as columnName, columnIndex (columnName)}
     {@const sortable = isColumnSortable(callSite, columnName)}
     {@const sortState = getColumnSortState(callSite, columnName)}
     {@const sortPriority = getSortPriority(callSite, columnName)}
@@ -2079,7 +2079,7 @@
                         </button>
                       {/if}
                     </td>
-                    {#each getColumnNames(callSite) as columnName}
+                    {#each getColumnNames(callSite) as columnName (columnName)}
                       {@const cellValue = getValueForColumn(valueGroup, columnName, callSite)}
                       {@const stackTrace = valueGroup.stack_trace_id ? data.stack_traces[valueGroup.stack_trace_id] : undefined}
                       {@const firstFrame = stackTrace?.frames[0]}
@@ -2177,7 +2177,7 @@
                             </button>
                           {/if}
                         </td>
-                        {#each getColumnNames(callSite) as columnName}
+                        {#each getColumnNames(callSite) as columnName (columnName)}
                           {@const cellValue = getValueForColumn(valueGroup, columnName, callSite)}
                           {@const stackTrace = valueGroup.stack_trace_id ? data.stack_traces[valueGroup.stack_trace_id] : undefined}
                           {@const firstFrame = stackTrace?.frames[0]}

@@ -1,11 +1,11 @@
 ---
 name: do-item
-description: Execute a kanban board item end-to-end. Mark the item as in-progress, work on completing its requirements, then mark it as done. Takes a @mentioned kanban item file as an argument.
+description: Execute a kanban board item end-to-end. Mark the item as in-progress, work on completing its requirements, then ask the user to confirm completion before marking it as done. Takes a @mentioned kanban item file as an argument.
 ---
 
 # Do Item
 
-Execute a single kanban board item from start to completion. This skill handles the full lifecycle: reading the item, marking it in-progress, fulfilling its requirements, and marking it done.
+Execute a single kanban board item from start to completion. This skill handles the full lifecycle: reading the item, marking it in-progress, fulfilling its requirements, and asking for user confirmation before marking it done.
 
 ## Usage
 
@@ -20,7 +20,8 @@ The argument should be a @mentioned kanban item file from `.devtool/features/`.
 1. **Read the item**: Read the @mentioned file to understand its requirements
 2. **Mark in-progress**: Update status to `in-progress` and `modified` timestamp
 3. **Execute the work**: Implement/complete whatever the item describes
-4. **Mark done**: Update status to `done`, set `completedAt`, and move to `done/` subfolder
+4. **Ask for confirmation**: Ask the user to confirm that the work is complete and meets their requirements
+5. **Mark done**: Only after user confirmation, update status to `done`, set `completedAt`, and move to `done/` subfolder
 
 ## Kanban File Format
 
@@ -84,3 +85,4 @@ Default: `.devtool/features/` relative to workspace root.
 - Always update `modified` when making any changes
 - Preserve the exact frontmatter field order and serialization format
 - The item description and acceptance criteria guide what work needs to be done
+- **Always ask the user to confirm completion before marking an item as done** - do not automatically mark items as done after implementing them

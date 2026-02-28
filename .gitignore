@@ -15,3 +15,4 @@ autopsy_report.html
 autopsy_report.json
 !autopsy/template.html
 !autopsy_html/index.html
+test-results/
