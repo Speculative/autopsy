@@ -575,11 +575,28 @@
       // Calculate position relative to the clicked button
       const button = event.currentTarget as HTMLElement;
       const rect = button.getBoundingClientRect();
+
+      // Calculate desired left position (align right edge of dropdown with button)
+      const dropdownWidth = 300; // max-width of dropdown
+      let leftPos = rect.right - 180; // Align right edge (dropdown min-width is 180px)
+
+      // Check if dropdown would overflow viewport on the right
+      const viewportWidth = window.innerWidth;
+      const dropdownRightEdge = leftPos + dropdownWidth;
+
+      if (dropdownRightEdge > viewportWidth) {
+        // Shift left to keep within viewport (with 8px padding)
+        leftPos = viewportWidth - dropdownWidth - 8;
+      }
+
+      // Ensure dropdown doesn't overflow on the left either
+      leftPos = Math.max(8, leftPos);
+
       openDropdown = {
         callSiteKey,
         columnName,
         top: rect.bottom + 4,
-        left: rect.right - 180  // Align right edge (dropdown min-width is 180px)
+        left: leftPos
       };
     }
   }
