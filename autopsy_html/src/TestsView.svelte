@@ -470,7 +470,6 @@
   .test-group {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
-    overflow: hidden;
   }
 
   .test-group.filtered-group {
@@ -490,6 +489,7 @@
     border-bottom: 1px solid #e5e7eb;
     font-size: 16px;
     font-weight: 600;
+    border-radius: 7px 7px 0 0;
   }
 
   .test-list {
@@ -504,6 +504,7 @@
 
   .test-item:last-child {
     border-bottom: none;
+    border-radius: 0 0 7px 7px;
   }
 
   .test-header {
