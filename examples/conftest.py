@@ -1,28 +1,12 @@
 """Pytest configuration for example test suites.
 
 This conftest provides autopsy report integration for example tests.
+Report output format is controlled by the AUTOPSY_MODE environment variable.
 """
 
 import pytest
 
 from autopsy import report
-from autopsy.report import generate_html
-
-
-def pytest_addoption(parser):
-    """Add command-line option to generate autopsy report."""
-    parser.addoption(
-        "--generate-report",
-        action="store_true",
-        default=False,
-        help="Generate autopsy report after running tests",
-    )
-    parser.addoption(
-        "--report-output",
-        action="store",
-        default=None,
-        help="Output path for autopsy report (default: examples/<test_file>_report.html)",
-    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -34,14 +18,6 @@ def init_report(request):
     yield
 
     report.timeline("Test session completed")
-
-    # Generate report if requested
-    if request.config.getoption("--generate-report", default=False):
-        output_path = request.config.getoption("--report-output")
-        if output_path is None:
-            output_path = "examples/test_report.html"
-        generate_html(output_path=output_path)
-        print(f"\n✓ Autopsy report saved to {output_path}")
 
 
 @pytest.fixture(autouse=True)

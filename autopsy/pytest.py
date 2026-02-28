@@ -187,7 +187,7 @@ def pytest_sessionfinish(session, exitstatus):
     if not report._initialized or report._written:
         return
 
-    if report._config.live_mode:
+    if report._config.mode == "live":
         try:
             from autopsy import live_server
             import time
@@ -219,7 +219,7 @@ def pytest_sessionfinish(session, exitstatus):
         return
 
     # Generate report: JSON by default, HTML if configured
-    if report._config.html:
+    if report._config.mode == "html":
         output_path = "autopsy_report.html"
         try:
             generate_html(report, output_path)

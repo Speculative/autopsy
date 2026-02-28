@@ -14,7 +14,7 @@ def run_example():
     # Initialize autopsy with live mode enabled
     report.init(ReportConfiguration(
         auto_stack_trace=True,
-        live_mode=True,
+        mode="live",
         live_mode_host="localhost",
         live_mode_port=8765
     ))

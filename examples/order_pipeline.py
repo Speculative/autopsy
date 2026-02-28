@@ -6,10 +6,8 @@ shared between the profile template and computed shipping configs. When
 handling rules modify options, they permanently contaminate the profile.
 """
 
-import os
 import random
 import autopsy
-from autopsy.report import ReportConfiguration
 
 SHIPPING_PROFILES = {
     "standard": {
@@ -139,7 +137,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # Use HTML output if AUTOPSY_HTML environment variable is set
-    use_html = os.getenv("AUTOPSY_HTML", "").lower() in ("1", "true", "yes")
-    autopsy.init(ReportConfiguration(html=use_html))
+    autopsy.init()
     main()

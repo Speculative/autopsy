@@ -16,7 +16,7 @@ def scenario_live_mode():
     # Initialize with live mode
     report.init(ReportConfiguration(
         auto_stack_trace=True,
-        live_mode=True,
+        mode="live",
         live_mode_host="localhost",
         live_mode_port=8765
     ))

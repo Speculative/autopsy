@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Generate autopsy reports from example programs.
 
-This CLI tool allows you to run example programs and generate reports in different formats.
+Output format is controlled by the AUTOPSY_MODE environment variable
+("json", "html", or "live"). Defaults to "json" if unset.
 """
 
 import argparse
 import sys
 
 from autopsy import report
-from autopsy.report import generate_html, generate_json
+from autopsy.report import generate_html, generate_json, set_atexit_enabled
 
 
 # Registry of available examples
@@ -70,13 +71,14 @@ def load_example(example_name: str):
     return module.run_example
 
 
-def run_test_suite(example_name: str, output_path: str) -> int:
+def run_test_suite(example_name: str) -> int:
     """
     Run a test suite with autopsy instrumentation.
 
+    Report output is handled by the autopsy pytest plugin based on AUTOPSY_MODE.
+
     Args:
         example_name: Name of the test suite example
-        output_path: Path to write the report
 
     Returns:
         pytest exit code
@@ -90,7 +92,8 @@ def run_test_suite(example_name: str, output_path: str) -> int:
     # Convert module name to file path
     test_file = module_name.replace(".", "/") + ".py"
 
-    # Run pytest with report generation
+    # Run pytest - report generation is handled by the autopsy pytest plugin
+    # based on AUTOPSY_MODE env var (inherited from parent process)
     result = subprocess.run(
         [
             sys.executable,
@@ -99,8 +102,6 @@ def run_test_suite(example_name: str, output_path: str) -> int:
             test_file,
             "-v",
             "--tb=short",
-            "--generate-report",
-            f"--report-output={output_path}",
         ],
         cwd=".",
     )
@@ -108,58 +109,21 @@ def run_test_suite(example_name: str, output_path: str) -> int:
     return result.returncode
 
 
-def generate_html_report(example_name: str, output_path: str) -> None:
+def run_example_report(example_name: str, output_path: str = None) -> None:
     """
-    Generate an HTML report from an example program.
+    Run an example and generate a report.
+
+    Output format is determined by AUTOPSY_MODE env var or init() config.
 
     Args:
         example_name: Name of the example to run
-        output_path: Path to write the HTML report
+        output_path: Optional path to write the report. If None, uses default.
     """
     example_info = EXAMPLES[example_name]
     print(f"Running example: {example_info['name']}")
 
     if example_info.get("is_test_suite"):
-        # For test suites, run pytest and generate JSON first, then convert
-        json_path = output_path.replace(".html", ".json")
-        exit_code = run_test_suite(example_name, json_path)
-        if exit_code not in (0, 1):  # 0=pass, 1=some tests failed (expected)
-            print(f"⚠ Test suite exited with code {exit_code}")
-
-        print(f"✓ Test suite report generated: {json_path}")
-        print("\nNote: HTML generation from test suite not yet implemented.")
-        print("Use 'json' command instead, then view with autopsy_html dev server.")
-        return
-
-    report.init()
-
-    # Load and run the example
-    run_example = load_example(example_name)
-    run_example()
-
-    # Generate HTML
-    print(f"\nGenerating HTML report: {output_path}")
-    html = generate_html(output_path=output_path)
-
-    print(f"✓ HTML report generated: {output_path}")
-    print(f"✓ Report size: {len(html)} bytes")
-    print(f"\nOpen {output_path} in your browser to view the report!")
-
-
-def generate_json_report(example_name: str, output_path: str) -> None:
-    """
-    Generate a JSON report from an example program.
-
-    Args:
-        example_name: Name of the example to run
-        output_path: Path to write the JSON report
-    """
-    example_info = EXAMPLES[example_name]
-    print(f"Running example: {example_info['name']}")
-
-    if example_info.get("is_test_suite"):
-        # For test suites, run pytest with report generation
-        exit_code = run_test_suite(example_name, output_path)
+        exit_code = run_test_suite(example_name)
         if exit_code == 0:
             print("\n✓ All tests passed")
         elif exit_code == 1:
@@ -169,17 +133,37 @@ def generate_json_report(example_name: str, output_path: str) -> None:
         return
 
     report.init()
+    mode = report._config.mode
+
+    if mode == "live":
+        # In live mode, let the atexit handler manage the server lifecycle
+        run_example = load_example(example_name)
+        run_example()
+        return
+
+    # For file-based modes, disable atexit so we control output path explicitly
+    set_atexit_enabled(False)
 
     # Load and run the example
     run_example = load_example(example_name)
     run_example()
 
-    # Generate JSON
-    print(f"\nGenerating JSON report: {output_path}")
-    json_str = generate_json(output_path=output_path)
-
-    print(f"✓ JSON report generated: {output_path}")
-    print(f"✓ Report size: {len(json_str)} bytes")
+    # Generate report based on configured mode
+    if mode == "html":
+        if output_path is None:
+            output_path = "autopsy_report.html"
+        print(f"\nGenerating HTML report: {output_path}")
+        html = generate_html(output_path=output_path)
+        print(f"✓ HTML report generated: {output_path}")
+        print(f"✓ Report size: {len(html)} bytes")
+        print(f"\nOpen {output_path} in your browser to view the report!")
+    else:
+        if output_path is None:
+            output_path = "autopsy_report.json"
+        print(f"\nGenerating JSON report: {output_path}")
+        json_str = generate_json(output_path=output_path)
+        print(f"✓ JSON report generated: {output_path}")
+        print(f"✓ Report size: {len(json_str)} bytes")
 
 
 def list_examples() -> None:
@@ -193,50 +177,34 @@ def list_examples() -> None:
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Generate autopsy reports from example programs",
+        description="Generate autopsy reports from example programs.\n\n"
+        "Output format is controlled by the AUTOPSY_MODE environment variable\n"
+        '("json", "html", or "live"). Defaults to "json" if unset.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
-    # HTML subcommand
-    html_parser = subparsers.add_parser(
-        "html", help="Generate HTML report (report.html)"
+    # Run subcommand
+    run_parser = subparsers.add_parser(
+        "run", help="Run an example and generate a report"
     )
-    html_parser.add_argument(
+    run_parser.add_argument(
         "example",
         nargs="?",
         default="kv_store",
         choices=EXAMPLES.keys(),
         help="Example to run (default: kv_store)",
     )
-    html_parser.add_argument(
+    run_parser.add_argument(
         "-o",
         "--output",
-        default="report.html",
-        help="Output file path (default: report.html)",
-    )
-
-    # JSON subcommand
-    json_parser = subparsers.add_parser(
-        "json", help="Generate JSON report (autopsy_html/dev-data.json)"
-    )
-    json_parser.add_argument(
-        "example",
-        nargs="?",
-        default="kv_store",
-        choices=EXAMPLES.keys(),
-        help="Example to run (default: kv_store)",
-    )
-    json_parser.add_argument(
-        "-o",
-        "--output",
-        default="autopsy_html/dev-data.json",
-        help="Output file path (default: autopsy_html/dev-data.json)",
+        default=None,
+        help="Output file path (default: autopsy_report.json or autopsy_report.html based on AUTOPSY_MODE)",
     )
 
     # List subcommand
-    list_parser = subparsers.add_parser("list", help="List available examples")
+    subparsers.add_parser("list", help="List available examples")
 
     args = parser.parse_args()
 
@@ -245,10 +213,8 @@ def main():
         sys.exit(1)
 
     try:
-        if args.command == "html":
-            generate_html_report(args.example, args.output)
-        elif args.command == "json":
-            generate_json_report(args.example, args.output)
+        if args.command == "run":
+            run_example_report(args.example, args.output)
         elif args.command == "list":
             list_examples()
     except Exception as e:

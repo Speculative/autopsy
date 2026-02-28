@@ -4,6 +4,7 @@ import base64
 import gzip
 import inspect
 import json
+import os
 import pickle
 import re
 import sys
@@ -22,8 +23,7 @@ class ReportConfiguration:
     """Configuration for Report behavior."""
 
     auto_stack_trace: bool = True
-    html: bool = False
-    live_mode: bool = False
+    mode: str = "json"  # "json", "html", or "live"
     live_mode_host: str = "localhost"
     live_mode_port: int = 8765
 
@@ -803,8 +803,13 @@ class Report:
                 # Only reset to default if not initialized yet
                 self._config = ReportConfiguration()
 
+            # Environment variable takes precedence over code-specified mode
+            env_mode = os.getenv("AUTOPSY_MODE", "").lower()
+            if env_mode in ("html", "json", "live"):
+                self._config.mode = env_mode
+
             # Start live server if enabled
-            if self._config.live_mode and not self._live_mode_enabled:
+            if self._config.mode == "live" and not self._live_mode_enabled:
                 self._live_mode_enabled = True
                 try:
                     from autopsy import live_server
@@ -1402,7 +1407,7 @@ def _atexit_handler():
         # Report was already written, nothing to do
         return
 
-    if _report_instance._config.live_mode:
+    if _report_instance._config.mode == "live":
         # In live mode, wait for logs to be transmitted to a client before exiting
         try:
             from autopsy import live_server
@@ -1445,7 +1450,7 @@ def _atexit_handler():
         return
 
     # Auto-generate report: JSON by default, HTML if configured
-    if _report_instance._config.html:
+    if _report_instance._config.mode == "html":
         output_path = "autopsy_report.html"
         try:
             generate_html(_report_instance, output_path)
