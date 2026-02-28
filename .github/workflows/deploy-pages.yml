@@ -41,7 +41,7 @@ jobs:
       - name: Prepare GitHub Pages content
         run: |
           mkdir -p _site
-          mv examples/order_pipeline_report.html _site/index.html
+          mv examples/autopsy_report.html _site/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
