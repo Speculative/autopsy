@@ -105,6 +105,8 @@
 
   // Track computed columns version to detect when they change
   let computedColumnsVersion = $state<Record<string, number>>({});
+  // Track hidden columns version to detect when columns are hidden/shown
+  let hiddenColumnsVersion = $state<Record<string, number>>({});
   let columnWidths = $state<Record<string, Record<string, number>>>({});
 
   // Track container widths to detect when resize should trigger column recalculation
@@ -1144,6 +1146,25 @@
           columnWidths = { ...columnWidths };
         }
         computedColumnsVersion[callSiteKey] = currentVersion;
+      }
+    }
+  });
+
+  // Clear widths when hidden columns change (triggers recalculation in next effect)
+  $effect(() => {
+    const hidden = hiddenColumns;
+
+    for (const [callSiteKey, hiddenSet] of Object.entries(hidden)) {
+      const currentVersion = hiddenSet.size;
+      const previousVersion = hiddenColumnsVersion[callSiteKey] ?? -1;
+
+      if (currentVersion !== previousVersion) {
+        // Hidden columns changed, clear width to force recalculation
+        if (columnWidths[callSiteKey]) {
+          delete columnWidths[callSiteKey];
+          columnWidths = { ...columnWidths };
+        }
+        hiddenColumnsVersion[callSiteKey] = currentVersion;
       }
     }
   });

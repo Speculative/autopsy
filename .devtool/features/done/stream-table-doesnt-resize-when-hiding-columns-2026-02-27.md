@@ -1,12 +1,12 @@
 ---
 id: "stream-table-doesnt-resize-when-hiding-columns-2026-02-27"
-status: "todo"
+status: "done"
 priority: "medium"
 assignee: null
 dueDate: null
 created: "2026-02-28T02:42:23.927Z"
-modified: "2026-02-28T02:42:48.181Z"
-completedAt: null
+modified: "2026-02-28T03:05:00.000Z"
+completedAt: "2026-02-28T03:05:00.000Z"
 labels: []
 order: "a3"
 ---
