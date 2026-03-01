@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ColumnProfile, NumericProfile, EnumProfile } from './columnProfiler';
   import type { ColumnFilter } from './types';
+  import { trackEvent } from './studyEvents';
 
   interface Props {
     profile: ColumnProfile;
@@ -132,6 +133,7 @@
     if (profile.type !== 'numeric') return;
     const isDirty = minValue !== profile.min || maxValue !== profile.max;
     if (isDirty) {
+      trackEvent('ui.filterApply', { filterType: 'numeric_range' });
       onFilterChange({ type: 'numeric_range', min: minValue, max: maxValue });
     } else {
       onFilterChange(null);
@@ -162,6 +164,12 @@
     if (selectedEnumValues.size === profile.values.length) {
       onFilterChange(null);
     } else {
+      const allValues = profile.values.map(v => v.value);
+      trackEvent('ui.filterApply', {
+        filterType: 'enum_values',
+        shownValues: Array.from(selectedEnumValues),
+        hiddenValues: allValues.filter(v => !selectedEnumValues.has(v)),
+      });
       onFilterChange({ type: 'enum_values', selectedValues: selectedEnumValues });
     }
   }
@@ -188,6 +196,7 @@
       if (regexPattern === '') {
         onFilterChange(null);
       } else {
+        trackEvent('ui.filterApply', { filterType: 'regex' });
         onFilterChange({ type: 'regex', pattern: regexPattern });
       }
     } catch {
@@ -203,6 +212,7 @@
     if (pythonExpression === '') {
       onFilterChange(null);
     } else {
+      trackEvent('ui.filterApply', { filterType: 'python_expression' });
       onFilterChange({ type: 'python_expression', expression: pythonExpression });
     }
   }

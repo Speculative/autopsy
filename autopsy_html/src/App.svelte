@@ -10,6 +10,7 @@
   import ViewFilterMenu from "./ViewFilterMenu.svelte";
   import * as pako from "pako";
   import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate, addMessageHandler, removeMessageHandler, navigateToLogInVSCode } from "./vscodeApi";
+  import { trackEvent } from "./studyEvents";
   import { Table, Logs } from "lucide-svelte";
   import {
     saveTestFilter,
@@ -354,6 +355,21 @@
     return () => window.removeEventListener("hashchange", handleHashChange);
   });
 
+  // Track view switches and time spent in each view
+  {
+    let _prevTab: string | null = null;
+    let _tabEnteredAt = 0;
+    $effect(() => {
+      const current = activeTab;
+      if (_prevTab !== null && _prevTab !== current) {
+        trackEvent('ui.viewTimeSpent', { view: _prevTab, durationMs: Date.now() - _tabEnteredAt });
+        trackEvent('ui.viewSwitch', { from: _prevTab, to: current });
+      }
+      _prevTab = current;
+      _tabEnteredAt = Date.now();
+    });
+  }
+
   // Send data updates to VS Code extension when data changes (debounced in vscodeApi)
   $effect(() => {
     if (isVSCodeWebview() && data.call_sites.length > 0) {
@@ -646,11 +662,13 @@
   function handleHideCallSite(callSiteKey: string) {
     hiddenCallSites.add(callSiteKey);
     hiddenCallSites = new Set(hiddenCallSites);
+    trackEvent('ui.callSiteHide', { callSiteKey });
   }
 
   function handleShowCallSite(callSiteKey: string) {
     hiddenCallSites.delete(callSiteKey);
     hiddenCallSites = new Set(hiddenCallSites);
+    trackEvent('ui.callSiteShow', { callSiteKey });
   }
 
   function handleNavigateToLog(logIndex: number) {
@@ -737,6 +755,7 @@
   function handleOpenComputedColumnModal(callSite: CallSite, existingColumn?: ComputedColumn) {
     const callSiteKey = getCallSiteKey(callSite);
     computedColumnModalOpen = { callSite, callSiteKey, existingColumn };
+    trackEvent('ui.computedColumnOpen', { callSiteKey, editing: existingColumn !== undefined });
   }
 
   function handleSaveComputedColumn(column: ComputedColumn) {

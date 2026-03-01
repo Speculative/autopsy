@@ -83,6 +83,61 @@ The extension creates an output channel called **"Autopsy Viewer"** that logs al
 
 ### Troubleshooting
 
+**`better-sqlite3` ABI mismatch (study logging DB fails to initialize):**
+
+Symptom: The Autopsy output channel shows something like:
+```
+Study logger FAILED to initialize at: /path/to/.autopsy-study.db
+Error: The module '.../better_sqlite3.node' was compiled against a different Node.js
+version using NODE_MODULE_VERSION 141. This version of Node.js requires
+NODE_MODULE_VERSION 127.
+```
+
+Cause: `npm install` compiles `better-sqlite3`'s native addon against whatever Node.js
+version is on your system (e.g. v25, MODULE_VERSION 141). But the code-server extension
+host runs a different Node.js version (v22, MODULE_VERSION 127). The VSIX bundles
+whichever binary was compiled at package time, so if they don't match, the DB fails.
+
+Fix: Download the prebuilt binary for the code-server Node version before packaging:
+
+```bash
+cd autopsy_vscode/node_modules/better-sqlite3
+../../node_modules/.bin/prebuild-install --runtime=node --target=22.0.0 --arch=x64 --platform=linux
+cd ../..
+npm run package
+code-server --install-extension autopsy-viewer-0.0.1.vsix
+```
+
+Then reload the code-server window (Ctrl+Shift+P → "Developer: Reload Window").
+
+Note: You must redo this step any time you run `npm install` in `autopsy_vscode/`,
+since `npm install` will recompile the native addon for your system Node version.
+
+**Determining the correct `--target` version:**
+
+The error message tells you the required `NODE_MODULE_VERSION`. Map it to a Node.js
+semver using the [Node.js ABI version table](https://nodejs.org/en/download/releases):
+
+| NODE_MODULE_VERSION | Node.js |
+|---|---|
+| 127 | 22.x |
+| 131 | 23.x |
+| 137 | 24.x |
+| 141 | 25.x |
+
+Alternatively, find code-server's bundled Node binary and check its version directly:
+
+```bash
+# Find code-server's node binary (often next to the code-server binary)
+CSBIN=$(readlink -f $(which code-server))
+ls $(dirname "$CSBIN")/../lib/node* 2>/dev/null || ls $(dirname "$CSBIN")/node* 2>/dev/null
+
+# Or locate by inspecting running processes after opening code-server
+ls -la /proc/$(pgrep -f "code-server.*extensionHost" | head -1)/exe 2>/dev/null
+```
+
+Use the Node.js major version as the `--target` (e.g. `--target=22.0.0` for Node 22.x).
+
 **Blank white screen:**
 - Check the Output panel (select "Autopsy Viewer") for errors
 - The webview HTML file might be missing - run `cd ../autopsy_html && npm run build`

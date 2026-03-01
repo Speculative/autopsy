@@ -1,5 +1,6 @@
 <script lang="ts">
   import TreeView from "./TreeView.svelte";
+  import { trackEvent } from "./studyEvents";
 
   interface PathSegment {
     key: string | number;
@@ -102,6 +103,14 @@
     }
     if (isObject(value) || isArray(value)) {
       expanded = !expanded;
+      trackEvent('ui.treeNodeToggle', {
+        key: key !== undefined ? String(key) : undefined,
+        expanded,
+        depth,
+        frameFunctionName,
+        frameFilename,
+        frameLineNumber,
+      });
     }
   }
 

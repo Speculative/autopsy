@@ -4,6 +4,7 @@
   import { pythonExecutor } from "./pythonExecutor";
   import TreeView from "./TreeView.svelte";
   import CodeEditor from "./CodeEditor.svelte";
+  import { trackEvent } from "./studyEvents";
 
   interface Props {
     data: AutopsyData;
@@ -108,11 +109,15 @@
       expression: expression.trim(),
       callSiteKey,
     };
+    trackEvent('ui.computedColumnSave', { callSiteKey, columnId: column.id, isEdit: isEditMode });
     onSave(column);
   }
 
   function handleDelete() {
-    if (onDelete) onDelete();
+    if (onDelete) {
+      trackEvent('ui.computedColumnDelete', { callSiteKey, columnId: existingColumn?.id });
+      onDelete();
+    }
   }
 
   function handleReset() {

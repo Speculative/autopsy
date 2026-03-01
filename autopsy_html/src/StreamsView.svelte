@@ -6,6 +6,7 @@
   import CodeLocation from "./CodeLocation.svelte";
   import FilterWidgets from "./FilterWidgets.svelte";
   import { tick, untrack } from "svelte";
+  import { trackEvent } from "./studyEvents";
   import { evaluateComputedColumnBatch, isComputedColumnSortable, getComputedColumnDisplayName, generateColumnId, isFrameIndexStable } from "./computedColumns";
   import { profileColumn } from "./columnProfiler";
   import { ListFilter, FileCodeCorner, Logs, ArrowUpNarrowWide } from "lucide-svelte";
@@ -313,6 +314,7 @@
     } else {
       collapsedCallSites[key] = !collapsedCallSites[key];
     }
+    trackEvent('ui.callSiteCollapse', { callSiteKey: key, collapsed: collapsedCallSites[key] });
   }
 
   function toggleFilteredLogs(callSite: FilteredCallSite) {
@@ -573,6 +575,7 @@
     const callSiteKey = getCallSiteKey(callSite);
     if (openDropdown?.callSiteKey === callSiteKey && openDropdown?.columnName === columnName) {
       openDropdown = null;
+      trackEvent('ui.columnDropdownClose', { callSiteKey, columnName: getColumnDisplayName(callSite, columnName) });
     } else {
       // Calculate position relative to the clicked button
       const button = event.currentTarget as HTMLElement;
@@ -600,6 +603,7 @@
         top: rect.bottom + 4,
         left: leftPos
       };
+      trackEvent('ui.columnDropdownOpen', { callSiteKey, columnName: getColumnDisplayName(callSite, columnName) });
     }
   }
 
@@ -624,6 +628,7 @@
       newSorts[existingIndex] = { columnName, direction: 'asc' };
       columnSorts[callSiteKey] = newSorts;
     }
+    trackEvent('ui.columnSort', { callSiteKey, columnName: getColumnDisplayName(callSite, columnName), direction: 'asc' });
     closeDropdown();
   }
 
@@ -639,6 +644,7 @@
       newSorts[existingIndex] = { columnName, direction: 'desc' };
       columnSorts[callSiteKey] = newSorts;
     }
+    trackEvent('ui.columnSort', { callSiteKey, columnName: getColumnDisplayName(callSite, columnName), direction: 'desc' });
     closeDropdown();
   }
 
@@ -646,6 +652,7 @@
     const callSiteKey = getCallSiteKey(callSite);
     const sorts = columnSorts[callSiteKey] || [];
     columnSorts[callSiteKey] = sorts.filter(s => s.columnName !== columnName);
+    trackEvent('ui.columnSortReset', { callSiteKey, columnName: getColumnDisplayName(callSite, columnName) });
     closeDropdown();
   }
 
@@ -715,6 +722,7 @@
     // Trigger reactivity
     hiddenColumns = { ...hiddenColumns };
 
+    trackEvent('ui.columnHide', { callSiteKey, columnName: getColumnDisplayName(callSite, columnName) });
     onHideColumn?.(callSiteKey, columnName);
     closeDropdown();
   }
@@ -926,6 +934,7 @@
   }
 
   function handleRowClick(valueGroup: ValueGroup) {
+    trackEvent('ui.rowClick', { logIndex: valueGroup.log_index });
     onEntryClick?.(valueGroup.log_index, valueGroup.stack_trace_id);
   }
 
@@ -934,6 +943,14 @@
     const columnId = columnName.substring('computed:'.length);
     const callSiteKey = getCallSiteKey(callSite);
     return computedColumns[callSiteKey]?.find(c => c.id === columnId);
+  }
+
+  function getColumnDisplayName(callSite: CallSite, columnName: string): string {
+    if (columnName.startsWith('computed:')) {
+      const col = getComputedColumn(callSite, columnName);
+      return col ? getComputedColumnDisplayName(col) : columnName;
+    }
+    return columnName;
   }
 
   function handleColumnDoubleClick(callSite: CallSite, columnName: string) {
@@ -949,6 +966,7 @@
   function handleResizeStart(callSite: CallSite, columnName: string, e: MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
+    trackEvent('ui.columnResizeStart', { callSiteKey: getCallSiteKey(callSite), columnName: getColumnDisplayName(callSite, columnName) });
 
     const callSiteKey = getCallSiteKey(callSite);
     const th = (e.target as HTMLElement).closest('th');
@@ -1322,6 +1340,7 @@
     newOrder.splice(draggedIndex, 1);
     newOrder.splice(targetIndex, 0, draggedColumn.columnName);
 
+    trackEvent('ui.columnReorder', { callSiteKey, columnName: getColumnDisplayName(callSite, draggedColumn.columnName), newIndex: targetIndex });
     onColumnOrderChange?.(callSiteKey, newOrder);
 
     draggedColumn = null;
@@ -1383,6 +1402,8 @@
 
     // Save the column (this makes it available in computedColumns)
     onSaveComputedColumn?.(column);
+
+    trackEvent('ui.computedColumnCreate', { callSiteKey, title, expression });
 
     // Update column order to insert at target position
     onColumnOrderChange?.(callSiteKey, newOrder);

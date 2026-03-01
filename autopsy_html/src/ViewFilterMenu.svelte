@@ -2,6 +2,7 @@
   import { Filter, X } from "lucide-svelte";
   import LogSelectionWidget from "./LogSelectionWidget.svelte";
   import type { AutopsyData, LogMark } from "./types";
+  import { trackEvent } from "./studyEvents";
 
   // Props
   let {
@@ -44,27 +45,33 @@
 
   function handleFrameFilterToggle() {
     frameFilterEnabled = !frameFilterEnabled;
+    trackEvent('ui.frameFilterToggle', { enabled: frameFilterEnabled, frameFilter });
   }
 
   function handleFrameFilterRemove() {
+    trackEvent('ui.frameFilterRemove', { frameFilter });
     frameFilter = null;
     frameFilterEnabled = true;
   }
 
   function handleTestFilterToggle() {
     testFilterEnabled = !testFilterEnabled;
+    trackEvent('ui.testFilterToggle', { enabled: testFilterEnabled, testFilter });
   }
 
   function handleTestFilterRemove() {
+    trackEvent('ui.testFilterRemove', { testFilter });
     testFilter = null;
     testFilterEnabled = true;
   }
 
   function handleRangeFilterToggle() {
     rangeFilterEnabled = !rangeFilterEnabled;
+    trackEvent('ui.rangeFilterToggle', { enabled: rangeFilterEnabled });
   }
 
   function handleRangeFilterRemove() {
+    trackEvent('ui.rangeFilterRemove', {});
     rangeStartLogIndex = null;
     rangeEndLogIndex = null;
     rangeFilterEnabled = true;

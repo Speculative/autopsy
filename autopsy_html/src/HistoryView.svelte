@@ -3,6 +3,7 @@
   import type { EvaluationResult } from "./computedColumns";
   import TreeView from "./TreeView.svelte";
   import CodeLocation from "./CodeLocation.svelte";
+  import { trackEvent } from "./studyEvents";
   import VirtualList from "./VirtualList.svelte";
   import { tick } from "svelte";
   import { evaluateComputedColumnBatch, getComputedColumnDisplayName } from "./computedColumns";
@@ -318,6 +319,7 @@
   }
 
   function handleEntryClick(entry: HistoryEntry) {
+    trackEvent('ui.historyEntryClick', { logIndex: entry.log_index });
     onEntryClick?.(entry.log_index, entry.valueGroup.stack_trace_id);
   }
 
@@ -383,6 +385,7 @@
 
   function handleMarkColor(logIndex: number, color: string) {
     const note = markNotes[logIndex] || logMarks[logIndex]?.note || "";
+    trackEvent('ui.historyMarkColor', { logIndex, color });
     onMarkLog?.(logIndex, color, note);
   }
 
@@ -393,10 +396,12 @@
   function handleMarkNoteBlur(logIndex: number) {
     const color = logMarks[logIndex]?.color || "";
     const note = markNotes[logIndex] || "";
+    trackEvent('ui.historyMarkNote', { logIndex });
     onMarkLog?.(logIndex, color, note);
   }
 
   function handleClearMark(logIndex: number) {
+    trackEvent('ui.historyMarkClear', { logIndex });
     onMarkLog?.(logIndex, "", "");
     delete markNotes[logIndex];
     markNotes = { ...markNotes };

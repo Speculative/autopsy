@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { AutopsyData, LogLocation, NavigationContext, LogEntry } from './types';
 import { AutopsyCodeLensProvider } from './codeLensProvider';
+import { StudyLogger } from './studyLogger';
 
 export class AutopsyPanel {
   public static currentPanel: AutopsyPanel | undefined;
@@ -13,6 +14,7 @@ export class AutopsyPanel {
   public readonly onLogDataUpdate = this._onLogDataUpdate.event;
   private static _logDataUpdateCallback?: (locations: LogLocation[]) => void;
   private static _codeLensProvider?: AutopsyCodeLensProvider;
+  private static _studyLogger?: StudyLogger;
   private _navigationContext: NavigationContext = {
     currentLogIndex: null,
     logEntries: [],
@@ -23,7 +25,8 @@ export class AutopsyPanel {
     extensionUri: vscode.Uri,
     outputChannel: vscode.OutputChannel,
     logDataUpdateCallback?: (locations: LogLocation[]) => void,
-    codeLensProvider?: AutopsyCodeLensProvider
+    codeLensProvider?: AutopsyCodeLensProvider,
+    studyLogger?: StudyLogger
   ) {
     // Store the callback and provider for use by new or existing panel
     if (logDataUpdateCallback) {
@@ -31,6 +34,9 @@ export class AutopsyPanel {
     }
     if (codeLensProvider) {
       AutopsyPanel._codeLensProvider = codeLensProvider;
+    }
+    if (studyLogger) {
+      AutopsyPanel._studyLogger = studyLogger;
     }
 
     // If panel exists, reveal it
@@ -109,6 +115,14 @@ export class AutopsyPanel {
       null,
       this._disposables
     );
+
+    // Track webview panel focus changes for study logging
+    this._panel.onDidChangeViewState((e) => {
+      AutopsyPanel._studyLogger?.logEvent('panel.focusChange', 'vscode', {
+        visible: e.webviewPanel.visible,
+        active: e.webviewPanel.active,
+      });
+    }, null, this._disposables);
 
     // Handle panel disposal
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
@@ -256,6 +270,19 @@ export class AutopsyPanel {
         // Receive autopsy data from webview and emit event
         this._outputChannel.appendLine('Received log data update from webview');
         this._handleLogDataUpdate(message.data);
+        break;
+      case 'studyEvent':
+        // Batch of interaction events from the webview UI
+        if (AutopsyPanel._studyLogger && Array.isArray(message.events)) {
+          AutopsyPanel._studyLogger.logEventBatch(
+            message.events.map((e: any) => ({
+              eventType: e.eventType,
+              source: 'webview' as const,
+              timestamp: e.timestamp,
+              data: e.data,
+            }))
+          );
+        }
         break;
       default:
         this._outputChannel.appendLine(`Unknown message type: ${message.type}`);

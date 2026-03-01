@@ -2,6 +2,7 @@
   import type { TestResult, AutopsyData } from "./types";
   import CodeLocation from "./CodeLocation.svelte";
   import { MoreVertical } from "lucide-svelte";
+  import { trackEvent } from "./studyEvents";
 
   interface Props {
     data: AutopsyData;
@@ -94,10 +95,12 @@
 
   function toggleTestMenu(testId: string) {
     openMenuTestId = openMenuTestId === testId ? null : testId;
+    trackEvent('ui.testMenuToggle', { testId, open: openMenuTestId === testId });
   }
 
   function handleShowFirstLog(test: TestResult) {
     if (test.start_log_index !== undefined && onShowInHistory) {
+      trackEvent('ui.testShowFirstLog', { testId: test.nodeid });
       onShowInHistory(test.start_log_index);
     }
     openMenuTestId = null;
@@ -105,6 +108,7 @@
 
   function handleShowTestOnly(test: TestResult) {
     if (onSetTestFilter) {
+      trackEvent('ui.testShowOnly', { testId: test.nodeid });
       onSetTestFilter(test.nodeid);
     }
     openMenuTestId = null;
@@ -118,6 +122,7 @@
       newExpanded.add(testId);
     }
     expandedFailures = newExpanded;
+    trackEvent('ui.testFailureExpand', { testId, expanded: expandedFailures.has(testId) });
   }
 
   function getErrorSummary(test: TestResult): string {

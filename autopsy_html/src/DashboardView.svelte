@@ -7,6 +7,7 @@
     TimelineEntry,
     HappenedEntry,
   } from "./types";
+  import { trackEvent } from "./studyEvents";
 
   interface Props {
     data: AutopsyData;
@@ -34,6 +35,7 @@
   ) {
     if (stackTraceIds.length > 0 && onEntryClick) {
       const key = `count-${entryIndex}-${valueKey}`;
+      trackEvent('ui.dashboardCountClick', { entryIndex, valueKey });
       onEntryClick(stackTraceIds, key);
     }
   }
@@ -45,6 +47,7 @@
   ) {
     if (stackTraceIds.length > 0 && onEntryClick) {
       const key = `histogram-${entryIndex}-${binIndex}`;
+      trackEvent('ui.dashboardHistClick', { entryIndex, binIndex });
       onEntryClick(stackTraceIds, key);
     }
   }
@@ -52,6 +55,7 @@
   function handleTimelineClick(entryIndex: number, entry: TimelineEntry) {
     if (entry.stack_trace_id && onEntryClick) {
       const key = `timeline-${entryIndex}`;
+      trackEvent('ui.dashboardTimelineClick', { entryIndex });
       onEntryClick([entry.stack_trace_id], key);
     }
   }
@@ -59,6 +63,7 @@
   function handleHappenedClick(entryIndex: number, entry: HappenedEntry) {
     if (entry.stack_trace_ids.length > 0 && onEntryClick) {
       const key = `happened-${entryIndex}`;
+      trackEvent('ui.dashboardHappenedClick', { entryIndex });
       onEntryClick(entry.stack_trace_ids, key);
     }
   }
