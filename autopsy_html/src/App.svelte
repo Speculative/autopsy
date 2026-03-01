@@ -452,6 +452,7 @@
   }
 
   function handleShowInHistory(logIndex: number) {
+    trackEvent('ui.showInHistory', { logIndex });
     highlightedLogIndex = logIndex;
     activeTab = "history";
     // Clear highlight after animation completes (2s)
@@ -461,6 +462,7 @@
   }
 
   function handleShowInStream(logIndex: number) {
+    trackEvent('ui.showInStream', { logIndex });
     highlightedLogIndex = logIndex;
     activeTab = "streams";
     // Clear highlight after animation completes (2s)
@@ -470,6 +472,7 @@
   }
 
   function handleEntryClick(logIndex: number, stackTraceId?: string) {
+    trackEvent('ui.sidebarOpen', { logIndex, source: activeTab });
     selectedLogIndex = logIndex;
     selectedDashboardElementKey = null;
     if (stackTraceId !== undefined && data.stack_traces) {
@@ -581,6 +584,7 @@
   }
 
   function handleStackTraceIndexChange(index: number) {
+    trackEvent('ui.stackTraceIndexChange', { index, totalTraces: selectedStackTraceIds.length });
     selectedStackTraceIndex = index;
     if (selectedStackTraceIds[index]) {
       // Use stored log index if available, otherwise search for it
@@ -597,6 +601,7 @@
   }
 
   function closeSidebar() {
+    trackEvent('ui.sidebarClose', {});
     selectedLogIndex = null;
     selectedStackTrace = null;
     selectedStackTraceIds = [];
@@ -690,12 +695,15 @@
   }
 
   function handleShowFrameOnly(filename: string, lineNumber: number, functionName: string) {
-    frameFilter = createFrameKey(filename, lineNumber, functionName);
+    const key = createFrameKey(filename, lineNumber, functionName);
+    trackEvent('ui.frameMenuAction', { action: 'showOnly', frameKey: key });
+    frameFilter = key;
     frameFilterEnabled = true;
     menuOpenForFrame = null;
   }
 
   function handleClearFrameFilter() {
+    trackEvent('ui.frameMenuAction', { action: 'clearFilter' });
     frameFilter = null;
     frameFilterEnabled = true;
   }
@@ -728,7 +736,8 @@
 
   function handleFrameClick(frameKey: string) {
     // Toggle selection for the frame
-    if (selectedFrameKeys.has(frameKey)) {
+    const wasSelected = selectedFrameKeys.has(frameKey);
+    if (wasSelected) {
       selectedFrameKeys.delete(frameKey);
     } else {
       // For now, only allow one selected frame (but using Set for future multi-select)
@@ -736,15 +745,18 @@
       selectedFrameKeys.add(frameKey);
     }
     selectedFrameKeys = new Set(selectedFrameKeys); // Trigger reactivity
+    trackEvent('ui.frameClick', { frameKey, selected: !wasSelected });
   }
 
   function toggleCodeExpansion(frameKey: string) {
-    if (expandedCodeFrames.has(frameKey)) {
+    const wasExpanded = expandedCodeFrames.has(frameKey);
+    if (wasExpanded) {
       expandedCodeFrames.delete(frameKey);
     } else {
       expandedCodeFrames.add(frameKey);
     }
     expandedCodeFrames = new Set(expandedCodeFrames); // Trigger reactivity
+    trackEvent('ui.codeExpansionToggle', { frameKey, expanded: !wasExpanded });
   }
 
   function handleColumnOrderChange(callSiteKey: string, newOrder: string[]) {

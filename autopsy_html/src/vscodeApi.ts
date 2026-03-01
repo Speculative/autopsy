@@ -1,4 +1,5 @@
 // VS Code webview API wrapper
+import { trackEvent } from './studyEvents';
 
 interface VSCodeApi {
   postMessage(message: any): void;
@@ -32,6 +33,7 @@ export function openFileInVSCode(filename: string, line: number, column: number 
   const api = getVSCodeApi();
   if (!api) return false;
 
+  trackEvent('ui.openFileInVSCode', { filename, line, column });
   api.postMessage({
     type: 'openFile',
     filename,
@@ -125,6 +127,7 @@ export function navigateToLogInVSCode(logIndex: number): boolean {
   const api = getVSCodeApi();
   if (!api) return false;
 
+  trackEvent('ui.navigateToLog', { logIndex });
   api.postMessage({
     type: 'navigateToLog',
     logIndex

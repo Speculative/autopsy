@@ -65,6 +65,7 @@ export class AutopsyPanel {
     );
 
     outputChannel.appendLine('Webview panel created, initializing AutopsyPanel');
+    AutopsyPanel._studyLogger?.logEvent('panel.created', 'vscode', {});
     AutopsyPanel.currentPanel = new AutopsyPanel(panel, extensionUri, outputChannel);
 
     // Lock the editor group to prevent new files from opening in it
@@ -440,6 +441,7 @@ export class AutopsyPanel {
     column: number = 0
   ) {
     try {
+      AutopsyPanel._studyLogger?.logEvent('nav.webviewToEditor', 'vscode', { filename, line });
       // Use absolute path directly (as per user preference)
       const uri = vscode.Uri.file(filename);
 
@@ -498,6 +500,7 @@ export class AutopsyPanel {
    * Handle navigation to a specific log
    */
   private async _handleNavigateToLog(logIndex: number) {
+    AutopsyPanel._studyLogger?.logEvent('nav.editorToWebview', 'vscode', { logIndex });
     this._outputChannel.appendLine(`_handleNavigateToLog called with logIndex: ${logIndex}`);
 
     const entry = this._navigationContext.logIndexMap.get(logIndex);
@@ -609,6 +612,7 @@ export class AutopsyPanel {
   }
 
   public dispose() {
+    AutopsyPanel._studyLogger?.logEvent('panel.disposed', 'vscode', {});
     AutopsyPanel.currentPanel = undefined;
     this._panel.dispose();
     this._onLogDataUpdate.dispose();

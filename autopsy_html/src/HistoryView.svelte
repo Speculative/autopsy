@@ -418,13 +418,15 @@
   });
 
   function toggleSkipMarker(index: number) {
-    if (expandedSkipMarkers.has(index)) {
+    const wasExpanded = expandedSkipMarkers.has(index);
+    if (wasExpanded) {
       expandedSkipMarkers.delete(index);
       expandedSkipMarkers = new Set(expandedSkipMarkers);
     } else {
       expandedSkipMarkers.add(index);
       expandedSkipMarkers = new Set(expandedSkipMarkers);
     }
+    trackEvent('ui.historyToggleSkipMarker', { index, expanded: !wasExpanded });
   }
 
   function isSkipMarkerExpanded(index: number): boolean {
@@ -506,7 +508,10 @@
       <input
         type="checkbox"
         checked={showDashboardCalls}
-        onchange={(e) => onToggleShowDashboard?.(e.currentTarget.checked)}
+        onchange={(e) => {
+          onToggleShowDashboard?.(e.currentTarget.checked);
+          trackEvent('ui.historyViewOptions', { option: 'showDashboard', enabled: e.currentTarget.checked });
+        }}
       />
       <span>Show dashboard calls</span>
     </label>
@@ -514,7 +519,10 @@
       <input
         type="checkbox"
         checked={hideSkippedLogs}
-        onchange={(e) => hideSkippedLogs = e.currentTarget.checked}
+        onchange={(e) => {
+          hideSkippedLogs = e.currentTarget.checked;
+          trackEvent('ui.historyViewOptions', { option: 'hideSkippedLogs', enabled: e.currentTarget.checked });
+        }}
       />
       <span>Hide skipped logs</span>
     </label>
@@ -522,7 +530,10 @@
       <input
         type="checkbox"
         checked={showCodeLocations}
-        onchange={(e) => showCodeLocations = e.currentTarget.checked}
+        onchange={(e) => {
+          showCodeLocations = e.currentTarget.checked;
+          trackEvent('ui.historyViewOptions', { option: 'showCodeLocations', enabled: e.currentTarget.checked });
+        }}
       />
       <span>Show code locations</span>
     </label>
@@ -753,6 +764,7 @@
             if (e.dataTransfer) {
               e.dataTransfer.setData("text/log-index", entry.log_index.toString());
               e.dataTransfer.effectAllowed = "copy";
+              trackEvent('ui.historyDragLog', { logIndex: entry.log_index });
             }
           }}
           onclick={() => handleEntryClick(entry)}

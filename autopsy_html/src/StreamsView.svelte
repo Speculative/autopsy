@@ -319,13 +319,15 @@
 
   function toggleFilteredLogs(callSite: FilteredCallSite) {
     const key = getCallSiteKey(callSite);
+    const wasExpanded = expandedFilteredLogs.has(key);
     const newSet = new Set(expandedFilteredLogs);
-    if (newSet.has(key)) {
+    if (wasExpanded) {
       newSet.delete(key);
     } else {
       newSet.add(key);
     }
     expandedFilteredLogs = newSet;
+    trackEvent('ui.expandFilteredLogs', { callSiteKey: key, expanded: !wasExpanded });
   }
 
   function toggleAllLogs(callSite: CallSite) {
@@ -372,6 +374,7 @@
       newSet.add(key);
       expandedAllLogs = newSet;
     }
+    trackEvent('ui.expandAllLogs', { callSiteKey: key });
   }
 
   function isAllLogsExpanded(callSite: CallSite): boolean {

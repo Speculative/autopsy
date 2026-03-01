@@ -142,6 +142,7 @@
 
   function resetNumericFilter() {
     if (profile.type !== 'numeric') return;
+    trackEvent('ui.numericFilterReset', {});
     minValue = profile.min;
     maxValue = profile.max;
     onFilterChange(null);
@@ -176,11 +177,13 @@
 
   function selectAllEnum() {
     if (profile.type !== 'enum') return;
+    trackEvent('ui.enumFilterSelectAll', {});
     selectedEnumValues = new Set(profile.values.map(v => v.value));
     onFilterChange(null);
   }
 
   function selectNoneEnum() {
+    trackEvent('ui.enumFilterSelectNone', {});
     selectedEnumValues = new Set();
     updateEnumFilter();
   }

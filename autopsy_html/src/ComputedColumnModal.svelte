@@ -121,11 +121,13 @@
   }
 
   function handleReset() {
+    trackEvent('ui.computedColumnReset', { callSiteKey });
     expression = lastValidExpression;
   }
 
   function handleBackdropClick(e: MouseEvent) {
     if (e.target === e.currentTarget) {
+      trackEvent('ui.computedColumnModalClose', { callSiteKey, method: 'backdrop' });
       onClose();
     }
   }
@@ -141,7 +143,7 @@
   <div class="modal-content" onclick={(e) => e.stopPropagation()}>
     <div class="modal-header">
       <h2>{isEditMode ? 'Edit' : 'Add'} Computed Column</h2>
-      <button class="close-button" onclick={onClose}>×</button>
+      <button class="close-button" onclick={() => { trackEvent('ui.computedColumnModalClose', { callSiteKey, method: 'closeButton' }); onClose(); }}>×</button>
     </div>
 
     <div class="modal-body">
@@ -218,7 +220,7 @@
             </div>
           {/if}
           {#if callSite.value_groups.length > 10 && !showAllPreview}
-            <button class="show-all-button" onclick={() => showAllPreview = true}>
+            <button class="show-all-button" onclick={() => { trackEvent('ui.computedColumnPreviewAll', { callSiteKey }); showAllPreview = true; }}>
               Show all {callSite.value_groups.length} rows
             </button>
           {/if}
@@ -233,7 +235,7 @@
         {/if}
       </div>
       <div class="footer-right">
-        <button class="cancel-button" onclick={onClose}>Cancel</button>
+        <button class="cancel-button" onclick={() => { trackEvent('ui.computedColumnModalClose', { callSiteKey, method: 'cancel' }); onClose(); }}>Cancel</button>
         <button
           class="save-button"
           onclick={handleSave}

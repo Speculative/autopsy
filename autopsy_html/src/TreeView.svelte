@@ -130,6 +130,7 @@
         expandedStringWidth = stringSpanRef.offsetWidth;
       }
       stringExpanded = !stringExpanded;
+      trackEvent('ui.stringExpand', { expanded: stringExpanded, stringLength: (value as string).length });
 
       // Focus the input after it's rendered
       if (stringExpanded) {
@@ -178,6 +179,7 @@
     // Set drag data
     event.dataTransfer.effectAllowed = 'copy';
     event.dataTransfer.setData('application/json', JSON.stringify(payload));
+    trackEvent('ui.treeVariableDrag', { path: currentPath, frameFunctionName, frameFilename });
 
     // Create visual ghost showing the path
     const ghostText = generatePathPreview(currentPath);

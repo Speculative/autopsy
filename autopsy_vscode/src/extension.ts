@@ -126,6 +126,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register command to open the Autopsy viewer
   const openViewerCmd = vscode.commands.registerCommand('autopsy.openViewer', () => {
+    studyLogger.logEvent('command.openViewer', 'vscode', {});
     outputChannel.appendLine('Opening Autopsy Viewer...');
     try {
       AutopsyPanel.createOrShow(context.extensionUri, outputChannel, handleLogDataUpdate, codeLensProvider, studyLogger);
@@ -141,6 +142,7 @@ export function activate(context: vscode.ExtensionContext) {
     'autopsy.showCallSite',
     (filename: string, line: number) => {
       outputChannel.appendLine(`Showing call site: ${filename}:${line}`);
+      studyLogger.logEvent('codelens.showCallSite', 'vscode', { filename, line });
 
       // Open the Autopsy viewer if not already open
       if (!AutopsyPanel.currentPanel) {
@@ -157,6 +159,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register command to show output logs
   const showLogsCmd = vscode.commands.registerCommand('autopsy.showLogs', () => {
+    studyLogger.logEvent('command.showLogs', 'vscode', {});
     outputChannel.show();
   });
 
@@ -165,6 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
     'autopsy.navigateToPreviousLog',
     () => {
       if (AutopsyPanel.currentPanel) {
+        studyLogger.logEvent('codelens.navigatePrevious', 'vscode', {});
         AutopsyPanel.currentPanel.navigateToPreviousLog();
       }
     }
@@ -174,6 +178,7 @@ export function activate(context: vscode.ExtensionContext) {
     'autopsy.navigateToNextLog',
     () => {
       if (AutopsyPanel.currentPanel) {
+        studyLogger.logEvent('codelens.navigateNext', 'vscode', {});
         AutopsyPanel.currentPanel.navigateToNextLog();
       }
     }
@@ -190,6 +195,7 @@ export function activate(context: vscode.ExtensionContext) {
       const content = fs.readFileSync(uri.fsPath, 'utf8');
       const data = JSON.parse(content);
       outputChannel.appendLine(`Loaded autopsy_report.json (${content.length} bytes)`);
+      studyLogger.logEvent('data.reportLoaded', 'vscode', { bytes: content.length });
       AutopsyPanel.currentPanel.loadJsonData(data);
     } catch (error) {
       outputChannel.appendLine(`Error loading autopsy_report.json: ${error}`);

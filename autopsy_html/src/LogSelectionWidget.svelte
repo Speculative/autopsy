@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AutopsyData, ValueGroup, CallSite, LogMark } from "./types";
   import { X, Search } from "lucide-svelte";
+  import { trackEvent } from "./studyEvents";
 
   // Props
   let {
@@ -123,6 +124,7 @@
     if (logIndexStr) {
       const logIndex = parseInt(logIndexStr);
       if (!isNaN(logIndex)) {
+        trackEvent('ui.rangeFilterDrop', { logIndex });
         selectedLogIndex = logIndex;
       }
     }
