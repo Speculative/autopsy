@@ -19,6 +19,10 @@
     frameFilename?: string;
     frameLineNumber?: number;
     baseExpression?: string; // The base expression to prepend to the dragged path
+    // Optional external expansion state (for durable expansion across virtual scroll recycling)
+    expansionState?: Set<string>;
+    onToggleExpand?: (jsonPath: string) => void;
+    expansionPrefix?: string; // Accumulated JSON path from parent TreeViews
   }
 
   let {
@@ -33,9 +37,23 @@
     frameFilename = undefined,
     frameLineNumber = undefined,
     baseExpression = undefined,
+    expansionState = undefined,
+    onToggleExpand = undefined,
+    expansionPrefix = "",
   }: Props = $props();
 
-  let expanded = $state(false); // Collapsed by default
+  // Build the JSON path for this node in the expansion state
+  const expansionPath = $derived(
+    key !== undefined
+      ? (expansionPrefix ? `${expansionPrefix}.${key}` : String(key))
+      : expansionPrefix
+  );
+
+  // Use external expansion state if provided, otherwise local state
+  let localExpanded = $state(false);
+  let expanded = $derived(
+    expansionState ? expansionState.has(expansionPath) : localExpanded
+  );
   let stringExpanded = $state(false); // Track if string value is expanded
   let expandedStringWidth = $state(0); // Track width of original string element
   let stringSpanRef: HTMLSpanElement | null = null;
@@ -102,10 +120,14 @@
       return;
     }
     if (isObject(value) || isArray(value)) {
-      expanded = !expanded;
+      if (onToggleExpand) {
+        onToggleExpand(expansionPath);
+      } else {
+        localExpanded = !localExpanded;
+      }
       trackEvent('ui.treeNodeToggle', {
         key: key !== undefined ? String(key) : undefined,
-        expanded,
+        expanded: !expanded,
         depth,
         frameFunctionName,
         frameFilename,
@@ -343,6 +365,9 @@
             frameFilename={frameFilename}
             frameLineNumber={frameLineNumber}
             baseExpression={baseExpression}
+            {expansionState}
+            {onToggleExpand}
+            expansionPrefix={expansionPath}
           />
         {/each}
       {:else if isArray(value)}
@@ -359,6 +384,9 @@
             frameFilename={frameFilename}
             frameLineNumber={frameLineNumber}
             baseExpression={baseExpression}
+            {expansionState}
+            {onToggleExpand}
+            expansionPrefix={expansionPath}
           />
         {/each}
       {/if}

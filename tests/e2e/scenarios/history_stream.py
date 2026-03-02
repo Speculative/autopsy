@@ -36,15 +36,17 @@ def scenario_history_stream():
     """Generate a comprehensive report for testing history and stream views."""
     report.init(clear=True, warn=False)
 
-    # Create lots of logs from different call sites
-    for i in range(50):
+    # Create lots of logs from different call sites (200 items for virtual scrolling)
+    for i in range(200):
         # Mix up the call sites
         if i % 3 == 0:
             helper_function_a(i)
         elif i % 3 == 1:
             helper_function_b(i)
         else:
-            report.log("main_loop", i, i ** 2)
+            # Log nested objects so TreeView has expandable items
+            data = {"index": i, "squared": i ** 2, "info": {"name": f"item_{i}", "tags": [f"tag_{j}" for j in range(i % 4)]}}
+            report.log("main_loop", data)
 
         # Add some counts
         report.count(f"category_{i % 5}")

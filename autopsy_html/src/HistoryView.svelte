@@ -58,6 +58,34 @@
 
   let showCodeLocations = $state(false);
 
+  // Durable TreeView expansion state that survives virtual scroll recycling.
+  // Key: "${logIndex}:${valueName}" identifying which TreeView within which row.
+  // Value: Set of expanded JSON paths within that TreeView (e.g., "info", "info.tags").
+  let treeExpansionState = $state<Map<string, Set<string>>>(new Map());
+
+  function getExpansionSet(logIndex: number, valueName: string): Set<string> {
+    const key = `${logIndex}:${valueName}`;
+    return treeExpansionState.get(key) || new Set();
+  }
+
+  function makeToggleExpand(logIndex: number, valueName: string) {
+    return (jsonPath: string) => {
+      const key = `${logIndex}:${valueName}`;
+      let paths = treeExpansionState.get(key);
+      if (!paths) {
+        paths = new Set();
+        treeExpansionState.set(key, paths);
+      }
+      if (paths.has(jsonPath)) {
+        paths.delete(jsonPath);
+      } else {
+        paths.add(jsonPath);
+      }
+      // Trigger reactivity
+      treeExpansionState = new Map(treeExpansionState);
+    };
+  }
+
   // Cache for computed column values (callSiteKey:columnId -> log_index -> value)
   let computedColumnCache = $state<Map<string, Map<number, EvaluationResult>>>(new Map());
 
@@ -626,10 +654,10 @@
                         <div class="dashboard-entry">
                           {#if skippedEntry.valueGroup.dashboard_type === "count"}
                             <span class="dashboard-label">count:</span>
-                            <TreeView value={skippedEntry.valueGroup.value} />
+                            <TreeView value={skippedEntry.valueGroup.value} expansionState={getExpansionSet(skippedEntry.log_index, "__dashboard")} onToggleExpand={makeToggleExpand(skippedEntry.log_index, "__dashboard")} />
                           {:else if skippedEntry.valueGroup.dashboard_type === "hist"}
                             <span class="dashboard-label">hist:</span>
-                            <TreeView value={skippedEntry.valueGroup.value} />
+                            <TreeView value={skippedEntry.valueGroup.value} expansionState={getExpansionSet(skippedEntry.log_index, "__dashboard")} onToggleExpand={makeToggleExpand(skippedEntry.log_index, "__dashboard")} />
                           {:else if skippedEntry.valueGroup.dashboard_type === "timeline"}
                             <span class="dashboard-label">timeline:</span>
                             <span class="dashboard-text">{skippedEntry.valueGroup.event_name}</span>
@@ -654,7 +682,7 @@
                             {#if typeof valueWithName.value === 'object' && valueWithName.value !== null && '__error' in valueWithName.value}
                               <span class="computed-error">{valueWithName.value.__error}</span>
                             {:else}
-                              <TreeView value={valueWithName.value} />
+                              <TreeView value={valueWithName.value} expansionState={getExpansionSet(skippedEntry.log_index, valueWithName.name || '')} onToggleExpand={makeToggleExpand(skippedEntry.log_index, valueWithName.name || '')} />
                             {/if}
                           </span>
                         {/each}
@@ -809,10 +837,10 @@
               <div class="dashboard-entry">
                 {#if entry.valueGroup.dashboard_type === "count"}
                   <span class="dashboard-label">count:</span>
-                  <TreeView value={entry.valueGroup.value} />
+                  <TreeView value={entry.valueGroup.value} expansionState={getExpansionSet(entry.log_index, "__dashboard")} onToggleExpand={makeToggleExpand(entry.log_index, "__dashboard")} />
                 {:else if entry.valueGroup.dashboard_type === "hist"}
                   <span class="dashboard-label">hist:</span>
-                  <TreeView value={entry.valueGroup.value} />
+                  <TreeView value={entry.valueGroup.value} expansionState={getExpansionSet(entry.log_index, "__dashboard")} onToggleExpand={makeToggleExpand(entry.log_index, "__dashboard")} />
                 {:else if entry.valueGroup.dashboard_type === "timeline"}
                   <span class="dashboard-label">timeline:</span>
                   <span class="dashboard-text">{entry.valueGroup.event_name}</span>
@@ -837,7 +865,7 @@
                   {#if typeof valueWithName.value === 'object' && valueWithName.value !== null && '__error' in valueWithName.value}
                     <span class="computed-error">{valueWithName.value.__error}</span>
                   {:else}
-                    <TreeView value={valueWithName.value} />
+                    <TreeView value={valueWithName.value} expansionState={getExpansionSet(entry.log_index, valueWithName.name || '')} onToggleExpand={makeToggleExpand(entry.log_index, valueWithName.name || '')} />
                   {/if}
                 </span>
               {/each}

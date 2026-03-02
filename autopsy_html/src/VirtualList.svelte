@@ -56,10 +56,22 @@
     }
   });
 
-  // Svelte action to observe/unobserve item elements for size changes
+  // Svelte action to observe/unobserve item elements for size changes.
+  // Eagerly measures on mount to correct stale heights before the first paint.
   function observeItem(node: HTMLElement, index: number) {
     node.dataset.virtualIndex = String(index);
     resizeObserver.observe(node);
+
+    // When an item re-enters the viewport, its height may differ from the
+    // cached measuredHeight (e.g. previously expanded, now collapsed).
+    // Reading offsetHeight forces a synchronous reflow, giving us the
+    // correct height before the browser paints.
+    const height = node.offsetHeight;
+    if (height > 0 && measuredHeights.get(index) !== height) {
+      measuredHeights.set(index, height);
+      measuredHeights = new Map(measuredHeights);
+    }
+
     return {
       update(newIndex: number) {
         node.dataset.virtualIndex = String(newIndex);
@@ -193,7 +205,7 @@
 
 {#if useWindowScroll}
   <div bind:this={containerElement} class="virtual-list-window" style="height: {totalHeight}px;">
-    {#each visibleItems as { item, index, offset }}
+    {#each visibleItems as { item, index, offset } (index)}
       <div class="virtual-item" use:observeItem={index} style="position: absolute; top: {offset}px; left: 0; right: 0;">
         {@render children(item, index)}
       </div>
@@ -207,7 +219,7 @@
     onscroll={handleScroll}
   >
     <div class="virtual-list-inner" style="height: {totalHeight}px; position: relative;">
-      {#each visibleItems as { item, index, offset }}
+      {#each visibleItems as { item, index, offset } (index)}
         <div class="virtual-item" use:observeItem={index} style="position: absolute; top: {offset}px; left: 0; right: 0;">
           {@render children(item, index)}
         </div>
