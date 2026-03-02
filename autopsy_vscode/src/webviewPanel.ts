@@ -15,6 +15,7 @@ export class AutopsyPanel {
   private static _logDataUpdateCallback?: (locations: LogLocation[]) => void;
   private static _codeLensProvider?: AutopsyCodeLensProvider;
   private static _studyLogger?: StudyLogger;
+  private static _printMode: boolean = false;
   private _navigationContext: NavigationContext = {
     currentLogIndex: null,
     logEntries: [],
@@ -26,7 +27,8 @@ export class AutopsyPanel {
     outputChannel: vscode.OutputChannel,
     logDataUpdateCallback?: (locations: LogLocation[]) => void,
     codeLensProvider?: AutopsyCodeLensProvider,
-    studyLogger?: StudyLogger
+    studyLogger?: StudyLogger,
+    printMode: boolean = false
   ) {
     // Store the callback and provider for use by new or existing panel
     if (logDataUpdateCallback) {
@@ -39,6 +41,8 @@ export class AutopsyPanel {
       AutopsyPanel._studyLogger = studyLogger;
     }
 
+    AutopsyPanel._printMode = printMode;
+
     // If panel exists, reveal it
     if (AutopsyPanel.currentPanel) {
       outputChannel.appendLine('Panel already exists, revealing it');
@@ -46,16 +50,18 @@ export class AutopsyPanel {
       return;
     }
 
-    outputChannel.appendLine('Creating new webview panel');
+    outputChannel.appendLine(`Creating new webview panel (printMode: ${printMode})`);
 
     // Determine the best column for the autopsy viewer
     // Strategy: Open beside the active editor to create a side-by-side view
     const targetColumn = this.getInitialColumn();
 
+    const panelTitle = printMode ? 'Logger Viewer' : 'Autopsy Viewer';
+
     // Create new panel
     const panel = vscode.window.createWebviewPanel(
       'autopsyViewer',
-      'Autopsy Viewer',
+      panelTitle,
       targetColumn,
       {
         enableScripts: true,
@@ -172,6 +178,7 @@ export class AutopsyPanel {
         (function() {
           window.vscode = acquireVsCodeApi();
           window.__VSCODE_WEBVIEW__ = true;
+          ${AutopsyPanel._printMode ? 'window.__AUTOPSY_PRINT_MODE__ = true;' : ''}
 
           // Intercept console methods to forward to extension
           const originalConsole = {
@@ -299,7 +306,7 @@ export class AutopsyPanel {
       this._outputChannel.appendLine(`Extracted ${locations.length} log locations`);
       this._onLogDataUpdate.fire(locations);
 
-      // Build navigation context for log stepping
+      // Build navigation context (used for log index → file mapping and stepping)
       this._navigationContext = this._buildNavigationContext(data);
       this._outputChannel.appendLine(`Built navigation context with ${this._navigationContext.logEntries.length} log entries`);
 
@@ -519,12 +526,12 @@ export class AutopsyPanel {
     await this._openFileAtLocation(entry.filename, entry.line, 0);
     this._outputChannel.appendLine(`Opened file at location`);
 
-    // Update CodeLens provider with current context
-    if (AutopsyPanel._codeLensProvider) {
+    // Update CodeLens provider with current context (skip in print mode to disable step debugging)
+    if (AutopsyPanel._codeLensProvider && !AutopsyPanel._printMode) {
       this._outputChannel.appendLine(`Updating CodeLens provider with logIndex ${logIndex}`);
       AutopsyPanel._codeLensProvider.setNavigationContext(logIndex, this._navigationContext);
       this._outputChannel.appendLine(`CodeLens provider updated`);
-    } else {
+    } else if (!AutopsyPanel._codeLensProvider) {
       this._outputChannel.appendLine(`WARNING: CodeLens provider not available`);
     }
 
@@ -553,6 +560,7 @@ export class AutopsyPanel {
    * Navigate to previous log
    */
   public async navigateToPreviousLog() {
+    if (AutopsyPanel._printMode) return;
     this._outputChannel.appendLine(`navigateToPreviousLog called, current: ${this._navigationContext.currentLogIndex}`);
 
     if (this._navigationContext.currentLogIndex === null) {
@@ -579,6 +587,7 @@ export class AutopsyPanel {
    * Navigate to next log
    */
   public async navigateToNextLog() {
+    if (AutopsyPanel._printMode) return;
     this._outputChannel.appendLine(`navigateToNextLog called, current: ${this._navigationContext.currentLogIndex}`);
 
     if (this._navigationContext.currentLogIndex === null) {

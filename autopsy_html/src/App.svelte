@@ -5,6 +5,7 @@
   import DashboardView from "./DashboardView.svelte";
   import TestsView from "./TestsView.svelte";
   import NotebookView from "./NotebookView.svelte";
+  import PrintView from "./PrintView.svelte";
   import TreeView from "./TreeView.svelte";
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import ViewFilterMenu from "./ViewFilterMenu.svelte";
@@ -63,6 +64,9 @@
     call_sites: [],
     stack_traces: {},
   });
+  // Print ablation mode: when true, shows only the simplified PrintView (no tabs, sidebar, filters)
+  let printMode = $state(!!(window as any).__AUTOPSY_PRINT_MODE__);
+
   let activeTab = $state<"streams" | "history" | "dashboard" | "tests" | "notebook">(getInitialTab());
   let highlightedLogIndex = $state<number | null>(null);
   let selectedLogIndex = $state<number | null>(null);
@@ -909,6 +913,11 @@
 </script>
 
 <div class="app-container">
+  {#if printMode}
+    <main class="main-panel print-mode">
+      <PrintView {data} />
+    </main>
+  {:else}
   <main class="main-panel">
     <div class="header">
       <div class="header-top">
@@ -1254,6 +1263,7 @@
     bind:rangeEndLogIndex
     bind:rangeFilterEnabled
   />
+  {/if}
 </div>
 
 <style>
@@ -1264,6 +1274,8 @@
     scrollbar-color: #888 #f1f1f1 !important; /* Firefox */
     background: #ffffff !important;
     color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
   /* Override VS Code theme variables that might affect colors */
@@ -1344,6 +1356,11 @@
     background: #ffffff;
     background-color: #ffffff;
     scrollbar-color: #888 #f1f1f1;
+  }
+
+  .main-panel.print-mode {
+    padding: 0;
+    overflow: hidden;
   }
 
   .main-panel::-webkit-scrollbar {

@@ -71,18 +71,16 @@
   function makeToggleExpand(logIndex: number, valueName: string) {
     return (jsonPath: string) => {
       const key = `${logIndex}:${valueName}`;
-      let paths = treeExpansionState.get(key);
-      if (!paths) {
-        paths = new Set();
-        treeExpansionState.set(key, paths);
-      }
-      if (paths.has(jsonPath)) {
-        paths.delete(jsonPath);
+      const oldPaths = treeExpansionState.get(key) || new Set<string>();
+      const newPaths = new Set(oldPaths);
+      if (newPaths.has(jsonPath)) {
+        newPaths.delete(jsonPath);
       } else {
-        paths.add(jsonPath);
+        newPaths.add(jsonPath);
       }
-      // Trigger reactivity
-      treeExpansionState = new Map(treeExpansionState);
+      const newMap = new Map(treeExpansionState);
+      newMap.set(key, newPaths);
+      treeExpansionState = newMap;
     };
   }
 
@@ -1255,7 +1253,7 @@
     font-size: 0.9rem;
     font-weight: 600;
     font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", monospace;
-    align-self: center;
+    align-self: flex-start;
     margin-right: 0.25rem;
   }
 
@@ -1271,7 +1269,8 @@
     display: inline-flex;
     flex-direction: row;
     gap: 0;
-    align-items: center;
+    align-items: flex-start;
+    align-self: flex-start;
     transition: border-color 0.15s ease;
   }
 

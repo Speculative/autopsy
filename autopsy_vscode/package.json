@@ -24,7 +24,11 @@
     "commands": [
       {
         "command": "autopsy.openViewer",
-        "title": "Autopsy: Open Viewer"
+        "title": "Autopsy: Open Tracer Viewer"
+      },
+      {
+        "command": "autopsy.openLoggerViewer",
+        "title": "Autopsy: Open Logger Viewer"
       },
       {
         "command": "autopsy.showLogs",

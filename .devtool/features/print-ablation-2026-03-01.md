@@ -1,11 +1,11 @@
 ---
 id: "print-ablation-2026-03-01"
-status: "todo"
+status: "in-progress"
 priority: "medium"
 assignee: null
 dueDate: null
 created: "2026-03-01T19:02:19.730Z"
-modified: "2026-03-01T22:03:39.938Z"
+modified: "2026-03-01T22:10:00.000Z"
 completedAt: null
 labels: []
 order: "a4"

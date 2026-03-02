@@ -137,6 +137,20 @@ export function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // Register command to open the Logger (print ablation) viewer
+  const openLoggerViewerCmd = vscode.commands.registerCommand('autopsy.openLoggerViewer', () => {
+    studyLogger.logEvent('command.openLoggerViewer', 'vscode', {});
+    outputChannel.appendLine('Opening Logger Viewer (print ablation)...');
+    try {
+      codeLensProvider.printMode = true;
+      AutopsyPanel.createOrShow(context.extensionUri, outputChannel, handleLogDataUpdate, codeLensProvider, studyLogger, true);
+      outputChannel.appendLine('Logger Viewer panel created successfully');
+    } catch (error) {
+      outputChannel.appendLine(`Error creating panel: ${error}`);
+      vscode.window.showErrorMessage(`Failed to open Logger Viewer: ${error}`);
+    }
+  });
+
   // Register command to show a specific call site in the viewer
   const showCallSiteCmd = vscode.commands.registerCommand(
     'autopsy.showCallSite',
@@ -206,6 +220,7 @@ export function activate(context: vscode.ExtensionContext) {
   jsonWatcher.onDidChange(loadJsonReport);
 
   context.subscriptions.push(openViewerCmd);
+  context.subscriptions.push(openLoggerViewerCmd);
   context.subscriptions.push(showCallSiteCmd);
   context.subscriptions.push(showLogsCmd);
   context.subscriptions.push(navigateToPreviousLogCmd);

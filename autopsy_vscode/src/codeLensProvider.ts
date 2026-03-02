@@ -13,6 +13,7 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
   private navigationContext: { currentLogIndex: number; context: NavigationContext } | null = null;
   private _codeLensDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly CODELENS_DEBOUNCE_MS = 300;
+  public printMode: boolean = false;
 
   constructor(outputChannel: vscode.OutputChannel) {
     this.outputChannel = outputChannel;
@@ -102,8 +103,8 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
       }
     }
 
-    // Add navigation CodeLens if we're in navigation mode
-    if (this.navigationContext) {
+    // Add navigation CodeLens if we're in navigation mode (disabled in print mode)
+    if (this.navigationContext && !this.printMode) {
       this.outputChannel.appendLine(`Navigation mode active for ${filename}, currentLogIndex: ${this.navigationContext.currentLogIndex}`);
       const { currentLogIndex, context } = this.navigationContext;
       const currentEntry = context.logIndexMap.get(currentLogIndex);
