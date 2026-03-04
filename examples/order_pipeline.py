@@ -132,7 +132,7 @@ def main():
     for order in orders:
         result = processor.process(order)
         results.append(result)
-        autopsy.log("Processed:", 0, order, result)
+        autopsy.log("Processed:", order, result)
         # autopsy.hist(result['cost'])
 
 
