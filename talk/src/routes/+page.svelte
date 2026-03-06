@@ -44,25 +44,16 @@
 	const terminalLines = tr.terminalLines
 	const terminalLinesExpanded = tr.terminalLinesExpanded
 
-	let stateTimeStep = $state(0)
-
-	// ── Breakpoint debugger overlay ──
-	let showBreakpointDebugger = $state(false)
-	let bpDebuggerHighlightLine = $state(-1)
-	let bpDebuggerIteration = $state(0)
+	// ── Constants ──
 	const COST_LINE_IDX = 2
-
-	// ── Execution paths from trace (all iterations) ──
-	const printExecPathV1 = tr.traces.printV1.map((t) => t.path)
-	const printExecPathV2 = tr.traces.printV2.map((t) => t.path)
 	const FIRST_PRINT_LINE = tr.codeVariants.printV1.printLines[0]
 	const SECOND_PRINT_LINE = tr.codeVariants.printV2.printLines[1]
 
-	// Breakpoint "continue" paths: from the breakpoint line, through rest of loop, back to breakpoint.
-	// This simulates clicking "Continue" in a debugger paused at COST_LINE_IDX.
+	const printExecPathV1 = tr.traces.printV1.map((t) => t.path)
+	const printExecPathV2 = tr.traces.printV2.map((t) => t.path)
+
 	const baseLineCount = tr.codeVariants.base.lines.length
 	function bpContinuePath(): number[] {
-		// From breakpoint, step through remaining lines, loop back to top, stop at breakpoint
 		const path: number[] = []
 		for (let i = COST_LINE_IDX; i < baseLineCount; i++) path.push(i)
 		for (let i = 0; i <= COST_LINE_IDX; i++) path.push(i)
@@ -70,92 +61,453 @@
 	}
 	const bpHighlightPath = bpContinuePath()
 
-	function sleep(ms: number) {
-		return new Promise((resolve) => setTimeout(resolve, ms))
+	function sleep(ms: number, signal?: AbortSignal) {
+		return new Promise<void>((resolve) => {
+			const id = setTimeout(resolve, ms)
+			signal?.addEventListener('abort', () => { clearTimeout(id); resolve() })
+		})
 	}
-
-	// ── State × time build-up animation state ──
-	let showAxisCode = $state(false)
-	let axisCodeHighlight = $state<'state-vars' | 'cost' | null>(null)
-	let showCostTerminal = $state(false)
-
-	// SVG-coordinate tweens for the axis labels (viewBox 0 0 900 520)
-	const psLabel = tween({
-		x: 50, y: 250, rotate: -90, fontSize: 36,
-	}, { duration: 600 })
-
-	const tLabel = tween({
-		x: 460, y: 500, rotate: 0, fontSize: 36,
-	}, { duration: 600 })
-
-	let titleLabel = $state<'none' | 'state' | 'time'>('none')
-
-	const axisFade = tween({ codeOpacity: 0, terminalOpacity: 0, axisOpacity: 1 }, { duration: 400 })
-
-	// ── State variable labels — distribute along the Y-axis ──
-	const stateVarNames = tr.stateVarNames
-	const stateVarTargetY = stateVarNames.map((_, i) =>
-		110 + (i / (stateVarNames.length - 1)) * 320
-	)
-	const stateVarLabels = stateVarNames.map(() =>
-		tween({ x: 460, y: 250, opacity: 0, fontSize: 36 }, { duration: 500 })
-	)
-	let showStateVarLabels = $state(false)
-
-	// ── Cost value labels — distribute along the X-axis ──
-	const costValues = tr.costValues
-	const costLabelTargetX = costValues.map((_, i) =>
-		110 + (i / Math.max(costValues.length - 1, 1)) * 700
-	)
-	const costLabels = costValues.map(() =>
-		tween({ x: 460, y: 250, rotate: 0, opacity: 0, fontSize: 36 }, { duration: 500 })
-	)
-	let showCostLabels = $state(false)
-
-	// Breakpoint: animated x position
-	let bpX = tween({ x: tr.breakpointXPositions[0] ?? 200 })
 
 	// In dev, serve iframed HTML via /__raw/ to bypass Vite's HMR injection
 	const iframBase = import.meta.env.DEV ? '/__raw' : ''
 
-	// ── Print debugging state ──
-	let showPrintDebugger = $state(false)
-	let printDebuggerHighlightLine = $state(-1)
-	let printCodeVersion = $state(0) // 0: no print, 1: first only, 2: both
-	let instantHighlight = $state(false) // disable transition during fast animation
-
-	// Dot positions from traced data
+	// ── Static data ──
+	const stateVarNames = tr.stateVarNames
+	const stateVarTargetY = stateVarNames.map((_, i) =>
+		110 + (i / (stateVarNames.length - 1)) * 320
+	)
+	const costValues = tr.costValues
+	const costLabelTargetX = costValues.map((_, i) =>
+		110 + (i / Math.max(costValues.length - 1, 1)) * 700
+	)
 	const printDotsRow1 = tr.printDots.row1
 	const printDotsRow2 = tr.printDots.row2
 	const printDotsRow1Indices = tr.printDots.row1Indices
 	const printDotsRow2Indices = tr.printDots.row2Indices
+	const autopsySlices = tr.autopsySliceXPositions
 
-	let printDotsVisibleRow1 = $state(0)
-	let printDotsVisibleRow2 = $state(0)
-
-	// Interleaved dot sequence (execution order across both print rows)
-	// Each entry: [x, y] coordinate from the appropriate row
 	const printDotsInterleaved: [number, number][] = (() => {
 		const seq: [number, number][] = []
 		let r1 = 0, r2 = 0
 		for (const t of tr.traces.printV2) {
 			const hitsFirst = t.printOutputs.some(o => o.line === tr.codeVariants.printV2.printLines[0])
 			const hitsSecond = t.printOutputs.some(o => o.line === tr.codeVariants.printV2.printLines[1])
-			if (hitsFirst && r1 < printDotsRow1.length) {
-				seq.push(printDotsRow1[r1])
-				r1++
-			}
-			if (hitsSecond && r2 < printDotsRow2.length) {
-				seq.push(printDotsRow2[r2])
-				r2++
-			}
+			if (hitsFirst && r1 < printDotsRow1.length) { seq.push(printDotsRow1[r1]); r1++ }
+			if (hitsSecond && r2 < printDotsRow2.length) { seq.push(printDotsRow2[r2]); r2++ }
 		}
 		return seq
 	})()
 
-	// Autopsy slices from traced data
-	const autopsySlices = tr.autopsySliceXPositions
+	// ── Pre-computed terminal lines for each relevant step ──
+	const terminalLinesV1Iter0: string[] = tr.traces.printV1[0].printOutputs.map(o => o.text)
+	const terminalLinesV1All: string[] = tr.traces.printV1.flatMap(t => t.printOutputs.map(o => o.text))
+	const terminalLinesV2Iter0: string[] = tr.traces.printV2[0].printOutputs.map(o => o.text)
+	const terminalLinesV2All: string[] = tr.traces.printV2.flatMap(t => t.printOutputs.map(o => o.text))
+
+	const maxBpIter = Math.min(tr.breakpointXPositions.length, 8) - 1
+
+	// ── Tweens (kept as objects, targets set by $effect) ──
+	const psLabel = tween({ x: 50, y: 250, rotate: -90, fontSize: 36 }, { duration: 600 })
+	const tLabel = tween({ x: 460, y: 500, rotate: 0, fontSize: 36 }, { duration: 600 })
+	const axisFade = tween({ codeOpacity: 0, terminalOpacity: 0, axisOpacity: 1 }, { duration: 400 })
+	const stateVarLabels = stateVarNames.map(() =>
+		tween({ x: 460, y: 250, opacity: 0, fontSize: 36 }, { duration: 500 })
+	)
+	const costLabels = costValues.map(() =>
+		tween({ x: 460, y: 250, rotate: 0, opacity: 0, fontSize: 36 }, { duration: 500 })
+	)
+	const bpX = tween({ x: tr.breakpointXPositions[0] ?? 200 })
+	const codeTransform = tween({ scale: 1, opacity: 1 }, { duration: 500 })
+
+	// ── Step-driven state for the merged slide ──
+	type Phase = 'code' | 'chart' | 'breakpoint' | 'print' | 'autopsy'
+	const TOTAL_STEPS = 21  // steps 0-20
+
+	let chartStep = $state(0)
+
+	// ── Mutable state (set by applySnapshot / progressive animations) ──
+	let phase = $state<Phase>('code')
+	let showHeading = $state(true)
+	let titleLabel = $state<'none' | 'state' | 'time'>('none')
+	let showAxisCode = $state(false)
+	let axisCodeHighlight = $state<'state-vars' | 'cost' | null>(null)
+	let showCostTerminal = $state(false)
+	let showStateVarLabels = $state(false)
+	let showCostLabels = $state(false)
+	let rightPanel = $state<'none' | 'variables' | 'terminal'>('none')
+	let stateTimeStep = $state(0)
+	let printCodeVersion = $state(0)
+	let bpDebuggerHighlightLine = $state(-1)
+	let bpDebuggerIteration = $state(0)
+	let printDebuggerHighlightLine = $state(-1)
+	let instantHighlight = $state(false)
+	let printDotsVisibleRow1 = $state(0)
+	let printDotsVisibleRow2 = $state(0)
 	let autopsyVisibleCount = $state(0)
+	let unifiedAccentLines = $state<number[]>([])
+	let printTerminalLines = $state<string[]>([])
+
+	// ── Derived state ──
+	let unifiedCodeLines = $derived(
+		printCodeVersion === 0 ? tr.codeVariants.base.lines
+		: printCodeVersion === 1 ? tr.codeVariants.printV1.lines
+		: tr.codeVariants.printV2.lines
+	)
+	let unifiedMarkers = $derived(
+		phase === 'breakpoint'
+			? [{ line: COST_LINE_IDX, type: 'breakpoint' as const }]
+			: []
+	)
+	let unifiedHighlightLine = $derived(
+		phase === 'breakpoint' ? bpDebuggerHighlightLine : printDebuggerHighlightLine
+	)
+
+	// ── Snapshot type ──
+	interface StepSnapshot {
+		phase: Phase
+		showHeading: boolean
+		titleLabel: 'none' | 'state' | 'time'
+		showAxisCode: boolean
+		axisCodeHighlight: 'state-vars' | 'cost' | null
+		showCostTerminal: boolean
+		showStateVarLabels: boolean
+		showCostLabels: boolean
+		rightPanel: 'none' | 'variables' | 'terminal'
+		stateTimeStep: number
+		printCodeVersion: number
+		bpDebuggerHighlightLine: number
+		bpDebuggerIteration: number
+		printDebuggerHighlightLine: number
+		instantHighlight: boolean
+		printDotsVisibleRow1: number
+		printDotsVisibleRow2: number
+		printTerminalLines: string[]
+		unifiedAccentLines: number[]
+		psLabel: { x: number; y: number; rotate: number; fontSize: number }
+		tLabel: { x: number; y: number; rotate?: number; fontSize: number }
+		axisFade: { codeOpacity: number; terminalOpacity: number; axisOpacity: number }
+		stateVarLabelTargets: Array<{ x: number; y: number; opacity: number }>
+		costLabelTargets: Array<{ x: number; y: number; rotate: number; opacity: number }>
+		bpX: number
+	}
+
+	// Default tween positions
+	const PS_AXIS = { x: 50, y: 250, rotate: -90, fontSize: 36 }
+	const PS_TITLE = { x: 460, y: 60, rotate: 0, fontSize: 72 }
+	const T_AXIS = { x: 460, y: 500, fontSize: 36 }
+	const T_TITLE = { x: 460, y: 60, fontSize: 72 }
+	const FADE_NORMAL = { codeOpacity: 0, terminalOpacity: 0, axisOpacity: 1 }
+	const FADE_DIM = { codeOpacity: 0, terminalOpacity: 0, axisOpacity: 0.15 }
+	const SVL_HIDDEN = stateVarNames.map(() => ({ x: 460, y: 250, opacity: 0 }))
+	const SVL_VISIBLE = stateVarNames.map((_, i) => ({ x: 140, y: stateVarTargetY[i], opacity: 1 }))
+	const CL_HIDDEN = costValues.map(() => ({ x: 460, y: 250, rotate: 0, opacity: 0 }))
+	const CL_VISIBLE = costValues.map((_, i) => ({ x: costLabelTargetX[i], y: 430, rotate: -90, opacity: 1 }))
+
+	const BASE: StepSnapshot = {
+		phase: 'code', showHeading: true, titleLabel: 'none',
+		showAxisCode: false, axisCodeHighlight: null, showCostTerminal: false,
+		showStateVarLabels: false, showCostLabels: false,
+		rightPanel: 'none', stateTimeStep: 0, printCodeVersion: 0,
+		bpDebuggerHighlightLine: -1, bpDebuggerIteration: 0,
+		printDebuggerHighlightLine: -1, instantHighlight: false,
+		printDotsVisibleRow1: 0, printDotsVisibleRow2: 0,
+		printTerminalLines: [], unifiedAccentLines: [],
+		psLabel: PS_AXIS, tLabel: T_AXIS, axisFade: FADE_NORMAL,
+		stateVarLabelTargets: SVL_HIDDEN, costLabelTargets: CL_HIDDEN,
+		bpX: tr.breakpointXPositions[0] ?? 200,
+	}
+
+	function s(overrides: Partial<StepSnapshot>): StepSnapshot {
+		return { ...BASE, ...overrides }
+	}
+
+	// Count dots in first iteration of print V1
+	const v1Iter0Dots = printExecPathV1[0].filter(l => l === FIRST_PRINT_LINE).length
+	// Count dots in first iteration of print V2
+	const v2Iter0DotsR1 = printExecPathV2[0].filter(l => l === FIRST_PRINT_LINE).length
+	const v2Iter0DotsR2 = printExecPathV2[0].filter(l => l === SECOND_PRINT_LINE).length
+
+	const STEPS: StepSnapshot[] = [
+		// 0: code phase
+		s({}),
+		// 1: chart phase (axes appear)
+		s({ phase: 'chart', showHeading: false }),
+		// 2: "program state" flies to title
+		s({ phase: 'chart', showHeading: false, titleLabel: 'state',
+			psLabel: PS_TITLE, axisFade: FADE_DIM }),
+		// 3: code overlay, state-vars highlighted
+		s({ phase: 'chart', showHeading: false, titleLabel: 'state',
+			psLabel: PS_TITLE, axisFade: { ...FADE_DIM, codeOpacity: 1 },
+			showAxisCode: true, axisCodeHighlight: 'state-vars' }),
+		// 4: state var labels distributed on Y-axis
+		s({ phase: 'chart', showHeading: false, titleLabel: 'state',
+			psLabel: PS_TITLE, axisFade: FADE_DIM,
+			showStateVarLabels: true, stateVarLabelTargets: SVL_VISIBLE }),
+		// 5: labels fade, "program state" back to axis
+		s({ phase: 'chart', showHeading: false,
+			showStateVarLabels: true, stateVarLabelTargets: SVL_HIDDEN }),
+		// 6: "time" flies to title
+		s({ phase: 'chart', showHeading: false, titleLabel: 'time',
+			tLabel: T_TITLE, axisFade: FADE_DIM }),
+		// 7: cost code + terminal overlay
+		s({ phase: 'chart', showHeading: false, titleLabel: 'time',
+			tLabel: T_TITLE, axisFade: { ...FADE_DIM, codeOpacity: 1, terminalOpacity: 1 },
+			showAxisCode: true, axisCodeHighlight: 'cost', showCostTerminal: true }),
+		// 8: cost labels distributed on X-axis
+		s({ phase: 'chart', showHeading: false, titleLabel: 'time',
+			tLabel: T_TITLE, axisFade: FADE_DIM,
+			showCostLabels: true, costLabelTargets: CL_VISIBLE }),
+		// 9: labels fade, "time" back to axis
+		s({ phase: 'chart', showHeading: false,
+			showCostLabels: true, costLabelTargets: CL_HIDDEN }),
+		// 10: breakpoint mode
+		s({ phase: 'breakpoint', showHeading: false, stateTimeStep: 1,
+			rightPanel: 'variables', bpDebuggerHighlightLine: COST_LINE_IDX,
+			bpDebuggerIteration: 0, bpX: tr.breakpointXPositions[0] ?? 200 }),
+		// 11: one slow "Continue" (end state: iteration 1)
+		s({ phase: 'breakpoint', showHeading: false, stateTimeStep: 1,
+			rightPanel: 'variables', bpDebuggerHighlightLine: COST_LINE_IDX,
+			bpDebuggerIteration: 1, bpX: tr.breakpointXPositions[1] ?? 420 }),
+		// 12: fast-forward remaining iterations
+		s({ phase: 'breakpoint', showHeading: false, stateTimeStep: 1,
+			rightPanel: 'variables', bpDebuggerHighlightLine: COST_LINE_IDX,
+			bpDebuggerIteration: maxBpIter, bpX: tr.breakpointXPositions[maxBpIter] ?? 700 }),
+		// 13: transition to print
+		s({ phase: 'print', showHeading: false, stateTimeStep: 2,
+			rightPanel: 'terminal' }),
+		// 14: add first print statement
+		s({ phase: 'print', showHeading: false, stateTimeStep: 4,
+			rightPanel: 'terminal', printCodeVersion: 1 }),
+		// 15: V1 slow first iteration done
+		s({ phase: 'print', showHeading: false, stateTimeStep: 5,
+			rightPanel: 'terminal', printCodeVersion: 1,
+			printDotsVisibleRow1: v1Iter0Dots,
+			printTerminalLines: terminalLinesV1Iter0 }),
+		// 16: V1 fast-forward done
+		s({ phase: 'print', showHeading: false, stateTimeStep: 5,
+			rightPanel: 'terminal', printCodeVersion: 1,
+			printDotsVisibleRow1: printDotsRow1.length,
+			printTerminalLines: terminalLinesV1All }),
+		// 17: add second print, clear dots/terminal
+		s({ phase: 'print', showHeading: false, stateTimeStep: 6,
+			rightPanel: 'terminal', printCodeVersion: 2 }),
+		// 18: V2 slow first iteration done
+		s({ phase: 'print', showHeading: false, stateTimeStep: 7,
+			rightPanel: 'terminal', printCodeVersion: 2,
+			printDotsVisibleRow1: v2Iter0DotsR1, printDotsVisibleRow2: v2Iter0DotsR2,
+			printTerminalLines: terminalLinesV2Iter0 }),
+		// 19: V2 fast-forward done
+		s({ phase: 'print', showHeading: false, stateTimeStep: 7,
+			rightPanel: 'terminal', printCodeVersion: 2,
+			printDotsVisibleRow1: printDotsRow1.length, printDotsVisibleRow2: printDotsRow2.length,
+			printTerminalLines: terminalLinesV2All }),
+		// 20: zigzag interleaved line
+		s({ phase: 'print', showHeading: false, stateTimeStep: 10,
+			rightPanel: 'terminal', printCodeVersion: 2,
+			printDotsVisibleRow1: printDotsRow1.length, printDotsVisibleRow2: printDotsRow2.length,
+			printTerminalLines: terminalLinesV2All }),
+	]
+
+	// ── Apply a snapshot to all mutable state + tweens ──
+	function applySnapshot(snap: StepSnapshot, skipAnim: boolean) {
+		phase = snap.phase
+		showHeading = snap.showHeading
+		titleLabel = snap.titleLabel
+		showAxisCode = snap.showAxisCode
+		axisCodeHighlight = snap.axisCodeHighlight
+		showCostTerminal = snap.showCostTerminal
+		showStateVarLabels = snap.showStateVarLabels
+		showCostLabels = snap.showCostLabels
+		rightPanel = snap.rightPanel
+		stateTimeStep = snap.stateTimeStep
+		printCodeVersion = snap.printCodeVersion
+		bpDebuggerHighlightLine = snap.bpDebuggerHighlightLine
+		bpDebuggerIteration = snap.bpDebuggerIteration
+		printDebuggerHighlightLine = snap.printDebuggerHighlightLine
+		instantHighlight = snap.instantHighlight
+		printDotsVisibleRow1 = snap.printDotsVisibleRow1
+		printDotsVisibleRow2 = snap.printDotsVisibleRow2
+		printTerminalLines = snap.printTerminalLines
+		unifiedAccentLines = snap.unifiedAccentLines
+		autopsyVisibleCount = 0
+
+		const opts = skipAnim ? { duration: 0 } : {}
+		psLabel.to(snap.psLabel, opts)
+		tLabel.to({ ...snap.tLabel, rotate: snap.tLabel.rotate ?? 0 }, opts)
+		axisFade.to(snap.axisFade, opts)
+		bpX.to({ x: snap.bpX }, opts)
+
+		snap.stateVarLabelTargets.forEach((t, i) => {
+			stateVarLabels[i].to({ ...t, fontSize: 36 }, opts)
+		})
+		snap.costLabelTargets.forEach((t, i) => {
+			costLabels[i].to({ ...t, fontSize: 36 }, opts)
+		})
+	}
+
+	// ── Progressive animations for steps that have line-by-line playback ──
+	const STEP_ANIMATIONS: Partial<Record<number, (signal: AbortSignal) => Promise<void>>> = {
+		// Step 11: one slow breakpoint "Continue"
+		11: async (signal) => {
+			// Start from step 10's end state
+			bpDebuggerHighlightLine = COST_LINE_IDX
+			bpDebuggerIteration = 0
+			bpX.to({ x: tr.breakpointXPositions[0] ?? 200 }, { duration: 0 })
+			const barDuration = bpHighlightPath.length * SLOW_LINE_DELAY
+			await all(
+				bpX.to({ x: tr.breakpointXPositions[1] ?? 420 }, { duration: barDuration }),
+				(async () => {
+					for (const line of bpHighlightPath) {
+						if (signal.aborted) return
+						bpDebuggerHighlightLine = line
+						await sleep(SLOW_LINE_DELAY, signal)
+					}
+					bpDebuggerIteration = 1
+				})(),
+			)
+		},
+		// Step 12: fast-forward remaining breakpoint iterations
+		12: async (signal) => {
+			instantHighlight = true
+			bpDebuggerIteration = 1
+			bpX.to({ x: tr.breakpointXPositions[1] ?? 420 }, { duration: 0 })
+			const maxIter = Math.min(tr.breakpointXPositions.length, 8)
+			for (let iter = 2; iter < maxIter; iter++) {
+				if (signal.aborted) break
+				const barDuration = bpHighlightPath.length * FAST_LINE_DELAY
+				await all(
+					bpX.to({ x: tr.breakpointXPositions[iter] }, { duration: barDuration }),
+					(async () => {
+						for (const line of bpHighlightPath) {
+							if (signal.aborted) return
+							bpDebuggerHighlightLine = line
+							await sleep(FAST_LINE_DELAY, signal)
+						}
+						bpDebuggerIteration = iter
+					})(),
+				)
+			}
+			instantHighlight = false
+		},
+		// Step 14: flash accent lines when print is added
+		14: async (signal) => {
+			unifiedAccentLines = tr.codeVariants.printV1.printLines
+			await sleep(800, signal)
+			if (!signal.aborted) unifiedAccentLines = []
+		},
+		// Step 15: V1 slow first iteration
+		15: async (signal) => {
+			printDotsVisibleRow1 = 0
+			printTerminalLines = []
+			for (const line of printExecPathV1[0]) {
+				if (signal.aborted) return
+				printDebuggerHighlightLine = line
+				if (line === FIRST_PRINT_LINE) {
+					printDotsVisibleRow1 += 1
+					const out = tr.traces.printV1[0].printOutputs[printDotsVisibleRow1 - 1]
+					if (out) printTerminalLines = [...printTerminalLines, out.text]
+				}
+				await sleep(SLOW_LINE_DELAY, signal)
+			}
+		},
+		// Step 16: V1 fast-forward remaining iterations
+		16: async (signal) => {
+			instantHighlight = true
+			// Start from end of step 15
+			printDotsVisibleRow1 = v1Iter0Dots
+			printTerminalLines = [...terminalLinesV1Iter0]
+			for (let iter = 1; iter < printExecPathV1.length; iter++) {
+				for (const line of printExecPathV1[iter]) {
+					if (signal.aborted) { instantHighlight = false; return }
+					printDebuggerHighlightLine = line
+					if (line === FIRST_PRINT_LINE) {
+						printDotsVisibleRow1 += 1
+						const out = tr.traces.printV1[iter].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
+						if (out) printTerminalLines = [...printTerminalLines, out.text]
+					}
+					await sleep(FAST_LINE_DELAY, signal)
+				}
+			}
+			printDebuggerHighlightLine = -1
+			instantHighlight = false
+		},
+		// Step 17: flash accent lines when second print is added
+		17: async (signal) => {
+			unifiedAccentLines = tr.codeVariants.printV2.printLines
+			await sleep(800, signal)
+			if (!signal.aborted) unifiedAccentLines = []
+		},
+		// Step 18: V2 slow first iteration
+		18: async (signal) => {
+			printDotsVisibleRow1 = 0
+			printDotsVisibleRow2 = 0
+			printTerminalLines = []
+			for (const line of printExecPathV2[0]) {
+				if (signal.aborted) return
+				printDebuggerHighlightLine = line
+				if (line === FIRST_PRINT_LINE) {
+					printDotsVisibleRow1 += 1
+					const out = tr.traces.printV2[0].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
+					if (out) printTerminalLines = [...printTerminalLines, out.text]
+				}
+				if (line === SECOND_PRINT_LINE) {
+					printDotsVisibleRow2 += 1
+					const out = tr.traces.printV2[0].printOutputs.find(o => o.line === SECOND_PRINT_LINE)
+					if (out) printTerminalLines = [...printTerminalLines, out.text]
+				}
+				await sleep(SLOW_LINE_DELAY, signal)
+			}
+		},
+		// Step 19: V2 fast-forward remaining iterations
+		19: async (signal) => {
+			instantHighlight = true
+			printDotsVisibleRow1 = v2Iter0DotsR1
+			printDotsVisibleRow2 = v2Iter0DotsR2
+			printTerminalLines = [...terminalLinesV2Iter0]
+			for (let iter = 1; iter < printExecPathV2.length; iter++) {
+				for (const line of printExecPathV2[iter]) {
+					if (signal.aborted) { instantHighlight = false; return }
+					printDebuggerHighlightLine = line
+					if (line === FIRST_PRINT_LINE) {
+						printDotsVisibleRow1 += 1
+						const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
+						if (out) printTerminalLines = [...printTerminalLines, out.text]
+					}
+					if (line === SECOND_PRINT_LINE) {
+						printDotsVisibleRow2 += 1
+						const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === SECOND_PRINT_LINE)
+						if (out) printTerminalLines = [...printTerminalLines, out.text]
+					}
+					await sleep(FAST_LINE_DELAY, signal)
+				}
+			}
+			printDebuggerHighlightLine = -1
+			instantHighlight = false
+		},
+	}
+
+	// ── Apply step: called directly from Actions and slide entry ──
+	let chartAbort: AbortController | null = null
+
+	function applyStep(step: number, skipAnim: boolean) {
+		// Cancel any running progressive animation
+		chartAbort?.abort()
+		chartAbort = null
+
+		const snap = STEPS[step]
+		if (!snap) return
+
+		applySnapshot(snap, skipAnim)
+
+		if (!skipAnim && STEP_ANIMATIONS[step]) {
+			const ac = new AbortController()
+			chartAbort = ac
+			STEP_ANIMATIONS[step]!(ac.signal).then(() => {
+				// Ensure we land on exact end state after animation completes
+				if (!ac.signal.aborted) applySnapshot(snap, true)
+			})
+		}
+	}
 
 	// ── Formative study slide ──
 	let showTooLittle = $state(false)
@@ -181,11 +533,9 @@
 		loopCancel = () => { cancelled = true }
 		while (!cancelled) {
 			for (let iter = 0; iter < ITEM_COUNT && !cancelled; iter++) {
-				// Animate to this iteration's X position
 				loopBpX.to({ x: tr.breakpointXPositions[iter] })
 				loopBpIteration = iter
 				loopVars = tr.breakpointSnapshots[iter]
-				// Step through highlight path
 				for (const line of bpHighlightPath) {
 					if (cancelled) return
 					loopHighlightLine = line
@@ -219,63 +569,12 @@
 					await sleep(iter === 0 ? 120 : 40)
 				}
 			}
-			// Brief pause before restarting
 			if (!cancelled) await sleep(500)
 		}
 	}
 
 	// ── Comparison chart (post-tension slide) ──
-	// 0: blank, 1: breakpoint bar, 2: print zigzag (2 rows),
-	// 3: autopsy zigzag only, 4: + horizontal row lines, 5: + bars
 	let compChartStep = $state(0)
-
-	// ── Merged slide layout phases ──
-	// 'code': full-screen code with heading
-	// 'chart': code shrinks to corner, axes appear
-	// 'breakpoint': 3-panel (chart left 2/3, code top-right, variables bottom-right)
-	// 'print': 3-panel (chart left 2/3, code top-right, terminal bottom-right)
-	// 'autopsy': chart-focused (code + panels dismissed)
-	type Phase = 'code' | 'chart' | 'breakpoint' | 'print' | 'autopsy'
-	let phase = $state<Phase>('code')
-
-	// Tween for code editor position/size
-	// In 'code' phase: fills screen. In 'chart' phase: small in top-right corner.
-	// In 'breakpoint'/'print' phase: top-right panel in 3-panel layout.
-	const codeTransform = tween({
-		// These represent percentage-based positioning via CSS
-		scale: 1, opacity: 1,
-	}, { duration: 500 })
-
-	// Whether to show the heading "How do you debug this?"
-	let showHeading = $state(true)
-
-	// Which panel to show in the bottom-right during 3-panel mode
-	let rightPanel = $state<'none' | 'variables' | 'terminal'>('none')
-
-	// Which code lines to show in the unified CodeOverlay
-	let unifiedCodeLines = $derived(
-		printCodeVersion === 0 ? tr.codeVariants.base.lines
-		: printCodeVersion === 1 ? tr.codeVariants.printV1.lines
-		: tr.codeVariants.printV2.lines
-	)
-
-	// Breakpoint markers for the unified CodeOverlay
-	let unifiedMarkers = $derived(
-		phase === 'breakpoint'
-			? [{ line: COST_LINE_IDX, type: 'breakpoint' as const }]
-			: []
-	)
-
-	// Unified highlight line (used for both breakpoint and print stepping)
-	let unifiedHighlightLine = $derived(
-		phase === 'breakpoint' ? bpDebuggerHighlightLine : printDebuggerHighlightLine
-	)
-
-	// Accent lines: momentary yellow token highlight when print lines are added
-	let unifiedAccentLines = $state<number[]>([])
-
-	// Print terminal output lines for the bottom-right terminal panel
-	let printTerminalLines = $state<string[]>([])
 </script>
 
 <Presentation options={{ history: true, transition: 'slide', controls: false, progress: true, slideNumber: true }}>
@@ -342,24 +641,8 @@
 		- 'autopsy': Chart with bars filling in, right panels dismissed
 	-->
 	<Slide class="h-full" in={() => {
-		phase = 'code'
-		showHeading = true
-		rightPanel = 'none'
-		printCodeVersion = 0
-		bpDebuggerHighlightLine = -1
-		bpDebuggerIteration = 0
-		printDebuggerHighlightLine = -1
-		instantHighlight = false
-		printTerminalLines = []
-		stateTimeStep = 0; bpX.reset()
-		titleLabel = 'none'
-		showAxisCode = false; axisCodeHighlight = null; showCostTerminal = false
-		showStateVarLabels = false; showCostLabels = false
-		printDotsVisibleRow1 = 0; printDotsVisibleRow2 = 0; autopsyVisibleCount = 0
-		psLabel.reset(); tLabel.reset(); axisFade.reset()
-		stateVarLabels.forEach(l => l.reset())
-		costLabels.forEach(l => l.reset())
-		codeTransform.reset()
+		chartStep = 0
+		applyStep(0, true)
 	}}>
 		<!-- ═══════════════════════════════════════════════════
 		     LAYOUT: 3-panel grid that morphs between phases
@@ -614,467 +897,14 @@
 		</div>
 
 		<!-- ════════════════════════════════════════════════════
-		     Phase 1: Code presentation (no actions needed for initial display)
+		     Step-driven Actions: each just increments/decrements chartStep
 		     ════════════════════════════════════════════════════ -->
-
-		<!-- A0: Transition from 'code' phase → 'chart' phase
-		     Shrink code to top-right corner, reveal axes -->
-		<Action
-			do={async () => {
-				showHeading = false
-				await sleep(300)
-				phase = 'chart'
-			}}
-			undo={async () => {
-				phase = 'code'
-				await sleep(300)
-				showHeading = true
-			}}
-		/>
-
-		<!-- ════════════════════════════════════════════════════
-		     Phase 2: Axis build-up (code small in corner)
-		     ════════════════════════════════════════════════════ -->
-
-		<!-- A1: Fly "program state" to title position -->
-		<Action
-			do={async () => {
-				titleLabel = 'state'
-				await all(
-					psLabel.to({ x: 460, y: 60, rotate: 0, fontSize: 72 }, { duration: 700 }),
-					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
-				)
-			}}
-			undo={async () => {
-				await all(
-					psLabel.to({ x: 50, y: 250, rotate: -90, fontSize: 36 }, { duration: 700 }),
-					axisFade.to({ axisOpacity: 1 }, { duration: 400 }),
-				)
-				titleLabel = 'none'
-				showAxisCode = false
-				axisFade.reset()
-				axisCodeHighlight = null
-			}}
-		/>
-
-		<!-- A2: Show code overlay on chart, highlight state variables -->
-		<Action
-			do={async () => {
-				showAxisCode = true
-				await axisFade.to({ codeOpacity: 1 }, { duration: 400 })
-				axisCodeHighlight = 'state-vars'
-			}}
-			undo={async () => {
-				axisCodeHighlight = null
-				await axisFade.to({ codeOpacity: 0 }, { duration: 300 })
-				showAxisCode = false
-			}}
-		/>
-
-		<!-- A2b: Distribute state variable names along Y-axis -->
-		<Action
-			do={async () => {
-				showStateVarLabels = true
-				await all(
-					axisFade.to({ codeOpacity: 0 }, { duration: 300 }),
-					...stateVarLabels.map((lbl, i) =>
-						lbl.to(
-							{ x: 140, y: stateVarTargetY[i], opacity: 1 },
-							{ duration: 600, delay: i * 80 },
-						)
-					),
-				)
-				showAxisCode = false
-			}}
-			undo={async () => {
-				showAxisCode = true
-				await all(
-					axisFade.to({ codeOpacity: 1 }, { duration: 300 }),
-					...stateVarLabels.map(lbl =>
-						lbl.to({ x: 460, y: 250, opacity: 0 }, { duration: 400 })
-					),
-				)
-				showStateVarLabels = false
-				axisCodeHighlight = 'state-vars'
-			}}
-		/>
-
-		<!-- A3: Fade out var labels, fly "program state" back to axis -->
-		<Action
-			do={async () => {
-				await all(
-					...stateVarLabels.map(lbl => lbl.to({ opacity: 0 }, { duration: 300 })),
-					axisFade.to({ axisOpacity: 1 }, { duration: 500 }),
-				)
-				await psLabel.to({ x: 50, y: 250, rotate: -90, fontSize: 36 }, { duration: 700 })
-				titleLabel = 'none'
-			}}
-			undo={async () => {
-				titleLabel = 'state'
-				await all(
-					psLabel.to({ x: 460, y: 60, rotate: 0, fontSize: 72 }, { duration: 700 }),
-					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
-				)
-				showStateVarLabels = true
-				await all(
-					...stateVarLabels.map((lbl, i) =>
-						lbl.to({ x: 140, y: stateVarTargetY[i], opacity: 1 }, { duration: 400 })
-					),
-				)
-			}}
-		/>
-
-		<!-- A4: Fly "time" to title position -->
-		<Action
-			do={async () => {
-				titleLabel = 'time'
-				await all(
-					tLabel.to({ x: 460, y: 60, fontSize: 72 }, { duration: 700 }),
-					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
-				)
-			}}
-			undo={async () => {
-				await all(
-					tLabel.to({ x: 460, y: 500, fontSize: 36 }, { duration: 700 }),
-					axisFade.to({ axisOpacity: 1 }, { duration: 400 }),
-				)
-				titleLabel = 'none'
-				showAxisCode = false
-				showCostTerminal = false
-				axisFade.reset()
-				axisCodeHighlight = null
-			}}
-		/>
-
-		<!-- A5: Show code overlay (highlight cost) + cost terminal -->
-		<Action
-			do={async () => {
-				axisCodeHighlight = null
-				showAxisCode = true
-				showCostTerminal = true
-				await axisFade.to({ codeOpacity: 1, terminalOpacity: 1 }, { duration: 400 })
-				axisCodeHighlight = 'cost'
-			}}
-			undo={async () => {
-				axisCodeHighlight = null
-				await axisFade.to({ codeOpacity: 0, terminalOpacity: 0 }, { duration: 300 })
-				showAxisCode = false
-				showCostTerminal = false
-			}}
-		/>
-
-		<!-- A5b: Distribute cost values along X-axis -->
-		<Action
-			do={async () => {
-				showCostLabels = true
-				await all(
-					axisFade.to({ codeOpacity: 0, terminalOpacity: 0 }, { duration: 300 }),
-					...costLabels.map((lbl, i) =>
-						lbl.to(
-							{ x: costLabelTargetX[i], y: 430, rotate: -90, opacity: 1 },
-							{ duration: 600, delay: i * 50 },
-						)
-					),
-				)
-				showAxisCode = false
-				showCostTerminal = false
-			}}
-			undo={async () => {
-				showAxisCode = true
-				showCostTerminal = true
-				await all(
-					axisFade.to({ codeOpacity: 1, terminalOpacity: 1 }, { duration: 300 }),
-					...costLabels.map(lbl =>
-						lbl.to({ x: 460, y: 250, rotate: 0, opacity: 0 }, { duration: 400 })
-					),
-				)
-				showCostLabels = false
-				axisCodeHighlight = 'cost'
-			}}
-		/>
-
-		<!-- A6: Fade out cost labels, fly "time" back to axis -->
-		<Action
-			do={async () => {
-				await all(
-					...costLabels.map(lbl => lbl.to({ opacity: 0 }, { duration: 300 })),
-					axisFade.to({ axisOpacity: 1 }, { duration: 500 }),
-				)
-				await tLabel.to({ x: 460, y: 500, fontSize: 36 }, { duration: 700 })
-				titleLabel = 'none'
-			}}
-			undo={async () => {
-				titleLabel = 'time'
-				await all(
-					tLabel.to({ x: 460, y: 60, fontSize: 72 }, { duration: 700 }),
-					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
-				)
-				showCostLabels = true
-				await all(
-					...costLabels.map((lbl, i) =>
-						lbl.to({ x: costLabelTargetX[i], y: 430, rotate: -90, opacity: 1 }, { duration: 400 })
-					),
-				)
-			}}
-		/>
-
-		<!-- ════════════════════════════════════════════════════
-		     Phase 3: Breakpoint debugging (3-panel layout)
-		     ════════════════════════════════════════════════════ -->
-
-		<!-- Enter breakpoint mode: switch to 3-panel, show bar + breakpoint marker + variables -->
-		<Action
-			do={async () => {
-				phase = 'breakpoint'
-				stateTimeStep = 1
-				rightPanel = 'variables'
-				bpDebuggerHighlightLine = COST_LINE_IDX
-				bpDebuggerIteration = 0
-			}}
-			undo={async () => {
-				phase = 'chart'
-				stateTimeStep = 0
-				rightPanel = 'none'
-				bpDebuggerHighlightLine = -1
-				bpDebuggerIteration = 0
-				bpX.reset()
-			}}
-		/>
-
-		<!-- Breakpoint: one slow "Continue" -->
-		<Action
-			do={async () => {
-				const barDuration = bpHighlightPath.length * SLOW_LINE_DELAY
-				await all(
-					bpX.to({ x: tr.breakpointXPositions[1] ?? 420 }, { duration: barDuration }),
-					(async () => {
-						for (const line of bpHighlightPath) {
-							bpDebuggerHighlightLine = line
-							await sleep(SLOW_LINE_DELAY)
-						}
-						bpDebuggerIteration = 1
-					})(),
-				)
-			}}
-			undo={async () => {
-				await bpX.to({ x: tr.breakpointXPositions[0] ?? 200 })
-				bpDebuggerHighlightLine = COST_LINE_IDX
-				bpDebuggerIteration = 0
-			}}
-		/>
-
-		<!-- Breakpoint: fast-forward remaining iterations -->
-		<Action
-			do={async () => {
-				instantHighlight = true
-				const maxBpIter = Math.min(tr.breakpointXPositions.length, 8)
-				for (let iter = 2; iter < maxBpIter; iter++) {
-					const barDuration = bpHighlightPath.length * FAST_LINE_DELAY
-					await all(
-						bpX.to({ x: tr.breakpointXPositions[iter] }, { duration: barDuration }),
-						(async () => {
-							for (const line of bpHighlightPath) {
-								bpDebuggerHighlightLine = line
-								await sleep(FAST_LINE_DELAY)
-							}
-							bpDebuggerIteration = iter
-						})(),
-					)
-				}
-				instantHighlight = false
-			}}
-			undo={async () => {
-				instantHighlight = false
-				await bpX.to({ x: tr.breakpointXPositions[1] ?? 420 })
-				bpDebuggerHighlightLine = COST_LINE_IDX
-				bpDebuggerIteration = 1
-			}}
-		/>
-
-		<!-- ════════════════════════════════════════════════════
-		     Phase 4: Print debugging (seamless transition from breakpoint)
-		     Keep the 3-panel layout, swap variables→terminal, remove breakpoint marker
-		     ════════════════════════════════════════════════════ -->
-
-		<!-- Transition: breakpoint → print. Maintain code editor, animate bar→dot -->
-		<Action
-			do={async () => {
-				phase = 'print'
-				stateTimeStep = 2
-				rightPanel = 'terminal'
-				printTerminalLines = []
-				bpDebuggerHighlightLine = -1
-				printCodeVersion = 0
-				printDebuggerHighlightLine = -1
-			}}
-			undo={async () => {
-				phase = 'breakpoint'
-				stateTimeStep = 1
-				rightPanel = 'variables'
-				bpDebuggerHighlightLine = COST_LINE_IDX
-				bpDebuggerIteration = Math.min(tr.breakpointXPositions.length, 8) - 1
-				printCodeVersion = 0
-				printDebuggerHighlightLine = -1
-			}}
-		/>
-
-		<!-- Print: add print to first condition -->
-		<Action
-			do={async () => {
-				printCodeVersion = 1; stateTimeStep = 4
-				unifiedAccentLines = tr.codeVariants.printV1.printLines
-				await sleep(800)
-				unifiedAccentLines = []
-			}}
-			undo={() => { printCodeVersion = 0; stateTimeStep = 2; unifiedAccentLines = [] }}
-		/>
-
-		<!-- Print V1: one slow iteration with terminal output -->
-		<Action
-			do={async () => {
-				stateTimeStep = 5
-				printDotsVisibleRow1 = 0
-				for (const line of printExecPathV1[0]) {
-					printDebuggerHighlightLine = line
-					if (line === FIRST_PRINT_LINE) {
-						printDotsVisibleRow1 += 1
-						// Add terminal line
-						const outputs = tr.traces.printV1[0].printOutputs
-						const out = outputs[printDotsVisibleRow1 - 1]
-						if (out) printTerminalLines = [...printTerminalLines, out.text]
-					}
-					await sleep(SLOW_LINE_DELAY)
-				}
-			}}
-			undo={() => {
-				stateTimeStep = 4
-				printDotsVisibleRow1 = 0
-				printDebuggerHighlightLine = -1
-				printTerminalLines = []
-			}}
-		/>
-
-		<!-- Print V1: fast-forward remaining iterations -->
-		<Action
-			do={async () => {
-				instantHighlight = true
-				for (let iter = 1; iter < printExecPathV1.length; iter++) {
-					for (const line of printExecPathV1[iter]) {
-						printDebuggerHighlightLine = line
-						if (line === FIRST_PRINT_LINE) {
-							printDotsVisibleRow1 += 1
-							const outputs = tr.traces.printV1[iter].printOutputs
-							const out = outputs.find(o => o.line === FIRST_PRINT_LINE)
-							if (out) printTerminalLines = [...printTerminalLines, out.text]
-						}
-						await sleep(FAST_LINE_DELAY)
-					}
-				}
-				printDebuggerHighlightLine = -1
-				instantHighlight = false
-			}}
-			undo={() => {
-				instantHighlight = false
-				printDotsVisibleRow1 = printExecPathV1[0].includes(FIRST_PRINT_LINE) ? 1 : 0
-				printDebuggerHighlightLine = -1
-				// Restore terminal to just first iteration output
-				const out = tr.traces.printV1[0].printOutputs[0]
-				printTerminalLines = out ? [out.text] : []
-			}}
-		/>
-
-		<!-- Print: add second print, clear dots/terminal -->
-		<Action
-			do={async () => {
-				printCodeVersion = 2
-				stateTimeStep = 6; printTerminalLines = []; printDotsVisibleRow1 = 0; printDotsVisibleRow2 = 0
-				unifiedAccentLines = tr.codeVariants.printV2.printLines
-				await sleep(800)
-				unifiedAccentLines = []
-			}}
-			undo={() => {
-				printCodeVersion = 1; stateTimeStep = 5
-				printDotsVisibleRow1 = tr.printDots.row1.length
-				printDotsVisibleRow2 = 0
-				unifiedAccentLines = []
-				const lines: string[] = []
-				for (const t of tr.traces.printV1) {
-					for (const p of t.printOutputs) lines.push(p.text)
-				}
-				printTerminalLines = lines
-			}}
-		/>
-
-		<!-- Print V2: slow first iteration -->
-		<Action
-			do={async () => {
-				stateTimeStep = 7
-				for (const line of printExecPathV2[0]) {
-					printDebuggerHighlightLine = line
-					if (line === FIRST_PRINT_LINE) {
-						printDotsVisibleRow1 += 1
-						const out = tr.traces.printV2[0].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
-						if (out) printTerminalLines = [...printTerminalLines, out.text]
-					}
-					if (line === SECOND_PRINT_LINE) {
-						printDotsVisibleRow2 += 1
-						const out = tr.traces.printV2[0].printOutputs.find(o => o.line === SECOND_PRINT_LINE)
-						if (out) printTerminalLines = [...printTerminalLines, out.text]
-					}
-					await sleep(SLOW_LINE_DELAY)
-				}
-			}}
-			undo={() => {
-				stateTimeStep = 6
-				printDotsVisibleRow1 = 0
-				printDotsVisibleRow2 = 0
-				printDebuggerHighlightLine = -1
-				printTerminalLines = []
-			}}
-		/>
-
-		<!-- Print V2: fast-forward remaining iterations (interleaved output) -->
-		<Action
-			do={async () => {
-				instantHighlight = true
-				for (let iter = 1; iter < printExecPathV2.length; iter++) {
-					for (const line of printExecPathV2[iter]) {
-						printDebuggerHighlightLine = line
-						if (line === FIRST_PRINT_LINE) {
-							printDotsVisibleRow1 += 1
-							const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
-							if (out) printTerminalLines = [...printTerminalLines, out.text]
-						}
-						if (line === SECOND_PRINT_LINE) {
-							printDotsVisibleRow2 += 1
-							const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === SECOND_PRINT_LINE)
-							if (out) printTerminalLines = [...printTerminalLines, out.text]
-						}
-						await sleep(FAST_LINE_DELAY)
-					}
-				}
-				printDebuggerHighlightLine = -1
-				instantHighlight = false
-			}}
-			undo={() => {
-				instantHighlight = false
-				printDotsVisibleRow1 = printExecPathV2[0].includes(FIRST_PRINT_LINE) ? 1 : 0
-				printDotsVisibleRow2 = printExecPathV2[0].includes(SECOND_PRINT_LINE) ? 1 : 0
-				printDebuggerHighlightLine = -1
-				// Restore to just first iteration's interleaved output
-				const lines: string[] = []
-				for (const p of tr.traces.printV2[0].printOutputs) lines.push(p.text)
-				printTerminalLines = lines
-			}}
-		/>
-
-		<!-- Print V2: show zigzag interleaved line connecting dots in execution order -->
-		<Action
-			do={() => { stateTimeStep = 10 }}
-			undo={() => { stateTimeStep = 7 }}
-		/>
-
-		<!-- (Autopsy phase moved to later comparison slide) -->
+		{#each { length: TOTAL_STEPS - 1 } as _, i}
+			<Action
+				do={() => { chartStep = i + 1; applyStep(i + 1, false) }}
+				undo={() => { chartStep = i; applyStep(i, false) }}
+			/>
+		{/each}
 
 		<Notes>
 			This slide combines the code example with the state×time conceptual diagram.
