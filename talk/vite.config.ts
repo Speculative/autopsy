@@ -36,5 +36,5 @@ function rawStaticHtml(files: string[]) {
 }
 
 export default defineConfig({
-	plugins: [rawStaticHtml(['order_pipeline_report.html']), tailwindcss(), sveltekit()],
+	plugins: [rawStaticHtml(['order_pipeline_report.html', 'price_calculator_report.html']), tailwindcss(), sveltekit()],
 })

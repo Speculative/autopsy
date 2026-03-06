@@ -5,7 +5,7 @@
 </script>
 
 <svelte:head>
-	<title>Animotion</title>
+	<title>Data-oriented Debugging with autopsy</title>
 </svelte:head>
 
 {@render children()}

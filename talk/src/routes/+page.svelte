@@ -1,35 +1,35 @@
 <script lang="ts">
 	import { Presentation, Slide, Notes, Action, Code } from '@animotion/core'
 	import { tween, all } from '@animotion/motion'
+	import { AlertTriangle, CircleUserRound, Info } from '@lucide/svelte'
+	import { trace } from '$lib/tracing'
+	import CodeOverlay from '$lib/components/CodeOverlay.svelte'
+	import VariablesPane from '$lib/components/VariablesPane.svelte'
 
-	const codeInitial = `\
-for order in orders:
-    shipping = shipping_options(order)
-    cost = compute_cost(shipping)
-    results.append(ShippedOrder(order, cost))`
+	// ── Configurable parameters ──
+	const SEED = 3
+	const ITEM_COUNT = 16
+	const SLOW_LINE_DELAY = 200      // ms per line for the first (slow) iteration (~1s total)
+	const FAST_LINE_DELAY = 50       // ms per line for remaining (fast) iterations
 
-	const codeWithPrint1 = `\
-for order in orders:
-    shipping = shipping_options(order)
-    print("Shipping", shipping)
-    cost = compute_cost(shipping)
-    results.append(ShippedOrder(order, cost))`
+	// ── Generate all traced data ──
+	const tr = trace(SEED, ITEM_COUNT)
 
-	const codeWithPrints = `\
-for order in orders:
-    shipping = shipping_options(order)
-    print("Shipping", shipping)
-    cost = compute_cost(shipping)
-    print("Cost", cost)
-    results.append(ShippedOrder(order, cost))`
-
-	const codeWithPrintExpanded = `\
-for order in orders:
-    shipping = shipping_options(order)
-    print("Shipping", shipping.type, shipping.options)
-    cost = compute_cost(shipping)
-    print("Cost", cost)
-    results.append(ShippedOrder(order, cost))`
+	// ── Derived code strings (for Animotion <Code> component on slide 2) ──
+	const codeInitial = tr.codeVariants.base.lines.join('\n')
+	const codeWithPrint1 = tr.codeVariants.printV1.lines.join('\n')
+	const codeWithPrints = tr.codeVariants.printV2.lines.join('\n')
+	// Expanded variant: same as V2 but with qty added to the price print
+	const codeWithPrintExpanded = [
+		'for item in cart:',
+		'    if item.qty >= 9:',
+		'        item.price *= 0.9',
+		'        print("Price", item.price, item.qty)',
+		'    ...',
+		'    if item.price < 4.00:',
+		'        item.free_shipping = True',
+		'        print("Free", item.free_shipping)',
+	].join('\n')
 
 	let code: ReturnType<typeof Code>
 	let slide2Code = $state(codeInitial)
@@ -38,166 +38,104 @@ for order in orders:
 	let highlightBug = $state(false)
 	let showExpandedTerminal = $state(false)
 	let scrollExpanded = $state(false)
+	let slide2Todo = $state<0 | 1 | 2>(0)
 
-	const terminalLines = [
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '4.99'],
-		['Shipping', 'Shipping(express, ...)'],  ['Cost', '14.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '4.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '4.99'],
-		['Shipping', 'Shipping(overnight, ...)'], ['Cost', '29.99'],
-		['Shipping', 'Shipping(express, ...)'],  ['Cost', '14.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '4.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '4.99'],
-		['Shipping', 'Shipping(express, ...)'],  ['Cost', '14.99'],
-		['Shipping', 'Shipping(overnight, ...)'], ['Cost', '29.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '4.99'],
-		['Shipping', 'Shipping(express, ...)'],  ['Cost', '14.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '4.99'],
-		['Shipping', 'Shipping(overnight, ...)'], ['Cost', '29.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '18.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '18.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '18.99'],
-		['Shipping', 'Shipping(express, ...)'],  ['Cost', '14.99'],
-		['Shipping', 'Shipping(overnight, ...)'], ['Cost', '29.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '18.99'],
-		['Shipping', 'Shipping(express, ...)'],  ['Cost', '14.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '18.99'],
-		['Shipping', 'Shipping(overnight, ...)'], ['Cost', '29.99'],
-		['Shipping', 'Shipping(standard, ...)'], ['Cost', '18.99'],
-	]
-
-	// Expanded terminal: shipping.type + shipping.options dict
-	const terminalLinesExpanded = [
-		['Shipping', "standard", "{}"],  ['Cost', '4.99'],
-		['Shipping', "express",  "{'base_rate': 14.99, 'zone': 'domestic'}"], ['Cost', '14.99'],
-		['Shipping', "standard", "{}"],  ['Cost', '4.99'],
-		['Shipping', "standard", "{}"],  ['Cost', '4.99'],
-		['Shipping', "overnight","{}"], ['Cost', '29.99'],
-		['Shipping', "express",  "{}"], ['Cost', '14.99'],
-		['Shipping', "standard", "{}"],  ['Cost', '4.99'],
-		['Shipping', "standard", "{}"],  ['Cost', '4.99'],
-		['Shipping', "express",  "{}"], ['Cost', '14.99'],
-		['Shipping', "overnight","{}"], ['Cost', '29.99'],
-		['Shipping', "standard", "{}"],  ['Cost', '4.99'],
-		['Shipping', "express",  "{}"], ['Cost', '14.99'],
-		['Shipping', "standard", "{}"],  ['Cost', '4.99'],
-		['Shipping', "overnight","{}"], ['Cost', '29.99'],
-		['Shipping', "standard", "{'careful_handling': True}"], ['Cost', '18.99'],
-		['Shipping', "standard", "{}"], ['Cost', '18.99'],
-		['Shipping', "standard", "{}"], ['Cost', '18.99'],
-		['Shipping', "express",  "{}"], ['Cost', '14.99'],
-		['Shipping', "overnight","{}"], ['Cost', '29.99'],
-		['Shipping', "standard", "{}"], ['Cost', '18.99'],
-		['Shipping', "express",  "{}"], ['Cost', '14.99'],
-		['Shipping', "standard", "{}"], ['Cost', '18.99'],
-		['Shipping', "overnight","{}"], ['Cost', '29.99'],
-		['Shipping', "standard", "{}"], ['Cost', '18.99'],
-	]
+	// Terminal output from traced execution
+	const terminalLines = tr.terminalLines
+	const terminalLinesExpanded = tr.terminalLinesExpanded
 
 	let stateTimeStep = $state(0)
-	let showWhatsWrongReason1 = $state(false)
-	let showWhatsWrongReason2 = $state(false)
 
-	// ── Breakpoint debugger overlay (after breakpoint state/time plot) ──
+	// ── Breakpoint debugger overlay ──
 	let showBreakpointDebugger = $state(false)
 	let bpDebuggerHighlightLine = $state(-1)
 	let bpDebuggerIteration = $state(0)
-	const bpDebuggerLineDelay = 350
-	const bpCodeLines = [
-		'for order in orders:',
-		'    shipping = shipping_options(order)',
-		'    cost = compute_cost(shipping)',
-		'    results.append(ShippedOrder(order, cost))',
-	]
 	const COST_LINE_IDX = 2
-	const bpVariables = [
-		[['order', 'Order(...)'], ['orders', '[...]'], ['shipping', 'Shipping(standard,...)'], ['cost', '4.99']],
-		[['order', 'Order(...)'], ['orders', '[...]'], ['shipping', 'Shipping(express,...)'], ['cost', '14.99']],
-		[['order', 'Order(...)'], ['orders', '[...]'], ['shipping', 'Shipping(overnight,...)'], ['cost', '29.99']],
-	]
+
+	// ── Execution paths from trace (all iterations) ──
+	const printExecPathV1 = tr.traces.printV1.map((t) => t.path)
+	const printExecPathV2 = tr.traces.printV2.map((t) => t.path)
+	const FIRST_PRINT_LINE = tr.codeVariants.printV1.printLines[0]
+	const SECOND_PRINT_LINE = tr.codeVariants.printV2.printLines[1]
+
+	// Breakpoint "continue" paths: from the breakpoint line, through rest of loop, back to breakpoint.
+	// This simulates clicking "Continue" in a debugger paused at COST_LINE_IDX.
+	const baseLineCount = tr.codeVariants.base.lines.length
+	function bpContinuePath(): number[] {
+		// From breakpoint, step through remaining lines, loop back to top, stop at breakpoint
+		const path: number[] = []
+		for (let i = COST_LINE_IDX; i < baseLineCount; i++) path.push(i)
+		for (let i = 0; i <= COST_LINE_IDX; i++) path.push(i)
+		return path
+	}
+	const bpHighlightPath = bpContinuePath()
 
 	function sleep(ms: number) {
 		return new Promise((resolve) => setTimeout(resolve, ms))
 	}
 
 	// ── State × time build-up animation state ──
-	// Code block shown during label fly-out
 	let showAxisCode = $state(false)
-	// Which tokens to highlight in the axis code block
 	let axisCodeHighlight = $state<'state-vars' | 'cost' | null>(null)
-	// Terminal (cost-only) shown during "time" label sequence
 	let showCostTerminal = $state(false)
 
 	// SVG-coordinate tweens for the axis labels (viewBox 0 0 900 520)
 	const psLabel = tween({
-		x: 50, y: 250, rotate: -90, fontSize: 22,
+		x: 50, y: 250, rotate: -90, fontSize: 36,
 	}, { duration: 600 })
 
 	const tLabel = tween({
-		x: 460, y: 500, rotate: 0, fontSize: 22,
+		x: 460, y: 500, rotate: 0, fontSize: 36,
 	}, { duration: 600 })
 
-	// 'none' = both at rest; 'state' = program state is title; 'time' = time is title
 	let titleLabel = $state<'none' | 'state' | 'time'>('none')
 
 	const axisFade = tween({ codeOpacity: 0, terminalOpacity: 0, axisOpacity: 1 }, { duration: 400 })
 
 	// ── State variable labels — distribute along the Y-axis ──
-	// 5 variables, each tweens from center of plot to a distinct y position on the axis
-	const stateVarNames = ['order', 'orders', 'shipping', 'cost', 'results']
-	// Target y positions spaced along the plot height (y=90 to y=440)
-	const stateVarTargetY = [110, 195, 280, 360, 430]
+	const stateVarNames = tr.stateVarNames
+	const stateVarTargetY = stateVarNames.map((_, i) =>
+		110 + (i / (stateVarNames.length - 1)) * 320
+	)
 	const stateVarLabels = stateVarNames.map(() =>
-		tween({ x: 460, y: 250, opacity: 0, fontSize: 18 }, { duration: 500 })
+		tween({ x: 460, y: 250, opacity: 0, fontSize: 36 }, { duration: 500 })
 	)
 	let showStateVarLabels = $state(false)
 
 	// ── Cost value labels — distribute along the X-axis ──
-	// Use every other Cost entry for a clean spread (12 values across x=110..810)
-	const costValues = terminalLines
-		.filter(([l]) => l === 'Cost')
-		.map(([, v]) => v)
-		.slice(0, 12)
+	const costValues = tr.costValues
 	const costLabelTargetX = costValues.map((_, i) =>
-		110 + (i / (costValues.length - 1)) * 700
+		110 + (i / Math.max(costValues.length - 1, 1)) * 700
 	)
 	const costLabels = costValues.map(() =>
-		tween({ x: 460, y: 250, rotate: 0, opacity: 0, fontSize: 18 }, { duration: 500 })
+		tween({ x: 460, y: 250, rotate: 0, opacity: 0, fontSize: 36 }, { duration: 500 })
 	)
 	let showCostLabels = $state(false)
 
-	// Breakpoint: animated x position (slides across 3 positions)
-	let bpX = tween({ x: 200 })
+	// Breakpoint: animated x position
+	let bpX = tween({ x: tr.breakpointXPositions[0] ?? 200 })
 
 	// In dev, serve iframed HTML via /__raw/ to bypass Vite's HMR injection
 	const iframBase = import.meta.env.DEV ? '/__raw' : ''
 
-	// Print debugging: sawtooth dots
-	function generateSawtooth(
-		periods: number,
-		dotsPerPeriod: number,
-		xMin: number,
-		xMax: number,
-		yMin: number,
-		yMax: number,
-	): [number, number][] {
-		const dots: [number, number][] = []
-		const periodWidth = (xMax - xMin) / periods
-		for (let p = 0; p < periods; p++) {
-			const xStart = xMin + p * periodWidth
-			for (let i = 0; i < dotsPerPeriod; i++) {
-				const x = xStart + ((i + 0.5) / dotsPerPeriod) * periodWidth
-				const y = yMax - (i / (dotsPerPeriod - 1)) * (yMax - yMin)
-				dots.push([x, y])
-			}
-		}
-		return dots
-	}
+	// ── Print debugging state ──
+	let showPrintDebugger = $state(false)
+	let printDebuggerHighlightLine = $state(-1)
+	let printCodeVersion = $state(0) // 0: no print, 1: first only, 2: both
+	let instantHighlight = $state(false) // disable transition during fast animation
 
-	const printDots = generateSawtooth(4, 8, 110, 810, 90, 440)
+	// Dot positions from traced data
+	const printDotsRow1 = tr.printDots.row1
+	const printDotsRow2 = tr.printDots.row2
+	const printDotsRow1Indices = tr.printDots.row1Indices
+	const printDotsRow2Indices = tr.printDots.row2Indices
 
-	// Autopsy: 5 evenly-spaced full-height slices
-	const autopsySlices = [180, 320, 460, 600, 740]
+	let printDotsVisibleRow1 = $state(0)
+	let printDotsVisibleRow2 = $state(0)
+
+	// Autopsy slices from traced data
+	const autopsySlices = tr.autopsySliceXPositions
+	let autopsyVisibleCount = $state(0)
 </script>
 
 <Presentation options={{ history: true, transition: 'slide', controls: false, progress: true, slideNumber: true }}>
@@ -205,19 +143,19 @@ for order in orders:
 	<Slide class="h-full">
 		<div class="grid h-full grid-cols-[3fr_1fr] items-center gap-8 px-16 py-12">
 			<div class="flex flex-col gap-8">
-				<h1 class="text-left text-[4rem] font-bold leading-tight text-black">
-					Data-oriented Debugging with<br />
+				<h1 class="text-left text-[6rem] font-bold leading-tight text-black">
+					Data-oriented Debugging with
 					<span
-						class="mt-2 inline-block bg-[#0000FF] px-3 py-1 text-white"
+						class="mt-2 inline-block bg-[#1E40AF] px-3 py-1 text-white"
 						style="font-family: var(--r-code-font)"
 					>autopsy</span>
 				</h1>
 				<div class="flex flex-col gap-2">
-					<p class="text-left text-2xl text-black">
-						<span class="font-bold text-[#0000FF]">Jeffrey Tao</span>, Xiaorui Liu, Ryan Marcus,
+					<p class="text-left text-5xl text-black">
+						<span class="font-bold text-[#1E40AF]">Jeffrey Tao</span>, Xiaorui Liu, Ryan Marcus,
 						Andrew Head
 					</p>
-					<p class="text-left text-xl text-black">PLATEAU 2026</p>
+					<p class="text-left text-3xl text-black">PLATEAU 2026</p>
 				</div>
 			</div>
 			<div class="flex flex-col items-center justify-center gap-8">
@@ -227,12 +165,36 @@ for order in orders:
 		</div>
 	</Slide>
 
+	<!-- Slide: About me -->
+	<Slide class="h-full">
+		<div class="flex h-full w-full flex-col justify-center gap-8 px-20 py-16">
+			<h2 class="text-left text-8xl font-bold text-black">Why I Care About Debugging</h2>
+			<div class="flex w-full items-center justify-between gap-16">
+				<ul class="flex flex-col gap-4 text-left text-5xl text-black list-disc pl-6">
+					<li>Previously: Senior SWE @ Microsoft & MongoDB</li>
+					<li>Auth, Notifications, Client/Server Sync, Dev Tools</li>
+					<li>Highly stateful code, complex logic</li>
+					<li>Now: DB & HCI @ Penn: tools for programmers</li>
+					<li>Shameless <code class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-4xl">print()</code> debugger</li>
+				</ul>
+				<img src="/headshot.jpg" alt="Jeffrey Tao" class="h-72 w-72 shrink-0 rounded-full object-cover" />
+			</div>
+		</div>
+		<Notes>
+			First, a bit of background about me and why I care about debugging.
+			I'm currently a PhD student at Penn, researching tools for programmers.
+			But I used to be a senior software engineer in the industry, where I worked on auth, notifications, client/server sync.
+			All things that are highly stateful, highly complex, prone to bugs, and really annoying to debug.
+			And in all that time I was one of those programmers who always used print statements to debug.
+		</Notes>
+	</Slide>
+
 	<!-- ─── Section 1: Debugging is about checking mental models against execution data ─── -->
 
 	<!-- Slide 2: Code example — debugging motivation -->
-	<Slide class="h-full" in={() => { showTerminal = false; scrollTerminal = false; highlightBug = false; showExpandedTerminal = false; scrollExpanded = false; slide2Code = codeInitial; if (code) code.update`${codeInitial}` }}>
+	<Slide class="h-full" in={() => { showTerminal = false; scrollTerminal = false; highlightBug = false; showExpandedTerminal = false; scrollExpanded = false; slide2Todo = 0; slide2Code = codeInitial; if (code) code.update`${codeInitial}` }}>
 		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16">
-			<h2 class="text-left text-5xl font-bold text-black">How do you debug this?</h2>
+			<h2 class="text-left text-8xl font-bold text-black">How do you debug this?</h2>
 			<div class="flex gap-6" style="align-items: stretch">
 				<div
 					class="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow-sm overflow-hidden transition-all duration-500"
@@ -244,11 +206,11 @@ for order in orders:
 						theme="github-light"
 						code={slide2Code}
 						options={{ duration: 400, stagger: 0, lineNumbers: true, containerStyle: false, enhanceMatching: true, splitTokens: true }}
-						class="text-2xl"
+						class="text-5xl"
 					/>
 				</div>
 				<div
-					class="rounded-xl border border-gray-800 bg-gray-900 p-6 shadow-sm font-mono text-xl leading-relaxed text-green-400 transition-all duration-500 text-left"
+					class="rounded-xl border border-gray-800 bg-gray-900 p-6 shadow-sm font-mono text-3xl leading-relaxed text-green-400 transition-all duration-500 text-left"
 					style="flex: 0 0 33%; opacity: {showTerminal ? 1 : 0}; margin-left: {showTerminal ? '0' : 'calc(-33% - 1.5rem)'}; height: 18.2rem; overflow: hidden"
 				>
 					<div style="animation: {scrollExpanded ? 'terminal-scroll-expanded 1s linear forwards' : scrollTerminal ? 'terminal-scroll 1s linear forwards' : 'none'}">
@@ -282,6 +244,36 @@ for order in orders:
 				</div>
 			</div>
 		</div>
+		{#if slide2Todo >= 1}
+			<div class="absolute inset-0 flex items-center justify-center z-20" style="background: rgba(255,255,255,0.92)">
+				<div class="rounded-2xl border-4 border-dashed border-amber-400 bg-amber-50 px-12 py-10 shadow-lg max-w-2xl">
+					<p class="text-7xl font-bold text-amber-600 mb-4">TODO: Print Debugging</p>
+					<ul class="text-5xl text-amber-800 list-disc pl-6 flex flex-col gap-2">
+						<li>Animate adding print statements to the code</li>
+						<li>Show terminal panel with extremely long scrolling output</li>
+						<li>Wall-of-text feeling — Price/Qty values streaming by</li>
+						<li>Point: output is overwhelming and hard to correlate</li>
+					</ul>
+				</div>
+			</div>
+		{/if}
+		{#if slide2Todo >= 2}
+			<div class="absolute inset-0 flex items-center justify-center z-30" style="background: rgba(255,255,255,0.92)">
+				<div class="rounded-2xl border-4 border-dashed border-blue-400 bg-blue-50 px-12 py-10 shadow-lg max-w-2xl">
+					<p class="text-7xl font-bold text-blue-600 mb-4">TODO: Breakpoint Stepping</p>
+					<ul class="text-5xl text-blue-800 list-disc pl-6 flex flex-col gap-2">
+						<li>Show breakpoint debugger overlay on code</li>
+						<li>Yellow highlight line steps through each line (like state/time chart)</li>
+						<li>Variables pane shows item.price and item.free_shipping drifting by</li>
+						<li>Point: see everything at one moment, but lose the cross-time view</li>
+					</ul>
+				</div>
+			</div>
+		{/if}
+		<Action do={() => { slide2Todo = 1 }} undo={() => { slide2Todo = 0 }} />
+		<Action do={() => { slide2Todo = 2 }} undo={() => { slide2Todo = 1 }} />
+		<!-- REWORK: print/terminal actions commented out — reworking this narrative -->
+		<!--
 		<Action
 			do={async () => {
 				await code.update`${codeWithPrint1}`
@@ -297,13 +289,12 @@ for order in orders:
 		<Action do={() => { showTerminal = true }} undo={() => { showTerminal = false; scrollTerminal = false }} />
 		<Action do={() => { scrollTerminal = true }} undo={() => { scrollTerminal = false; highlightBug = false }} />
 		<Action do={() => { highlightBug = true }} undo={() => { highlightBug = false }} />
-		<!-- Expand the Shipping print to show .type and .options -->
 		<Action
 			do={async () => {
 				highlightBug = false
 				await code.update`${codeWithPrintExpanded}`
 				slide2Code = codeWithPrintExpanded
-				await code.selectLines`3`
+				await code.selectLines`4`
 			}}
 			undo={async () => {
 				highlightBug = true
@@ -312,60 +303,28 @@ for order in orders:
 				await code.selectLines``
 			}}
 		/>
-		<!-- Switch terminal to show the expanded output with the options dict -->
 		<Action
 			do={() => { showExpandedTerminal = true; scrollExpanded = false }}
 			undo={() => { showExpandedTerminal = false; scrollExpanded = false }}
 		/>
-		<!-- Scroll the expanded terminal to the careful_handling line -->
 		<Action
 			do={() => { scrollExpanded = true }}
 			undo={() => { scrollExpanded = false }}
 		/>
+		-->
 		<Notes>
-			Start with a simple motivating loop. Ask: if results look wrong, how do you figure out why?
-			The natural instinct is to add print statements — advance to show what that looks like.
-			Then show the output: you can see values, but it's hard to correlate them — each run is just a wall of text.
-			After noticing standard shipping costs suddenly go up, expand the print to inspect .type and .options.
-			The new output reveals the zone field changing to 'international' — that's the bug.
+			REWORK: Two animations needed here:
+			1) Print debugging: add prints, show overwhelming terminal output scrolling by
+			2) Breakpoint stepping: yellow highlight line walks through code, price/free_shipping values drift by in variables pane
 		</Notes>
 	</Slide>
 
-	<!-- Slide 3: What is happening? -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">What is happening?</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
-				<li>Debugging is about establishing a <em>mental model</em></li>
-				<li>Observing how code executes helps with model <em>formation</em> and <em>checking</em></li>
-			</ul>
-		</div>
-	</Slide>
 
-	<!-- Slide 4: What's wrong? -->
-	<Slide class="h-full" in={() => { showWhatsWrongReason1 = false; showWhatsWrongReason2 = false }}>
-		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">What's wrong?</h2>
-			<ol class="flex flex-col gap-4 pl-6 text-2xl text-black list-decimal">
-				<li
-					class="transition-opacity duration-300"
-					style="opacity: {showWhatsWrongReason1 ? 1 : 0}"
-				>Debugging tools couple <em>data collection</em> and <em>data analysis</em></li>
-				<li
-					class="transition-opacity duration-300"
-					style="opacity: {showWhatsWrongReason2 ? 1 : 0}"
-				>Debugging tools have limited <em>affordances</em> for analysis</li>
-			</ol>
-		</div>
-		<Action do={() => { showWhatsWrongReason1 = true }} undo={() => { showWhatsWrongReason1 = false }} />
-		<Action do={() => { showWhatsWrongReason2 = true }} undo={() => { showWhatsWrongReason2 = false }} />
-	</Slide>
-
-	<!-- Slide 5: The state × time space -->
+	<!-- Slide: The state × time space -->
 	<!--
 		Axis labels are SVG <text> elements tweened in SVG-coordinate space (viewBox 0 0 900 520).
 		Resting positions: "program state" at (50,250) rotate(-90); "time" at (460,500).
-		Title position: both fly to (100,60) rotate(0) at fontSize=52.
+		Title position: both fly to (100,60) rotate(0) at fontSize=104.
 	-->
 	<Slide class="h-full" in={() => {
 		stateTimeStep = 0; bpX.reset()
@@ -373,6 +332,8 @@ for order in orders:
 		showAxisCode = false; axisCodeHighlight = null; showCostTerminal = false
 		showStateVarLabels = false; showCostLabels = false
 		showBreakpointDebugger = false; bpDebuggerHighlightLine = -1; bpDebuggerIteration = 0
+		showPrintDebugger = false; printDebuggerHighlightLine = -1; printCodeVersion = 0
+		printDotsVisibleRow1 = 0; printDotsVisibleRow2 = 0; autopsyVisibleCount = 0
 		psLabel.reset(); tLabel.reset(); axisFade.reset()
 		stateVarLabels.forEach(l => l.reset())
 		costLabels.forEach(l => l.reset())
@@ -382,44 +343,67 @@ for order in orders:
 			<!-- ── Main SVG (axes, data marks, and animated axis labels) ── -->
 			<svg viewBox="0 0 900 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
 				<!-- Plot background -->
-				<rect x="100" y="40" width="720" height="420" fill="#f5f5f5" />
+				<rect x="100" y="40" width="720" height="420" fill="white" />
 
 				<!-- Step 1: Breakpoint — animated vertical slice (solid bar) -->
 				{#if stateTimeStep === 1}
-					<rect x={bpX.x - 12} y="40" width="24" height="420" fill="#0000FF"
+					<rect x={bpX.x - 12} y="40" width="24" height="420" fill="#1E40AF"
 						style="opacity: 0; animation: appear 0.3s ease-out 0ms forwards" />
 				{/if}
 
-				<!-- Step 2+3: Print — single dot first, then all animate in -->
-				{#if stateTimeStep === 2 || stateTimeStep === 3}
-					{#if stateTimeStep === 2}
-						<circle cx={printDots[0][0]} cy={printDots[0][1]} r="6" fill="#0000FF"
-							style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
-					{:else}
-						<circle cx={printDots[0][0]} cy={printDots[0][1]} r="6" fill="#0000FF" />
-					{/if}
-					{#if stateTimeStep === 3}
-						{#each printDots.slice(1) as [cx, cy], i}
-							<circle cx={cx} cy={cy} r="6" fill="#0000FF"
-								style="opacity: 0; animation: appear 0.15s ease-out {i * 40}ms forwards" />
-						{/each}
-					{/if}
+				<!-- Step 2–4: Print — single dot (conceptual: "you have one data point") -->
+				{#if stateTimeStep >= 2 && stateTimeStep < 5 && printDotsRow1.length > 0}
+					<circle cx={printDotsRow1[0][0]} cy={printDotsRow1[0][1]} r="6" fill="#991B1B"
+						style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
 				{/if}
 
-				<!-- Step 4+5: Autopsy — first bar, then all bars -->
-				{#if stateTimeStep === 4 || stateTimeStep === 5}
-					{#if stateTimeStep === 4}
-						<rect x={autopsySlices[0] - 11} y="40" width="22" height="420" fill="#0000FF"
-							style="opacity: 0; animation: appear 0.3s ease-out 0ms forwards" />
-					{:else}
-						<rect x={autopsySlices[0] - 11} y="40" width="22" height="420" fill="#0000FF" />
-					{/if}
-					{#if stateTimeStep === 5}
-						{#each autopsySlices.slice(1) as x, i}
-							<rect x={x - 11} y="40" width="22" height="420" fill="#0000FF"
-								style="opacity: 0; animation: appear 0.3s ease-out {i * 150}ms forwards" />
-						{/each}
-					{/if}
+				<!-- Step 5–7: Print — row 1 dots (appear during V1 yellow bar animation) -->
+				{#if stateTimeStep >= 5 && stateTimeStep <= 7}
+					{#each printDotsRow1.slice(0, printDotsVisibleRow1) as [cx, cy], i}
+						{#if i > 0}
+							<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+						{/if}
+						<circle {cx} {cy} r="6" fill="#991B1B"
+							style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
+					{/each}
+				{/if}
+
+				<!-- Step 7: Print — row 2 dots (appear during V2 yellow bar animation) -->
+				{#if stateTimeStep === 7}
+					{#each printDotsRow2.slice(0, printDotsVisibleRow2) as [cx, cy], i}
+						{#if i > 0}
+							<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+						{/if}
+						<circle {cx} {cy} r="6" fill="#991B1B"
+							style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
+					{/each}
+				{/if}
+
+				<!-- Step 8+: Autopsy bars + print dots reappearing per-iteration -->
+				{#if stateTimeStep >= 8}
+					{#each autopsySlices.slice(0, autopsyVisibleCount) as x}
+						<rect x={x - 11} y="40" width="22" height="420" fill="#1E40AF" />
+					{/each}
+					<!-- Row 1 dots (red dots on top of blue bars) -->
+					{@const r1Count = printDotsRow1Indices.filter((idx: number) => idx < autopsyVisibleCount).length}
+					{#each printDotsRow1.slice(0, r1Count) as [cx, cy], i}
+						{#if i > 0}
+							<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+						{/if}
+						<circle {cx} {cy} r="6" fill="#991B1B" />
+					{/each}
+					<!-- Row 2 dots (red dots on top of blue bars) -->
+					{@const r2Count = printDotsRow2Indices.filter((idx: number) => idx < autopsyVisibleCount).length}
+					{#each printDotsRow2.slice(0, r2Count) as [cx, cy], i}
+						{#if i > 0}
+							<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+						{/if}
+						<circle {cx} {cy} r="6" fill="#991B1B" />
+					{/each}
 				{/if}
 
 				<!-- Axes + other-label: fade out when a label is in title position -->
@@ -488,20 +472,22 @@ for order in orders:
 						class="rounded-xl border border-gray-200 bg-white/95 px-8 py-6 shadow-xl"
 						style="flex: 2 1 0; opacity: {axisFade.codeOpacity}"
 					>
-						<pre class="text-2xl leading-relaxed font-mono text-gray-800"><code
-><span class="text-gray-500">for </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">order</span><span class="text-gray-500"> in </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">orders</span><span class="text-gray-500">:</span>
-<span class="text-gray-500">    </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">shipping</span><span class="text-gray-500"> = shipping_options(order)</span>
-<span class="text-gray-500">    </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">cost</span><span class="text-gray-500"> = compute_cost(shipping)</span>
-<span class="text-gray-500">    </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">results</span><span class="text-gray-500">.append(ShippedOrder(order, cost))</span></code></pre>
+						<pre class="text-5xl leading-relaxed font-mono text-gray-800"><code
+><span class="text-gray-500">for </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item</span><span class="text-gray-500"> in </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">cart</span><span class="text-gray-500">:</span>
+<span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.qty</span><span class="text-gray-500"> >= 9:</span>
+<span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.price</span><span class="text-gray-500"> *= 0.9</span>
+<span class="text-gray-500">    ...</span>
+<span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.price</span><span class="text-gray-500"> &lt; 4.00:</span>
+<span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.free_shipping</span><span class="text-gray-500"> = True</span></code></pre>
 					</div>
 					<!-- Cost terminal: 1/3 width, fixed height, only present when showCostTerminal -->
 					{#if showCostTerminal}
 						<div
-							class="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4 font-mono text-lg leading-relaxed text-green-400 overflow-y-auto text-left"
+							class="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4 font-mono text-2xl leading-relaxed text-green-400 overflow-y-auto text-left"
 							style="flex: 1 1 0; height: 14rem; opacity: {axisFade.terminalOpacity}"
 						>
-							{#each terminalLines.filter(([l]) => l === 'Cost') as [label, value]}
-								<p>Cost <span class="text-white">{value}</span></p>
+							{#each terminalLines as [label, value]}
+								<p>{label} <span class="text-white">{value}</span></p>
 							{/each}
 						</div>
 					{/if}
@@ -512,60 +498,47 @@ for order in orders:
 			{#if stateTimeStep >= 1}
 				<div class="absolute right-[8%] top-[10%] rounded-md bg-white/85 px-4 py-2 text-right">
 					{#if stateTimeStep === 1}
-						<p class="text-5xl font-bold text-[#0000FF]">breakpoint debugger</p>
-						<p class="text-3xl text-gray-500">all state · one moment</p>
+						<p class="text-7xl font-bold text-[#1E40AF]">breakpoint debugger</p>
+						<p class="text-5xl text-gray-500">all state · one moment</p>
 					{/if}
-					{#if stateTimeStep === 2 || stateTimeStep === 3}
-						<p class="text-5xl font-bold text-[#0000FF]">print debugging</p>
-						<p class="text-3xl text-gray-500">some state · many moments</p>
+					{#if stateTimeStep >= 2 && stateTimeStep <= 7}
+						<p class="text-7xl font-bold text-[#1E40AF]">print debugging</p>
+						<p class="text-5xl text-gray-500">some state · many moments</p>
 					{/if}
-					{#if stateTimeStep === 4 || stateTimeStep === 5}
-						<p class="text-5xl font-bold text-[#0000FF]" style="font-family: var(--r-code-font)">autopsy</p>
-						<p class="text-3xl text-gray-500">all state · many moments</p>
+					{#if stateTimeStep === 8 || stateTimeStep === 9}
+						<p class="text-7xl font-bold text-[#1E40AF]" style="font-family: var(--r-code-font)">autopsy</p>
+						<p class="text-5xl text-gray-500">all state · many moments</p>
 					{/if}
+				</div>
+			{/if}
+
+			<!-- ── Print debugger overlay (code + yellow bar) ── -->
+			{#if showPrintDebugger}
+				<div class="absolute z-10 flex justify-center" style="pointer-events: none; width: 75%; left: 12.5%;">
+					<CodeOverlay
+						lines={printCodeVersion === 0 ? tr.codeVariants.base.lines : printCodeVersion === 1 ? tr.codeVariants.printV1.lines : tr.codeVariants.printV2.lines}
+						highlightLine={printDebuggerHighlightLine}
+						instant={instantHighlight}
+					/>
 				</div>
 			{/if}
 
 			<!-- ── Breakpoint debugger overlay (code + Variables pane) ── -->
 			{#if showBreakpointDebugger}
-				<div class="absolute z-10 flex items-center justify-center gap-4" style="pointer-events: none; width: 75%; left: 12.5%;">
-					<div
-						class="rounded-xl border border-gray-200 bg-white/95 px-6 py-6 shadow-xl overflow-hidden transition-all duration-500"
-						style="flex: 1 1 50%; text-align: left"
-					>
-						<div class="flex font-mono text-xl leading-relaxed text-gray-800">
-							<div class="flex flex-col pr-3 text-right text-gray-500 select-none w-10">
-								{#each bpCodeLines as _, i}
-									<div class="flex items-center justify-end gap-1.5 h-[1.6em]">
-										{#if i === COST_LINE_IDX}
-											<div class="w-2 h-2 rounded-full bg-red-500 shrink-0"></div>
-										{:else}
-											<span class="w-2"></span>
-										{/if}
-										<span>{i + 1}</span>
-									</div>
-								{/each}
-							</div>
-							<div class="flex-1">
-								{#each bpCodeLines as line, i}
-									<div
-										class="h-[1.6em] whitespace-pre transition-colors duration-200 rounded px-1 -mx-1 {bpDebuggerHighlightLine === i ? 'bg-yellow-200' : ''}"
-									>
-										{line}
-									</div>
-								{/each}
-							</div>
-						</div>
-					</div>
-					<div
-						class="rounded-xl border border-gray-800 bg-gray-900 p-6 font-mono text-xl leading-relaxed text-green-400 text-left"
-						style="flex: 0 0 50%; height: 12rem"
-					>
-						<p class="text-gray-400 text-sm mb-3">Variables</p>
-						{#each bpVariables[bpDebuggerIteration] as [name, value]}
-							<p><span class="text-gray-500">{name}</span> <span class="text-white">{value}</span></p>
-						{/each}
-					</div>
+				<div class="absolute z-10 flex items-stretch justify-center gap-4" style="pointer-events: none; width: 75%; left: 12.5%;">
+					<CodeOverlay
+						lines={tr.codeVariants.base.lines}
+						highlightLine={bpDebuggerHighlightLine}
+						markers={[{ line: COST_LINE_IDX, type: 'breakpoint' }]}
+						instant={instantHighlight}
+						class="flex-1"
+						style="flex: 1 1 50%"
+					/>
+					<VariablesPane
+						variables={tr.breakpointSnapshots[bpDebuggerIteration]}
+						class="flex-1"
+						style="flex: 1 1 50%"
+					/>
 				</div>
 			{/if}
 		</div>
@@ -585,13 +558,13 @@ for order in orders:
 			do={async () => {
 				titleLabel = 'state'
 				await all(
-					psLabel.to({ x: 460, y: 60, rotate: 0, fontSize: 52 }, { duration: 700 }),
+					psLabel.to({ x: 460, y: 60, rotate: 0, fontSize: 72 }, { duration: 700 }),
 					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
 				)
 			}}
 			undo={async () => {
 				await all(
-					psLabel.to({ x: 50, y: 250, rotate: -90, fontSize: 22 }, { duration: 700 }),
+					psLabel.to({ x: 50, y: 250, rotate: -90, fontSize: 36 }, { duration: 700 }),
 					axisFade.to({ axisOpacity: 1 }, { duration: 400 }),
 				)
 				titleLabel = 'none'
@@ -651,13 +624,13 @@ for order in orders:
 					...stateVarLabels.map(lbl => lbl.to({ opacity: 0 }, { duration: 300 })),
 					axisFade.to({ axisOpacity: 1 }, { duration: 500 }),
 				)
-				await psLabel.to({ x: 50, y: 250, rotate: -90, fontSize: 22 }, { duration: 700 })
+				await psLabel.to({ x: 50, y: 250, rotate: -90, fontSize: 36 }, { duration: 700 })
 				titleLabel = 'none'
 			}}
 			undo={async () => {
 				titleLabel = 'state'
 				await all(
-					psLabel.to({ x: 460, y: 60, rotate: 0, fontSize: 52 }, { duration: 700 }),
+					psLabel.to({ x: 460, y: 60, rotate: 0, fontSize: 72 }, { duration: 700 }),
 					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
 				)
 				showStateVarLabels = true
@@ -678,13 +651,13 @@ for order in orders:
 			do={async () => {
 				titleLabel = 'time'
 				await all(
-					tLabel.to({ x: 460, y: 60, fontSize: 52 }, { duration: 700 }),
+					tLabel.to({ x: 460, y: 60, fontSize: 72 }, { duration: 700 }),
 					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
 				)
 			}}
 			undo={async () => {
 				await all(
-					tLabel.to({ x: 460, y: 500, fontSize: 22 }, { duration: 700 }),
+					tLabel.to({ x: 460, y: 500, fontSize: 36 }, { duration: 700 }),
 					axisFade.to({ axisOpacity: 1 }, { duration: 400 }),
 				)
 				titleLabel = 'none'
@@ -750,13 +723,13 @@ for order in orders:
 					...costLabels.map(lbl => lbl.to({ opacity: 0 }, { duration: 300 })),
 					axisFade.to({ axisOpacity: 1 }, { duration: 500 }),
 				)
-				await tLabel.to({ x: 460, y: 500, fontSize: 22 }, { duration: 700 })
+				await tLabel.to({ x: 460, y: 500, fontSize: 36 }, { duration: 700 })
 				titleLabel = 'none'
 			}}
 			undo={async () => {
 				titleLabel = 'time'
 				await all(
-					tLabel.to({ x: 460, y: 60, fontSize: 52 }, { duration: 700 }),
+					tLabel.to({ x: 460, y: 60, fontSize: 72 }, { duration: 700 }),
 					axisFade.to({ axisOpacity: 0.15 }, { duration: 400 }),
 				)
 				showCostLabels = true
@@ -785,46 +758,50 @@ for order in orders:
 				bpDebuggerIteration = 0
 			}}
 		/>
-		<!-- Move bar + highlight: line 3 → 4 → 1 → 2 → 3, update Variables at end -->
+		<!-- Breakpoint: one slow "Continue" — step from breakpoint through loop, back to breakpoint -->
 		<Action
 			do={async () => {
-				const highlightPath = [COST_LINE_IDX, 3, 0, 1, COST_LINE_IDX]
-				const barDuration = highlightPath.length * bpDebuggerLineDelay
+				const barDuration = bpHighlightPath.length * SLOW_LINE_DELAY
 				await all(
-					bpX.to({ x: 420 }, { duration: barDuration }),
+					bpX.to({ x: tr.breakpointXPositions[1] ?? 420 }, { duration: barDuration }),
 					(async () => {
-						for (const i of highlightPath) {
-							bpDebuggerHighlightLine = i
-							await sleep(bpDebuggerLineDelay)
+						for (const line of bpHighlightPath) {
+							bpDebuggerHighlightLine = line
+							await sleep(SLOW_LINE_DELAY)
 						}
 						bpDebuggerIteration = 1
 					})(),
 				)
 			}}
 			undo={async () => {
-				await bpX.to({ x: 200 })
+				await bpX.to({ x: tr.breakpointXPositions[0] ?? 200 })
 				bpDebuggerHighlightLine = COST_LINE_IDX
 				bpDebuggerIteration = 0
 			}}
 		/>
-		<!-- Repeat: same highlight path, update Variables at end -->
+		<!-- Breakpoint: fast-forward remaining iterations (cap at 8 to keep animation short) -->
 		<Action
 			do={async () => {
-				const highlightPath = [COST_LINE_IDX, 3, 0, 1, COST_LINE_IDX]
-				const barDuration = highlightPath.length * bpDebuggerLineDelay
-				await all(
-					bpX.to({ x: 640 }, { duration: barDuration }),
-					(async () => {
-						for (const i of highlightPath) {
-							bpDebuggerHighlightLine = i
-							await sleep(bpDebuggerLineDelay)
-						}
-						bpDebuggerIteration = 2
-					})(),
-				)
+				instantHighlight = true
+				const maxBpIter = Math.min(tr.breakpointXPositions.length, 8)
+				for (let iter = 2; iter < maxBpIter; iter++) {
+					const barDuration = bpHighlightPath.length * FAST_LINE_DELAY
+					await all(
+						bpX.to({ x: tr.breakpointXPositions[iter] }, { duration: barDuration }),
+						(async () => {
+							for (const line of bpHighlightPath) {
+								bpDebuggerHighlightLine = line
+								await sleep(FAST_LINE_DELAY)
+							}
+							bpDebuggerIteration = iter
+						})(),
+					)
+				}
+				instantHighlight = false
 			}}
 			undo={async () => {
-				await bpX.to({ x: 420 })
+				instantHighlight = false
+				await bpX.to({ x: tr.breakpointXPositions[1] ?? 420 })
 				bpDebuggerHighlightLine = COST_LINE_IDX
 				bpDebuggerIteration = 1
 			}}
@@ -838,13 +815,147 @@ for order in orders:
 			undo={() => {
 				showBreakpointDebugger = true
 				bpDebuggerHighlightLine = COST_LINE_IDX
-				bpDebuggerIteration = 2
+				bpDebuggerIteration = Math.min(tr.breakpointXPositions.length, 8) - 1
 			}}
 		/>
 		<Action do={() => { stateTimeStep = 2 }} undo={() => { stateTimeStep = 1 }} />
-		<Action do={() => { stateTimeStep = 3 }} undo={() => { stateTimeStep = 2 }} />
-		<Action do={() => { stateTimeStep = 4 }} undo={() => { stateTimeStep = 3 }} />
-		<Action do={() => { stateTimeStep = 5 }} undo={() => { stateTimeStep = 4 }} />
+		<!-- Print: show code -->
+		<Action
+			do={() => {
+				showPrintDebugger = true
+				printCodeVersion = 0
+				printDebuggerHighlightLine = -1
+				stateTimeStep = 3
+			}}
+			undo={() => {
+				showPrintDebugger = false
+				printCodeVersion = 0
+				printDebuggerHighlightLine = -1
+				stateTimeStep = 2
+			}}
+		/>
+		<!-- Print: add print to first condition -->
+		<Action
+			do={() => { printCodeVersion = 1; stateTimeStep = 4 }}
+			undo={() => { printCodeVersion = 0; stateTimeStep = 3 }}
+		/>
+		<!-- Print V1: one slow iteration -->
+		<Action
+			do={async () => {
+				stateTimeStep = 5
+				printDotsVisibleRow1 = 0
+				for (const line of printExecPathV1[0]) {
+					printDebuggerHighlightLine = line
+					if (line === FIRST_PRINT_LINE) {
+						printDotsVisibleRow1 += 1
+					}
+					await sleep(SLOW_LINE_DELAY)
+				}
+			}}
+			undo={() => {
+				stateTimeStep = 4
+				printDotsVisibleRow1 = 0
+				printDebuggerHighlightLine = -1
+			}}
+		/>
+		<!-- Print V1: fast-forward remaining iterations -->
+		<Action
+			do={async () => {
+				instantHighlight = true
+				for (let iter = 1; iter < printExecPathV1.length; iter++) {
+					for (const line of printExecPathV1[iter]) {
+						printDebuggerHighlightLine = line
+						if (line === FIRST_PRINT_LINE) {
+							printDotsVisibleRow1 += 1
+						}
+						await sleep(FAST_LINE_DELAY)
+					}
+				}
+				printDebuggerHighlightLine = -1
+				instantHighlight = false
+			}}
+			undo={() => {
+				instantHighlight = false
+				printDotsVisibleRow1 = printExecPathV1[0].includes(FIRST_PRINT_LINE) ? 1 : 0
+				printDebuggerHighlightLine = -1
+			}}
+		/>
+		<!-- Print: add print to second condition -->
+		<Action
+			do={() => { printCodeVersion = 2; stateTimeStep = 6 }}
+			undo={() => { printCodeVersion = 1; stateTimeStep = 5 }}
+		/>
+		<!-- Print V2: one slow iteration -->
+		<Action
+			do={async () => {
+				stateTimeStep = 7
+				printDotsVisibleRow2 = 0
+				for (const line of printExecPathV2[0]) {
+					printDebuggerHighlightLine = line
+					if (line === SECOND_PRINT_LINE) {
+						printDotsVisibleRow2 += 1
+					}
+					await sleep(SLOW_LINE_DELAY)
+				}
+			}}
+			undo={() => {
+				stateTimeStep = 6
+				printDotsVisibleRow2 = 0
+				printDebuggerHighlightLine = -1
+			}}
+		/>
+		<!-- Print V2: fast-forward remaining iterations -->
+		<Action
+			do={async () => {
+				instantHighlight = true
+				for (let iter = 1; iter < printExecPathV2.length; iter++) {
+					for (const line of printExecPathV2[iter]) {
+						printDebuggerHighlightLine = line
+						if (line === SECOND_PRINT_LINE) {
+							printDotsVisibleRow2 += 1
+						}
+						await sleep(FAST_LINE_DELAY)
+					}
+				}
+				printDebuggerHighlightLine = -1
+				instantHighlight = false
+			}}
+			undo={() => {
+				instantHighlight = false
+				printDotsVisibleRow2 = printExecPathV2[0].includes(SECOND_PRINT_LINE) ? 1 : 0
+				printDebuggerHighlightLine = -1
+			}}
+		/>
+		<!-- Dismiss print debugger before autopsy -->
+		<Action
+			do={() => {
+				showPrintDebugger = false
+				printDebuggerHighlightLine = -1
+			}}
+			undo={() => {
+				showPrintDebugger = true
+				printCodeVersion = 2
+			}}
+		/>
+		<!-- Autopsy: show first bar -->
+		<Action
+			do={() => { stateTimeStep = 8; autopsyVisibleCount = 1 }}
+			undo={() => { stateTimeStep = 7; autopsyVisibleCount = 0 }}
+		/>
+		<!-- Autopsy: animate remaining bars one-by-one with print dots -->
+		<Action
+			do={async () => {
+				stateTimeStep = 9
+				for (let i = 2; i <= autopsySlices.length; i++) {
+					autopsyVisibleCount = i
+					await sleep(100)
+				}
+			}}
+			undo={() => {
+				stateTimeStep = 8
+				autopsyVisibleCount = 1
+			}}
+		/>
 		<Notes>
 			This is the core conceptual diagram of the talk. Return to it when discussing each tool.
 			Start by showing the empty state×time space. Then pull out "program state" to explain
@@ -854,103 +965,147 @@ for order in orders:
 		</Notes>
 	</Slide>
 
-	<!-- ─── Section 2: Evidence — what programmers actually struggle with ─── -->
-
-	<!-- Slide 5: Formative study overview -->
+	<!-- Slide: Formative study — too much / too little information -->
 	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Formative study</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
-				<li>12 professional software engineers, 3–11 years experience</li>
-				<li>30-minute semi-structured interviews about debugging practices</li>
-				<li>Thematic analysis through a data-oriented debugging lens</li>
-			</ul>
+		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16 text-left">
+			<div class="flex flex-col gap-6">
+				<div class="flex items-center gap-4">
+					<AlertTriangle class="h-14 w-14 shrink-0 text-amber-600" />
+					<h2 class="text-8xl font-bold text-black">Too Much Information</h2>
+				</div>
+				<div class="flex items-center gap-4 pl-2">
+					<CircleUserRound class="h-14 w-14 shrink-0 text-amber-500" />
+					<p class="text-5xl text-black">P3: "you don't want to burn up your log files with unnecessary information…otherwise, you will lose out the meaningful logs"</p>
+				</div>
+				<div class="flex items-center gap-4 pl-2">
+					<CircleUserRound class="h-14 w-14 shrink-0 text-amber-500" />
+					<p class="text-5xl text-black">P10: "if it is something that's gonna get called a ton…putting a breakpoint inside that is gonna kind of drive me crazy"</p>
+				</div>
+			</div>
+			<div class="flex flex-col gap-6">
+				<div class="flex items-center gap-4">
+					<Info class="h-14 w-14 shrink-0 text-blue-600" />
+					<h2 class="text-8xl font-bold text-black">Too Little Information</h2>
+				</div>
+				<div class="flex items-center gap-4 pl-2">
+					<CircleUserRound class="h-14 w-14 shrink-0 text-blue-500" />
+					<p class="text-5xl text-black">P5: "oh, okay, this is happening. Okay, then what was the state before this? And you don't have a log for that…"</p>
+				</div>
+				<div class="flex items-center gap-4 pl-2">
+					<CircleUserRound class="h-14 w-14 shrink-0 text-blue-500" />
+					<p class="text-5xl text-black">P12: "I just print out everything. As much information as possible."</p>
+				</div>
+			</div>
 		</div>
 		<Notes>
-			Recruited from personal networks and internal company postings. 4 companies, 8 from one
-			company. Mix of print-preferred (7), breakpoint-preferred (2), and both (3).
+			We conducted interviews with 12 experienced industry software engineers to understand their debugging practices and why they preferred certain tools and techniques.
 		</Notes>
 	</Slide>
 
-	<!-- Slide 6: The coupling problem -->
+	<!-- Slide: Information needs in tension (2) -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16 text-left">
+			<h2 class="text-8xl font-bold text-black">Two information needs in tension</h2>
+			<div class="flex gap-12">
+				<div class="flex-1 rounded-xl border-2 border-amber-200 bg-amber-50 p-6">
+					<p class="text-7xl font-bold text-amber-800 mb-2">Collection</p>
+					<p class="text-4xl text-amber-900">Collect <em>more</em> data — it may be useful in future analysis</p>
+				</div>
+				<div class="flex-1 rounded-xl border-2 border-blue-200 bg-blue-50 p-6">
+					<p class="text-7xl font-bold text-blue-800 mb-2">Analysis</p>
+					<p class="text-4xl text-blue-900">Make sense of data and avoid being <em>overwhelmed</em> by it</p>
+				</div>
+			</div>
+		</div>
+	</Slide>
+
+	<!-- Slide: Design principles — intro (3) -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">The coupling problem</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
-				<li>
-					Core finding: current tools tightly <strong>couple data collection and data
-					analysis</strong>
-				</li>
-				<li>Breakpoints: you collect and analyze simultaneously</li>
-				<li>
-					Print statements: plan collection upfront, then analyze — but missing data means
-					rerunning
-				</li>
-				<li class="italic">
-					"what all could I need, and then add everything in the logs...Because if I miss one
-					thing, I have to wait 2 hours." — P5
-				</li>
-			</ul>
+			<h2 class="text-8xl font-bold text-black">Design principles</h2>
+			<p class="text-5xl text-black">This tension motivated a new design. Principles:</p>
+			<ol class="flex flex-col gap-3 pl-6 text-5xl text-black list-decimal">
+				<li><strong>Separate collection and analysis</strong></li>
+				<li><strong>Better affordances for analysis</strong></li>
+				<li><strong>Connection back to code</strong></li>
+			</ol>
 		</div>
 		<Notes>
-			P5: "what all could I need, and then add everything in the logs, and then analyze it
-			later...Because if I miss one thing, I have to wait 2 hours." This is the central tension
-			the whole talk builds on. The coupling is what makes both tools frustrating in different
-			ways.
+			Original impetus: "Why do people still do print debugging if breakpoint debuggers exist?" and looking at rows of print output thinking "I wish I could do more with that now that I have it."
 		</Notes>
 	</Slide>
 
-	<!-- Slide 7: The information management tension -->
+	<!-- Slide: Principle 3b — separate collection and analysis -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">The information management tension</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
-				<li>Want to collect <em>more</em> data (to avoid regret of missing something)</li>
-				<li>But fear being <em>overwhelmed</em> by too much output</li>
-				<li>Lack tools to manage data once collected → manage it by collecting less</li>
-				<li class="italic">"burning up log files with unnecessary information" — P3</li>
-				<li class="italic">Using a notepad to keep track of log output — P7</li>
-				<li class="italic">Breakpoints on hot code paths "drive me crazy" — P10</li>
+			<h2 class="text-8xl font-bold text-black">Principle: separate collection and analysis</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
+				<li>Collect lots of data without impeding analysis</li>
+				<li>Extra data available for use <em>at-will</em></li>
+			</ul>
+		</div>
+	</Slide>
+
+	<!-- Slide: Principle 3c — better affordances for analysis -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
+			<h2 class="text-8xl font-bold text-black">Principle: better affordances for analysis</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
+				<li>Project new analysis from collected state</li>
+				<li>Group and aggregate across logs — distributions, boundaries, outliers</li>
+				<li>Associate logs with each other; focus to a region of interest</li>
+				<li>Make comparisons across points in the log</li>
+				<li class="mt-4 text-3xl text-gray-600">Omniscient debuggers don't get you all the way there: they replay deterministically and let you jump in time, but don't present across-log analysis tools</li>
 			</ul>
 		</div>
 		<Notes>
-			This is a direct consequence of coupling. If you had tools to filter/sort/query after the
-			fact, you wouldn't need to be so careful about what you collect. P4 had a strategy of
-			printing both nested fields (for scanning) AND full objects (to avoid regret) — a
-			workaround for the lack of post-hoc analysis tools. Multiple participants also discussed
-			adding string tags to logs for filtering — a manual approximation of structured querying.
+			Industry already does this with structured logging in production (Splunk, Datadog, ELK).
 		</Notes>
 	</Slide>
 
-	<!-- Slide 8: Production debugging already solved this -->
+	<!-- Slide: Principle 3d — connection back to code -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Production debugging already solved this</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
-				<li>
-					Industry shift: text logs → structured logging → query tools (Splunk, Datadog, ELK
-					stack)
-				</li>
-				<li>Production debugging treats logs as a <strong>queryable dataset</strong></li>
-				<li>Local debugging is decades behind: still text on a terminal</li>
+			<h2 class="text-8xl font-bold text-black">Principle: connection back to code</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
+				<li>Execution data is generated by a precise, computational process</li>
+				<li>We know the exact <em>provenance</em> of all data</li>
+				<li>This is leveraged in the analysis process</li>
 			</ul>
 		</div>
+	</Slide>
+
+	<!-- Slide: Demo — pricing example -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col gap-2 px-4 pt-4 pb-2">
+			<h2 class="text-6xl font-bold text-black text-left">
+				<span
+					class="bg-[#1E40AF] px-2 py-0.5 text-white"
+					style="font-family: var(--r-code-font)"
+				>autopsy</span> — Demo: pricing example
+			</h2>
+			<!-- <iframe
+				src="{iframBase}/price_calculator_report.html"
+				title="Autopsy Report — Price Calculator"
+				class="flex-1 w-full rounded-lg border border-gray-200 shadow-sm"
+				style="min-height: 0"
+			></iframe> -->
+			<p class="text-3xl text-gray-500 italic flex-1 flex items-center justify-center">[Live demo: price calculator with autopsy]</p>
+		</div>
 		<Notes>
-			This is a one-slide point but it's important. It shows the transition the talk is arguing
-			for has already happened in a related domain. The audience should be asking "why hasn't
-			this happened for local debugging too?"
+			Demo the autopsy interface with the pricing example: streams view, computed columns, sorting, filtering, cross-view navigation.
 		</Notes>
 	</Slide>
 
 	<!-- ─── Section 3: Data-oriented debugging as a framework ─── -->
 
-	<!-- Slide 9: The core proposal -->
+	<!-- Slide: The core proposal -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">
+			<h2 class="text-8xl font-bold text-black">
 				The core proposal: decouple collection from analysis
 			</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Treat execution data as a <strong>structured dataset</strong></li>
 				<li>Decouple <em>when/what</em> you collect from <em>how</em> you analyze it</li>
 				<li>Key shift: move programmer intentionality from collection to analysis</li>
@@ -964,49 +1119,18 @@ for order in orders:
 		</Notes>
 	</Slide>
 
-	<!-- Slide 10: Design principles -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Design principles</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
-				<li><strong>Make collection easy:</strong> minimize friction of capturing execution data</li>
-				<li>
-					<strong>Manage abundant data:</strong> filter, transform, and query — don't force
-					programmers to manage volume by collecting less
-				</li>
-				<li>
-					<strong>Support exploration:</strong> help characterize execution before narrowing to
-					specific hypotheses
-				</li>
-				<li>
-					<strong>Support model confirmation:</strong> present data in ways that make it easy to
-					compare against mental models
-				</li>
-				<li>
-					<strong>Connect back to code:</strong> link analysis results to the code that produced
-					them
-				</li>
-			</ul>
-		</div>
-		<Notes>
-			These are derived from the formative study. Don't dwell on each one — they'll be
-			illustrated in the demo. The key message is that these are design principles for a class of
-			tools, not just for autopsy specifically.
-		</Notes>
-	</Slide>
-
 	<!-- ─── Section 4: autopsy demo / walkthrough ─── -->
 
 	<!-- Slide 11: autopsy overview -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">
+			<h2 class="text-8xl font-bold text-black">
 				<span
-					class="bg-[#0000FF] px-2 py-1 text-white"
+					class="bg-[#1E40AF] px-2 py-1 text-white"
 					style="font-family: var(--r-code-font)"
 				>autopsy</span> overview
 			</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Three components: Python tracing library, web viewer, VS Code extension</li>
 				<li>
 					<code>import autopsy</code> / <code>autopsy.log("label", var1, var2)</code>
@@ -1024,9 +1148,9 @@ for order in orders:
 	<!-- Slide: Live autopsy interface (order_pipeline example) -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col gap-2 px-4 pt-4 pb-2">
-			<h2 class="text-3xl font-bold text-black text-left">
+			<h2 class="text-6xl font-bold text-black text-left">
 				<span
-					class="bg-[#0000FF] px-2 py-0.5 text-white"
+					class="bg-[#1E40AF] px-2 py-0.5 text-white"
 					style="font-family: var(--r-code-font)"
 				>autopsy</span> — Live Demo
 			</h2>
@@ -1048,13 +1172,13 @@ for order in orders:
 	<!-- Slide 13: Demo — streams view + computed columns -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Demo: streams view + computed columns</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<h2 class="text-8xl font-bold text-black">Demo: streams view + computed columns</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Logs from one call site as a <strong>structured table</strong></li>
 				<li>Add a computed column from a stack variable that wasn't explicitly logged</li>
 				<li>Key point: "retroactive print debugging" — no rerun needed</li>
 			</ul>
-			<p class="text-2xl text-black italic">[Demo: streams view, drag-and-drop computed columns]</p>
+			<p class="text-5xl text-black italic">[Demo: streams view, drag-and-drop computed columns]</p>
 		</div>
 		<Notes>
 			This is the single most important feature to demonstrate. It directly shows decoupling: you
@@ -1067,15 +1191,15 @@ for order in orders:
 	<!-- Slide 14: Demo — sorting, filtering, cross-time comparison -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">
+			<h2 class="text-8xl font-bold text-black">
 				Demo: sorting, filtering, cross-time comparison
 			</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Sort by a column to group related entries</li>
 				<li>Filter to a subset of interest</li>
 				<li>Patterns across many executions become visible in the table</li>
 			</ul>
-			<p class="text-2xl text-black italic">[Demo: sorting and filtering]</p>
+			<p class="text-5xl text-black italic">[Demo: sorting and filtering]</p>
 		</div>
 		<Notes>
 			This is the "data tools" part. Sorting and filtering are simple but they enable seeing
@@ -1087,13 +1211,13 @@ for order in orders:
 	<!-- Slide 15: Demo — navigation between views -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Demo: navigation between views</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<h2 class="text-8xl font-bold text-black">Demo: navigation between views</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Click a row in streams → jump to its location in history (sequential context)</li>
 				<li>Click a row in history → jump to its stream (cross-time context)</li>
 				<li>Inspect the full call stack from any row</li>
 			</ul>
-			<p class="text-2xl text-black italic">[Demo: cross-view navigation]</p>
+			<p class="text-5xl text-black italic">[Demo: cross-view navigation]</p>
 		</div>
 		<Notes>
 			This demonstrates "connect back to code" and the ability to shift between analytical lenses
@@ -1106,12 +1230,12 @@ for order in orders:
 	<!-- Slide 16: Demo — identifying the bug -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Demo: identifying the bug</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<h2 class="text-8xl font-bold text-black">Demo: identifying the bug</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Walk through how data tools led to identifying the root cause</li>
 				<li>Comparing stack traces across rows reveals the state mutation</li>
 			</ul>
-			<p class="text-2xl text-black italic">[Demo: bug identification moment]</p>
+			<p class="text-5xl text-black italic">[Demo: bug identification moment]</p>
 		</div>
 		<Notes>
 			Land the demo by connecting back to the model-checking framing. The programmer had a mental
@@ -1125,8 +1249,8 @@ for order in orders:
 	<!-- Slide 17: Where this goes -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Where this goes</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<h2 class="text-8xl font-bold text-black">Where this goes</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Current limitation: programmer manually places log statements</li>
 				<li>
 					Future: full execution capture → all state at all time → intentionality moves entirely
@@ -1153,19 +1277,19 @@ for order in orders:
 	<!-- Slide 18: Closing -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-6xl font-bold text-black">Data-oriented debugging</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-2xl text-black list-disc">
+			<h2 class="text-8xl font-bold text-black">Data-oriented debugging</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Debugging = checking mental models against execution data</li>
 				<li>Current tools couple collection and analysis</li>
 				<li>Data-oriented debugging decouples them</li>
 				<li>
 					<span
-						class="bg-[#0000FF] px-2 py-1 text-white"
+						class="bg-[#1E40AF] px-2 py-1 text-white"
 						style="font-family: var(--r-code-font)"
 					>autopsy</span> demonstrates this
 				</li>
 			</ul>
-			<p class="text-xl text-black italic mt-4">[Link to tool / paper / contact info]</p>
+			<p class="text-3xl text-black italic mt-4">[Link to tool / paper / contact info]</p>
 		</div>
 	</Slide>
 </Presentation>
