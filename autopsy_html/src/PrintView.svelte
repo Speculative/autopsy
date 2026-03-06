@@ -5,7 +5,9 @@
   import { trackEvent } from "./studyEvents";
   import VirtualList from "./VirtualList.svelte";
   import { isVSCodeWebview, navigateToLogInVSCode } from "./vscodeApi";
-  import { FileCodeCorner } from "lucide-svelte";
+  import { FileCodeCorner, Search, X } from "lucide-svelte";
+  import { getSearchableText } from "./searchUtils";
+  import { tick } from "svelte";
 
   /**
    * PrintView — Simplified chronological log view for the print ablation study condition.
@@ -80,6 +82,59 @@
   function estimateItemHeight(): number {
     return ENTRY_HEIGHT;
   }
+
+  // Search state
+  let searchOpen = $state(false);
+  let searchQuery = $state("");
+  let searchInputEl: HTMLInputElement | undefined = $state();
+
+  function openSearch() {
+    searchOpen = true;
+    tick().then(() => searchInputEl?.focus());
+  }
+
+  function closeSearch() {
+    searchOpen = false;
+    searchQuery = "";
+  }
+
+  let searchMatchIndices = $derived.by(() => {
+    if (!searchQuery) return null;
+    const q = searchQuery.toLowerCase();
+    const matches = new Set<number>();
+    for (const callSite of data.call_sites) {
+      if (callSite.is_dashboard) continue;
+      for (const vg of callSite.value_groups) {
+        if (vg.dashboard_type) continue;
+        const text = getSearchableText(vg, callSite);
+        if (text.toLowerCase().includes(q)) {
+          matches.add(vg.log_index);
+        }
+      }
+    }
+    return matches;
+  });
+
+  let searchMatchCount = $derived(searchMatchIndices?.size ?? 0);
+
+  let filteredEntries = $derived.by(() => {
+    if (!searchMatchIndices) return historyEntries;
+    return historyEntries.filter(e => searchMatchIndices!.has(e.log_index));
+  });
+
+  $effect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        openSearch();
+      }
+      if (e.key === "Escape" && searchOpen) {
+        closeSearch();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  });
 </script>
 
 {#if historyEntries.length === 0}
@@ -98,9 +153,29 @@
       <span>Show code locations</span>
     </label>
   </div>
+  {#if searchOpen}
+    <div class="search-bar">
+      <Search size={14} />
+      <input
+        bind:this={searchInputEl}
+        type="text"
+        class="search-input"
+        placeholder="Search logs..."
+        value={searchQuery}
+        oninput={(e) => { searchQuery = e.currentTarget.value; }}
+        onkeydown={(e) => { if (e.key === "Escape") closeSearch(); }}
+      />
+      {#if searchQuery}
+        <span class="search-count">{searchMatchCount} {searchMatchCount === 1 ? 'match' : 'matches'}</span>
+      {/if}
+      <button class="search-close" onclick={closeSearch} title="Close search (Esc)">
+        <X size={14} />
+      </button>
+    </div>
+  {/if}
   <div class="history">
     <VirtualList
-      items={historyEntries}
+      items={filteredEntries}
       itemHeight={estimateItemHeight}
       overscan={10}
       useWindowScroll={false}
@@ -309,5 +384,48 @@
     opacity: 1;
     border-color: #3b82f6;
     color: #3b82f6;
+  }
+
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: #fff;
+    border: 1px solid #2563eb;
+    border-radius: 6px;
+    margin-bottom: 0.25rem;
+    color: #666;
+  }
+
+  .search-input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 0.9rem;
+    font-family: inherit;
+    background: transparent;
+  }
+
+  .search-count {
+    font-size: 0.8rem;
+    color: #666;
+    white-space: nowrap;
+  }
+
+  .search-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #666;
+    display: flex;
+    align-items: center;
+    padding: 2px;
+    border-radius: 3px;
+  }
+
+  .search-close:hover {
+    background: #f0f0f0;
+    color: #333;
   }
 </style>

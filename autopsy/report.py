@@ -1472,6 +1472,13 @@ def _atexit_handler():
         except Exception as e:
             print(f"\nWarning: Failed to auto-generate autopsy report: {e}", file=sys.stderr)
 
+    # Always also emit a plain-text log file
+    try:
+        text_path = "autopsy_report.log"
+        generate_text(_report_instance, text_path)
+    except Exception as e:
+        print(f"\nWarning: Failed to auto-generate text log: {e}", file=sys.stderr)
+
 
 # Register atexit handler
 atexit.register(_atexit_handler)
@@ -1563,3 +1570,120 @@ def generate_json(
         report._written = True
 
     return json_str
+
+
+def generate_text(
+    report: Optional[Report] = None, output_path: Optional[str] = None
+) -> str:
+    """
+    Generate a plain-text log file formatted like stdout output.
+
+    Each line includes: timestamp (if available), code location, and formatted values.
+    Strings and numbers are inlined without quotes. Objects/arrays are pretty-printed JSON.
+
+    Args:
+        report: Report instance. If None, uses the global instance.
+        output_path: Optional path to write the text file to.
+
+    Returns:
+        The generated text as a string.
+    """
+    if report is None:
+        report = get_report()
+
+    with report._lock:
+        # Collect all log entries with their metadata
+        entries: List[Dict[str, Any]] = []
+
+        for call_site, log_groups in report._logs.items():
+            filename, line_number = call_site
+            for log_group in log_groups:
+                entries.append({
+                    "filename": filename,
+                    "line_number": line_number,
+                    "log_group": log_group,
+                    "log_index": log_group.get("log_index", 0),
+                })
+
+        # Sort by log_index for chronological order
+        entries.sort(key=lambda e: e["log_index"])
+
+        lines: List[str] = []
+        for entry in entries:
+            log_group = entry["log_group"]
+            filename = entry["filename"]
+            line_number = entry["line_number"]
+
+            # Timestamp from stack trace if available
+            timestamp_str = ""
+            stack_trace_id = log_group.get("stack_trace_id")
+            if stack_trace_id is not None and stack_trace_id in report._stack_traces:
+                ts = report._stack_traces[stack_trace_id].timestamp
+                timestamp_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S.%f")[:-3]
+
+            # Code location
+            fn = log_group.get("function_name", "")
+            cls = log_group.get("class_name")
+            loc_parts = [os.path.basename(filename), str(line_number)]
+            if cls:
+                loc_parts.append(f"{cls}.{fn}")
+            elif fn:
+                loc_parts.append(fn)
+            location = ":".join(loc_parts)
+
+            # Format values
+            name = log_group.get("name")
+            pickled_values = log_group["values"]
+
+            value_parts: List[str] = []
+            if name:
+                value_parts.append(name)
+
+            for idx, pickled_value in enumerate(pickled_values):
+                # Unpickle
+                if isinstance(pickled_value, str) and pickled_value.startswith("<PickleError"):
+                    value_parts.append(pickled_value)
+                    continue
+                if isinstance(pickled_value, bytes):
+                    try:
+                        val = pickle.loads(pickled_value)
+                    except Exception as e:
+                        value_parts.append(f"<UnpickleError: {e}>")
+                        continue
+                else:
+                    val = pickled_value
+
+                value_parts.append(_format_value(val))
+
+            values_str = " ".join(value_parts)
+
+            # Assemble line
+            parts = []
+            if timestamp_str:
+                parts.append(f"[{timestamp_str}]")
+            parts.append(f"[{location}]")
+            parts.append(values_str)
+            lines.append(" ".join(parts))
+
+        text = "\n".join(lines) + ("\n" if lines else "")
+
+    if output_path is not None:
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(text, encoding="utf-8")
+        report._written = True
+
+    return text
+
+
+def _format_value(val: Any) -> str:
+    """Format a single value for plain-text output."""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, (int, float)):
+        return str(val)
+    # Objects, arrays, etc: pretty-print as JSON
+    try:
+        return json.dumps(to_json_serializable(val), indent=2, allow_nan=False)
+    except Exception:
+        return repr(val)
