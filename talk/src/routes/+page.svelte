@@ -133,9 +133,149 @@
 	let printDotsVisibleRow1 = $state(0)
 	let printDotsVisibleRow2 = $state(0)
 
+	// Interleaved dot sequence (execution order across both print rows)
+	// Each entry: [x, y] coordinate from the appropriate row
+	const printDotsInterleaved: [number, number][] = (() => {
+		const seq: [number, number][] = []
+		let r1 = 0, r2 = 0
+		for (const t of tr.traces.printV2) {
+			const hitsFirst = t.printOutputs.some(o => o.line === tr.codeVariants.printV2.printLines[0])
+			const hitsSecond = t.printOutputs.some(o => o.line === tr.codeVariants.printV2.printLines[1])
+			if (hitsFirst && r1 < printDotsRow1.length) {
+				seq.push(printDotsRow1[r1])
+				r1++
+			}
+			if (hitsSecond && r2 < printDotsRow2.length) {
+				seq.push(printDotsRow2[r2])
+				r2++
+			}
+		}
+		return seq
+	})()
+
 	// Autopsy slices from traced data
 	const autopsySlices = tr.autopsySliceXPositions
 	let autopsyVisibleCount = $state(0)
+
+	// ── Formative study slide ──
+	let showTooLittle = $state(false)
+
+	// ── Looping analysis slide ──
+	type LoopMode = 'none' | 'breakpoint' | 'print'
+	let loopMode = $state<LoopMode>('none')
+	let loopHighlightLine = $state(-1)
+	let loopBpIteration = $state(0)
+	let loopBpX = tween({ x: tr.breakpointXPositions[0] ?? 200 }, { duration: 300 })
+	let loopVars = $state<Record<string, string>>({})
+	let loopTerminalLines = $state<string[]>([])
+	let loopPrintDotsR1 = $state(0)
+	let loopPrintDotsR2 = $state(0)
+	let loopCancel: (() => void) | null = null
+
+	function stopLoop() {
+		if (loopCancel) { loopCancel(); loopCancel = null }
+	}
+
+	async function runBreakpointLoop() {
+		let cancelled = false
+		loopCancel = () => { cancelled = true }
+		while (!cancelled) {
+			for (let iter = 0; iter < ITEM_COUNT && !cancelled; iter++) {
+				// Animate to this iteration's X position
+				loopBpX.to({ x: tr.breakpointXPositions[iter] })
+				loopBpIteration = iter
+				loopVars = tr.breakpointSnapshots[iter]
+				// Step through highlight path
+				for (const line of bpHighlightPath) {
+					if (cancelled) return
+					loopHighlightLine = line
+					await sleep(80)
+				}
+			}
+		}
+	}
+
+	async function runPrintLoop() {
+		let cancelled = false
+		loopCancel = () => { cancelled = true }
+		while (!cancelled) {
+			loopPrintDotsR1 = 0
+			loopPrintDotsR2 = 0
+			loopTerminalLines = []
+			for (let iter = 0; iter < printExecPathV2.length && !cancelled; iter++) {
+				for (const line of printExecPathV2[iter]) {
+					if (cancelled) return
+					loopHighlightLine = line
+					if (line === FIRST_PRINT_LINE) {
+						loopPrintDotsR1 += 1
+						const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
+						if (out) loopTerminalLines = [...loopTerminalLines, out.text]
+					}
+					if (line === SECOND_PRINT_LINE) {
+						loopPrintDotsR2 += 1
+						const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === SECOND_PRINT_LINE)
+						if (out) loopTerminalLines = [...loopTerminalLines, out.text]
+					}
+					await sleep(iter === 0 ? 120 : 40)
+				}
+			}
+			// Brief pause before restarting
+			if (!cancelled) await sleep(500)
+		}
+	}
+
+	// ── Comparison chart (post-tension slide) ──
+	// 0: blank, 1: breakpoint bar, 2: print zigzag (2 rows),
+	// 3: autopsy zigzag only, 4: + horizontal row lines, 5: + bars
+	let compChartStep = $state(0)
+
+	// ── Merged slide layout phases ──
+	// 'code': full-screen code with heading
+	// 'chart': code shrinks to corner, axes appear
+	// 'breakpoint': 3-panel (chart left 2/3, code top-right, variables bottom-right)
+	// 'print': 3-panel (chart left 2/3, code top-right, terminal bottom-right)
+	// 'autopsy': chart-focused (code + panels dismissed)
+	type Phase = 'code' | 'chart' | 'breakpoint' | 'print' | 'autopsy'
+	let phase = $state<Phase>('code')
+
+	// Tween for code editor position/size
+	// In 'code' phase: fills screen. In 'chart' phase: small in top-right corner.
+	// In 'breakpoint'/'print' phase: top-right panel in 3-panel layout.
+	const codeTransform = tween({
+		// These represent percentage-based positioning via CSS
+		scale: 1, opacity: 1,
+	}, { duration: 500 })
+
+	// Whether to show the heading "How do you debug this?"
+	let showHeading = $state(true)
+
+	// Which panel to show in the bottom-right during 3-panel mode
+	let rightPanel = $state<'none' | 'variables' | 'terminal'>('none')
+
+	// Which code lines to show in the unified CodeOverlay
+	let unifiedCodeLines = $derived(
+		printCodeVersion === 0 ? tr.codeVariants.base.lines
+		: printCodeVersion === 1 ? tr.codeVariants.printV1.lines
+		: tr.codeVariants.printV2.lines
+	)
+
+	// Breakpoint markers for the unified CodeOverlay
+	let unifiedMarkers = $derived(
+		phase === 'breakpoint'
+			? [{ line: COST_LINE_IDX, type: 'breakpoint' as const }]
+			: []
+	)
+
+	// Unified highlight line (used for both breakpoint and print stepping)
+	let unifiedHighlightLine = $derived(
+		phase === 'breakpoint' ? bpDebuggerHighlightLine : printDebuggerHighlightLine
+	)
+
+	// Accent lines: momentary yellow token highlight when print lines are added
+	let unifiedAccentLines = $state<number[]>([])
+
+	// Print terminal output lines for the bottom-right terminal panel
+	let printTerminalLines = $state<string[]>([])
 </script>
 
 <Presentation options={{ history: true, transition: 'slide', controls: false, progress: true, slideNumber: true }}>
@@ -146,13 +286,13 @@
 				<h1 class="text-left text-[6rem] font-bold leading-tight text-black">
 					Data-oriented Debugging with
 					<span
-						class="mt-2 inline-block bg-[#1E40AF] px-3 py-1 text-white"
+						class="mt-2 inline-block bg-[#0000FF] px-3 py-1 text-white"
 						style="font-family: var(--r-code-font)"
 					>autopsy</span>
 				</h1>
 				<div class="flex flex-col gap-2">
 					<p class="text-left text-5xl text-black">
-						<span class="font-bold text-[#1E40AF]">Jeffrey Tao</span>, Xiaorui Liu, Ryan Marcus,
+						<span class="font-bold text-[#0000FF]">Jeffrey Tao</span>, Xiaorui Liu, Ryan Marcus,
 						Andrew Head
 					</p>
 					<p class="text-left text-3xl text-black">PLATEAU 2026</p>
@@ -189,371 +329,314 @@
 		</Notes>
 	</Slide>
 
-	<!-- ─── Section 1: Debugging is about checking mental models against execution data ─── -->
-
-	<!-- Slide 2: Code example — debugging motivation -->
-	<Slide class="h-full" in={() => { showTerminal = false; scrollTerminal = false; highlightBug = false; showExpandedTerminal = false; scrollExpanded = false; slide2Todo = 0; slide2Code = codeInitial; if (code) code.update`${codeInitial}` }}>
-		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16">
-			<h2 class="text-left text-8xl font-bold text-black">How do you debug this?</h2>
-			<div class="flex gap-6" style="align-items: stretch">
-				<div
-					class="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow-sm overflow-hidden transition-all duration-500"
-					style="flex: {showTerminal ? '2 2 66%' : '1 1 100%'}; text-align: left"
-				>
-					<Code
-						bind:this={code}
-						lang="python"
-						theme="github-light"
-						code={slide2Code}
-						options={{ duration: 400, stagger: 0, lineNumbers: true, containerStyle: false, enhanceMatching: true, splitTokens: true }}
-						class="text-5xl"
-					/>
-				</div>
-				<div
-					class="rounded-xl border border-gray-800 bg-gray-900 p-6 shadow-sm font-mono text-3xl leading-relaxed text-green-400 transition-all duration-500 text-left"
-					style="flex: 0 0 33%; opacity: {showTerminal ? 1 : 0}; margin-left: {showTerminal ? '0' : 'calc(-33% - 1.5rem)'}; height: 18.2rem; overflow: hidden"
-				>
-					<div style="animation: {scrollExpanded ? 'terminal-scroll-expanded 1s linear forwards' : scrollTerminal ? 'terminal-scroll 1s linear forwards' : 'none'}">
-						{#each (showExpandedTerminal ? terminalLinesExpanded : terminalLines) as row, i}
-							{@const lines = showExpandedTerminal ? terminalLinesExpanded : terminalLines}
-							{#if i === lines.length - 2}
-								<div
-									class="transition-all duration-500"
-									style="outline: {highlightBug ? '2px solid #ef4444' : '2px solid transparent'}; outline-offset: 2px; border-radius: 4px; background: {highlightBug ? 'rgba(239,68,68,0.12)' : 'transparent'}"
-								>
-									{#if row.length === 3}
-										<p>{row[0]} <span class="text-white">{row[1]}</span> <span class="text-yellow-300">{row[2]}</span></p>
-									{:else}
-										<p>{row[0]} <span class="text-white">{row[1]}</span></p>
-									{/if}
-									{#if lines[i+1].length === 3}
-										<p>{lines[i+1][0]} <span class="text-white">{lines[i+1][1]}</span> <span class="text-yellow-300">{lines[i+1][2]}</span></p>
-									{:else}
-										<p>{lines[i+1][0]} <span class="text-white">{lines[i+1][1]}</span></p>
-									{/if}
-								</div>
-							{:else if i === lines.length - 1}
-								<!-- rendered inside the highlight div above -->
-							{:else if row.length === 3}
-								<p>{row[0]} <span class="text-white">{row[1]}</span> <span class="text-yellow-300">{row[2]}</span></p>
-							{:else}
-								<p>{row[0]} <span class="text-white">{row[1]}</span></p>
-							{/if}
-						{/each}
-					</div>
-				</div>
-			</div>
-		</div>
-		{#if slide2Todo >= 1}
-			<div class="absolute inset-0 flex items-center justify-center z-20" style="background: rgba(255,255,255,0.92)">
-				<div class="rounded-2xl border-4 border-dashed border-amber-400 bg-amber-50 px-12 py-10 shadow-lg max-w-2xl">
-					<p class="text-7xl font-bold text-amber-600 mb-4">TODO: Print Debugging</p>
-					<ul class="text-5xl text-amber-800 list-disc pl-6 flex flex-col gap-2">
-						<li>Animate adding print statements to the code</li>
-						<li>Show terminal panel with extremely long scrolling output</li>
-						<li>Wall-of-text feeling — Price/Qty values streaming by</li>
-						<li>Point: output is overwhelming and hard to correlate</li>
-					</ul>
-				</div>
-			</div>
-		{/if}
-		{#if slide2Todo >= 2}
-			<div class="absolute inset-0 flex items-center justify-center z-30" style="background: rgba(255,255,255,0.92)">
-				<div class="rounded-2xl border-4 border-dashed border-blue-400 bg-blue-50 px-12 py-10 shadow-lg max-w-2xl">
-					<p class="text-7xl font-bold text-blue-600 mb-4">TODO: Breakpoint Stepping</p>
-					<ul class="text-5xl text-blue-800 list-disc pl-6 flex flex-col gap-2">
-						<li>Show breakpoint debugger overlay on code</li>
-						<li>Yellow highlight line steps through each line (like state/time chart)</li>
-						<li>Variables pane shows item.price and item.free_shipping drifting by</li>
-						<li>Point: see everything at one moment, but lose the cross-time view</li>
-					</ul>
-				</div>
-			</div>
-		{/if}
-		<Action do={() => { slide2Todo = 1 }} undo={() => { slide2Todo = 0 }} />
-		<Action do={() => { slide2Todo = 2 }} undo={() => { slide2Todo = 1 }} />
-		<!-- REWORK: print/terminal actions commented out — reworking this narrative -->
-		<!--
-		<Action
-			do={async () => {
-				await code.update`${codeWithPrint1}`
-				slide2Code = codeWithPrint1
-				await code.update`${codeWithPrints}`
-				slide2Code = codeWithPrints
-			}}
-			undo={() => {
-				slide2Code = codeInitial
-				code.update`${codeInitial}`
-			}}
-		/>
-		<Action do={() => { showTerminal = true }} undo={() => { showTerminal = false; scrollTerminal = false }} />
-		<Action do={() => { scrollTerminal = true }} undo={() => { scrollTerminal = false; highlightBug = false }} />
-		<Action do={() => { highlightBug = true }} undo={() => { highlightBug = false }} />
-		<Action
-			do={async () => {
-				highlightBug = false
-				await code.update`${codeWithPrintExpanded}`
-				slide2Code = codeWithPrintExpanded
-				await code.selectLines`4`
-			}}
-			undo={async () => {
-				highlightBug = true
-				await code.update`${codeWithPrints}`
-				slide2Code = codeWithPrints
-				await code.selectLines``
-			}}
-		/>
-		<Action
-			do={() => { showExpandedTerminal = true; scrollExpanded = false }}
-			undo={() => { showExpandedTerminal = false; scrollExpanded = false }}
-		/>
-		<Action
-			do={() => { scrollExpanded = true }}
-			undo={() => { scrollExpanded = false }}
-		/>
-		-->
-		<Notes>
-			REWORK: Two animations needed here:
-			1) Print debugging: add prints, show overwhelming terminal output scrolling by
-			2) Breakpoint stepping: yellow highlight line walks through code, price/free_shipping values drift by in variables pane
-		</Notes>
-	</Slide>
-
-
-	<!-- Slide: The state × time space -->
+	<!-- ─── Merged Slide: Code → State×Time Chart → Debugging Techniques ─── -->
 	<!--
-		Axis labels are SVG <text> elements tweened in SVG-coordinate space (viewBox 0 0 900 520).
-		Resting positions: "program state" at (50,250) rotate(-90); "time" at (460,500).
-		Title position: both fly to (100,60) rotate(0) at fontSize=104.
+		This single slide combines the "How do you debug this?" code intro with the
+		state×time chart and debugging technique animations.
+
+		Layout phases (controlled by `phase` state):
+		- 'code': Full-screen code with "How do you debug this?" heading
+		- 'chart': Code shrinks to top-right corner, state×time axes appear + build-up
+		- 'breakpoint': 3-panel — chart (left 2/3), code (top-right), variables (bottom-right)
+		- 'print': 3-panel — chart (left 2/3), code (top-right), terminal (bottom-right)
+		- 'autopsy': Chart with bars filling in, right panels dismissed
 	-->
 	<Slide class="h-full" in={() => {
+		phase = 'code'
+		showHeading = true
+		rightPanel = 'none'
+		printCodeVersion = 0
+		bpDebuggerHighlightLine = -1
+		bpDebuggerIteration = 0
+		printDebuggerHighlightLine = -1
+		instantHighlight = false
+		printTerminalLines = []
 		stateTimeStep = 0; bpX.reset()
 		titleLabel = 'none'
 		showAxisCode = false; axisCodeHighlight = null; showCostTerminal = false
 		showStateVarLabels = false; showCostLabels = false
-		showBreakpointDebugger = false; bpDebuggerHighlightLine = -1; bpDebuggerIteration = 0
-		showPrintDebugger = false; printDebuggerHighlightLine = -1; printCodeVersion = 0
 		printDotsVisibleRow1 = 0; printDotsVisibleRow2 = 0; autopsyVisibleCount = 0
 		psLabel.reset(); tLabel.reset(); axisFade.reset()
 		stateVarLabels.forEach(l => l.reset())
 		costLabels.forEach(l => l.reset())
+		codeTransform.reset()
 	}}>
-		<div class="relative flex h-full items-center justify-center overflow-hidden">
+		<!-- ═══════════════════════════════════════════════════
+		     LAYOUT: 3-panel grid that morphs between phases
+		     Left: state×time chart (hidden in 'code' phase)
+		     Right-top: code editor (full-screen in 'code' phase, small otherwise)
+		     Right-bottom: variables or terminal panel
+		     ═══════════════════════════════════════════════════ -->
+		<div class="relative h-full w-full overflow-hidden">
 
-			<!-- ── Main SVG (axes, data marks, and animated axis labels) ── -->
-			<svg viewBox="0 0 900 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
-				<!-- Plot background -->
-				<rect x="100" y="40" width="720" height="420" fill="white" />
+			<!-- ── Heading overlay (visible only in 'code' phase) ── -->
+			<div
+				class="absolute z-20 transition-all duration-500 pointer-events-none"
+				style="
+					top: 18%;
+					left: 5rem;
+					opacity: {showHeading ? 1 : 0};
+					transform: translateY({showHeading ? 0 : -20}px);
+				"
+			>
+				<h2 class="text-left text-8xl font-bold text-black">How do you debug this?</h2>
+			</div>
 
-				<!-- Step 1: Breakpoint — animated vertical slice (solid bar) -->
-				{#if stateTimeStep === 1}
-					<rect x={bpX.x - 12} y="40" width="24" height="420" fill="#1E40AF"
-						style="opacity: 0; animation: appear 0.3s ease-out 0ms forwards" />
-				{/if}
+			<!-- ── State×Time Chart (left region) ── -->
+			<div
+				class="absolute top-0 left-0 bottom-0 transition-all duration-700"
+				style="
+					width: {phase === 'code' ? '0%' : phase === 'chart' || phase === 'autopsy' ? '100%' : '64%'};
+					opacity: {phase === 'code' ? 0 : 1};
+				"
+			>
+				<div class="relative flex h-full items-center justify-center overflow-hidden">
+					<svg viewBox="0 0 900 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
+						<!-- Plot background -->
+						<rect x="100" y="40" width="720" height="420" fill="white" />
 
-				<!-- Step 2–4: Print — single dot (conceptual: "you have one data point") -->
-				{#if stateTimeStep >= 2 && stateTimeStep < 5 && printDotsRow1.length > 0}
-					<circle cx={printDotsRow1[0][0]} cy={printDotsRow1[0][1]} r="6" fill="#991B1B"
-						style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
-				{/if}
-
-				<!-- Step 5–7: Print — row 1 dots (appear during V1 yellow bar animation) -->
-				{#if stateTimeStep >= 5 && stateTimeStep <= 7}
-					{#each printDotsRow1.slice(0, printDotsVisibleRow1) as [cx, cy], i}
-						{#if i > 0}
-							<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
-								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+						<!-- Step 1: Breakpoint — animated vertical slice -->
+						{#if stateTimeStep === 1}
+							<rect x={bpX.x - 12} y="40" width="24" height="420" fill="#1E40AF"
+								style="opacity: 0; animation: appear 0.3s ease-out 0ms forwards" />
 						{/if}
-						<circle {cx} {cy} r="6" fill="#991B1B"
-							style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
-					{/each}
-				{/if}
 
-				<!-- Step 7: Print — row 2 dots (appear during V2 yellow bar animation) -->
-				{#if stateTimeStep === 7}
-					{#each printDotsRow2.slice(0, printDotsVisibleRow2) as [cx, cy], i}
-						{#if i > 0}
-							<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
-								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+						<!-- (no dots at print section start) -->
+
+						<!-- Step 5–7: Print — row 1 dots (with per-row lines) -->
+						{#if stateTimeStep >= 5 && stateTimeStep <= 7}
+							{#each printDotsRow1.slice(0, printDotsVisibleRow1) as [cx, cy], i}
+								{#if i > 0}
+									<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
+										stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+								{/if}
+								<circle {cx} {cy} r="6" fill="#991B1B"
+									style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
+							{/each}
 						{/if}
-						<circle {cx} {cy} r="6" fill="#991B1B"
-							style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
-					{/each}
-				{/if}
 
-				<!-- Step 8+: Autopsy bars + print dots reappearing per-iteration -->
-				{#if stateTimeStep >= 8}
-					{#each autopsySlices.slice(0, autopsyVisibleCount) as x}
-						<rect x={x - 11} y="40" width="22" height="420" fill="#1E40AF" />
-					{/each}
-					<!-- Row 1 dots (red dots on top of blue bars) -->
-					{@const r1Count = printDotsRow1Indices.filter((idx: number) => idx < autopsyVisibleCount).length}
-					{#each printDotsRow1.slice(0, r1Count) as [cx, cy], i}
-						{#if i > 0}
-							<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
-								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+						<!-- Step 7: Print — row 2 dots (with per-row lines) -->
+						{#if stateTimeStep === 7}
+							{#each printDotsRow2.slice(0, printDotsVisibleRow2) as [cx, cy], i}
+								{#if i > 0}
+									<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
+										stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+								{/if}
+								<circle {cx} {cy} r="6" fill="#991B1B"
+									style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
+							{/each}
 						{/if}
-						<circle {cx} {cy} r="6" fill="#991B1B" />
-					{/each}
-					<!-- Row 2 dots (red dots on top of blue bars) -->
-					{@const r2Count = printDotsRow2Indices.filter((idx: number) => idx < autopsyVisibleCount).length}
-					{#each printDotsRow2.slice(0, r2Count) as [cx, cy], i}
-						{#if i > 0}
-							<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
-								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+
+						<!-- Step 10: Print — zigzag interleaved line connecting dots in execution order -->
+						{#if stateTimeStep === 10}
+							{#each printDotsInterleaved as [cx, cy], i}
+								{#if i > 0}
+									<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
+										stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
+										style="opacity: 0; animation: appear 0.1s ease-out {i * 30}ms forwards" />
+								{/if}
+								<circle {cx} {cy} r="6" fill="#991B1B"
+									style="opacity: 0; animation: appear 0.1s ease-out {i * 30}ms forwards" />
+							{/each}
 						{/if}
-						<circle {cx} {cy} r="6" fill="#991B1B" />
-					{/each}
-				{/if}
 
-				<!-- Axes + other-label: fade out when a label is in title position -->
-				<g opacity={axisFade.axisOpacity}>
-					<!-- Y axis -->
-					<line x1="100" y1="40" x2="100" y2="460" stroke="black" stroke-width="2.5" />
-					<polygon points="100,33 94,47 106,47" fill="black" />
-					<!-- X axis -->
-					<line x1="100" y1="460" x2="836" y2="460" stroke="black" stroke-width="2.5" />
-					<polygon points="843,460 829,454 829,466" fill="black" />
-				</g>
+						<!-- (autopsy bars removed — now on comparison slide) -->
 
-				<!-- ── Axis labels (SVG text, tweened to title position) ── -->
-				<text
-					text-anchor="middle"
-					font-family="Lato, sans-serif"
-					font-size={psLabel.fontSize}
-					fill="black"
-					opacity={titleLabel === 'time' ? axisFade.axisOpacity : 1}
-					transform="translate({psLabel.x},{psLabel.y}) rotate({psLabel.rotate})"
-				>program state</text>
+						<!-- Axes (fade when a label is in title position) -->
+						<g opacity={axisFade.axisOpacity}>
+							<line x1="100" y1="40" x2="100" y2="460" stroke="black" stroke-width="2.5" />
+							<polygon points="100,33 94,47 106,47" fill="black" />
+							<line x1="100" y1="460" x2="836" y2="460" stroke="black" stroke-width="2.5" />
+							<polygon points="843,460 829,454 829,466" fill="black" />
+						</g>
 
-				<text
-					text-anchor="middle"
-					font-family="Lato, sans-serif"
-					font-size={tLabel.fontSize}
-					fill="black"
-					opacity={titleLabel === 'state' ? axisFade.axisOpacity : 1}
-					transform="translate({tLabel.x},{tLabel.y}) rotate({tLabel.rotate})"
-				>time</text>
-
-				<!-- ── State variable labels distributed along Y-axis ── -->
-				{#if showStateVarLabels}
-					{#each stateVarLabels as lbl, i}
-						<text
-							text-anchor="start"
-							font-family="Lato, sans-serif"
-							font-size={lbl.fontSize}
-							fill="black"
-							opacity={lbl.opacity}
-							transform="translate({lbl.x},{lbl.y})"
-						>{stateVarNames[i]}</text>
-					{/each}
-				{/if}
-
-				<!-- ── Cost value labels distributed along X-axis ── -->
-				{#if showCostLabels}
-					{#each costLabels as lbl, i}
+						<!-- Axis labels (tweened) -->
 						<text
 							text-anchor="middle"
 							font-family="Lato, sans-serif"
-							font-size={lbl.fontSize}
+							font-size={psLabel.fontSize}
 							fill="black"
-							opacity={lbl.opacity}
-							transform="translate({lbl.x},{lbl.y}) rotate({lbl.rotate})"
-						>{costValues[i]}</text>
-					{/each}
-				{/if}
-			</svg>
+							opacity={titleLabel === 'time' ? axisFade.axisOpacity : 1}
+							transform="translate({psLabel.x},{psLabel.y}) rotate({psLabel.rotate})"
+						>program state</text>
+						<text
+							text-anchor="middle"
+							font-family="Lato, sans-serif"
+							font-size={tLabel.fontSize}
+							fill="black"
+							opacity={titleLabel === 'state' ? axisFade.axisOpacity : 1}
+							transform="translate({tLabel.x},{tLabel.y}) rotate({tLabel.rotate})"
+						>time</text>
 
-			<!-- ── Code overlay (and optional cost terminal) ── -->
-			{#if showAxisCode}
-				<div class="absolute flex items-center justify-center gap-4" style="pointer-events: none; width: 75%; left: 12.5%;">
-					<!-- Code block: 2/3 width -->
-					<div
-						class="rounded-xl border border-gray-200 bg-white/95 px-8 py-6 shadow-xl"
-						style="flex: 2 1 0; opacity: {axisFade.codeOpacity}"
-					>
-						<pre class="text-5xl leading-relaxed font-mono text-gray-800"><code
+						<!-- State variable labels along Y-axis -->
+						{#if showStateVarLabels}
+							{#each stateVarLabels as lbl, i}
+								<text
+									text-anchor="start"
+									font-family="Lato, sans-serif"
+									font-size={lbl.fontSize}
+									fill="black"
+									opacity={lbl.opacity}
+									transform="translate({lbl.x},{lbl.y})"
+								>{stateVarNames[i]}</text>
+							{/each}
+						{/if}
+
+						<!-- Cost value labels along X-axis -->
+						{#if showCostLabels}
+							{#each costLabels as lbl, i}
+								<text
+									text-anchor="middle"
+									font-family="Lato, sans-serif"
+									font-size={lbl.fontSize}
+									fill="black"
+									opacity={lbl.opacity}
+									transform="translate({lbl.x},{lbl.y}) rotate({lbl.rotate})"
+								>{costValues[i]}</text>
+							{/each}
+						{/if}
+					</svg>
+
+					<!-- Code overlay for axis build-up (state-vars / cost highlighting) -->
+					{#if showAxisCode}
+						<div class="absolute flex items-center justify-center gap-4" style="pointer-events: none; width: 75%; left: 12.5%;">
+							<div
+								class="rounded-xl border border-gray-200 bg-white/95 px-8 py-6 shadow-xl"
+								style="flex: 2 1 0; opacity: {axisFade.codeOpacity}"
+							>
+								<pre class="text-5xl leading-relaxed font-mono text-gray-800"><code
 ><span class="text-gray-500">for </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item</span><span class="text-gray-500"> in </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">cart</span><span class="text-gray-500">:</span>
 <span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.qty</span><span class="text-gray-500"> >= 9:</span>
 <span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.price</span><span class="text-gray-500"> *= 0.9</span>
 <span class="text-gray-500">    ...</span>
 <span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.price</span><span class="text-gray-500"> &lt; 4.00:</span>
 <span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.free_shipping</span><span class="text-gray-500"> = True</span></code></pre>
-					</div>
-					<!-- Cost terminal: 1/3 width, fixed height, only present when showCostTerminal -->
-					{#if showCostTerminal}
+							</div>
+							{#if showCostTerminal}
+								<div
+									class="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4 font-mono text-2xl leading-relaxed text-green-400 overflow-y-auto text-left"
+									style="flex: 1 1 0; height: 14rem; opacity: {axisFade.terminalOpacity}"
+								>
+									{#each terminalLines as [label, value]}
+										<p>{label} <span class="text-white">{value}</span></p>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					<!-- Technique label (top-right of chart area during 3-panel, or top-right of full area) -->
+					{#if stateTimeStep >= 1}
+						<div class="absolute left-[4%] top-[6%] rounded-md bg-white/85 px-4 py-2 text-left">
+							{#if stateTimeStep === 1}
+								<p class="text-5xl font-bold text-[#1E40AF]">breakpoint debugger</p>
+								<p class="text-3xl text-gray-500">all state · one moment</p>
+							{/if}
+							{#if stateTimeStep >= 2 && stateTimeStep <= 10}
+								<p class="text-5xl font-bold text-[#1E40AF]">print debugging</p>
+								<p class="text-3xl text-gray-500">some state · many moments</p>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+
+			<!-- ── Right panels region (code + variables/terminal) ── -->
+			<div
+				class="absolute top-0 bottom-0 flex flex-col gap-3 p-3 transition-all duration-700"
+				style="
+					right: 0;
+					width: {phase === 'code' ? '100%' : phase === 'chart' ? '50%' : '36%'};
+					padding: {phase === 'code' ? '30% 5rem 3rem' : '0.75rem'};
+				"
+			>
+				<!-- ── Code editor panel ── -->
+				<div
+					class="transition-all duration-700 overflow-hidden"
+					style="
+						flex: {phase === 'breakpoint' || phase === 'print' ? '1 1 50%' : 'none'};
+						opacity: {phase === 'autopsy' ? 0 : codeTransform.opacity};
+						transform: scale({phase === 'code' ? 1 : phase === 'chart' ? 0.5 : 1});
+						transform-origin: top right;
+						min-height: 0;
+					"
+				>
+					{#if phase === 'code'}
+						<!-- In code phase, show a full-size Code component with syntax highlighting -->
+						<div class="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow-sm overflow-hidden text-left">
+							<Code
+								bind:this={code}
+								lang="python"
+								theme="github-light"
+								code={codeInitial}
+								options={{ duration: 400, stagger: 0, lineNumbers: true, containerStyle: false, enhanceMatching: true, splitTokens: true }}
+								class="text-5xl"
+							/>
+						</div>
+					{:else}
+						<!-- In chart/breakpoint/print phases, show CodeOverlay -->
+						<CodeOverlay
+							lines={unifiedCodeLines}
+							highlightLine={unifiedHighlightLine}
+							accentLines={unifiedAccentLines}
+							markers={unifiedMarkers}
+							instant={instantHighlight}
+						/>
+					{/if}
+				</div>
+
+				<!-- ── Bottom-right panel: Variables pane or Terminal ── -->
+				<div
+					class="transition-all duration-500 overflow-hidden"
+					style="
+						flex: {rightPanel !== 'none' ? '1 1 50%' : '0 0 0px'};
+						opacity: {rightPanel !== 'none' ? 1 : 0};
+						min-height: 0;
+					"
+				>
+					{#if rightPanel === 'variables'}
+						<VariablesPane
+							variables={tr.breakpointSnapshots[bpDebuggerIteration]}
+							style="height: 100%"
+						/>
+					{:else if rightPanel === 'terminal'}
 						<div
-							class="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4 font-mono text-2xl leading-relaxed text-green-400 overflow-y-auto text-left"
-							style="flex: 1 1 0; height: 14rem; opacity: {axisFade.terminalOpacity}"
+							class="rounded-xl border border-gray-800 bg-gray-900 p-4 font-mono text-xl leading-relaxed text-green-400 text-left overflow-y-auto h-full"
 						>
-							{#each terminalLines as [label, value]}
-								<p>{label} <span class="text-white">{value}</span></p>
+							<p class="text-gray-400 text-lg mb-2">Terminal</p>
+							{#each printTerminalLines as line}
+								<p>{line}</p>
 							{/each}
 						</div>
 					{/if}
 				</div>
-			{/if}
-
-			<!-- Step label (top-right, shown once debugging techniques are introduced) -->
-			{#if stateTimeStep >= 1}
-				<div class="absolute right-[8%] top-[10%] rounded-md bg-white/85 px-4 py-2 text-right">
-					{#if stateTimeStep === 1}
-						<p class="text-7xl font-bold text-[#1E40AF]">breakpoint debugger</p>
-						<p class="text-5xl text-gray-500">all state · one moment</p>
-					{/if}
-					{#if stateTimeStep >= 2 && stateTimeStep <= 7}
-						<p class="text-7xl font-bold text-[#1E40AF]">print debugging</p>
-						<p class="text-5xl text-gray-500">some state · many moments</p>
-					{/if}
-					{#if stateTimeStep === 8 || stateTimeStep === 9}
-						<p class="text-7xl font-bold text-[#1E40AF]" style="font-family: var(--r-code-font)">autopsy</p>
-						<p class="text-5xl text-gray-500">all state · many moments</p>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- ── Print debugger overlay (code + yellow bar) ── -->
-			{#if showPrintDebugger}
-				<div class="absolute z-10 flex justify-center" style="pointer-events: none; width: 75%; left: 12.5%;">
-					<CodeOverlay
-						lines={printCodeVersion === 0 ? tr.codeVariants.base.lines : printCodeVersion === 1 ? tr.codeVariants.printV1.lines : tr.codeVariants.printV2.lines}
-						highlightLine={printDebuggerHighlightLine}
-						instant={instantHighlight}
-					/>
-				</div>
-			{/if}
-
-			<!-- ── Breakpoint debugger overlay (code + Variables pane) ── -->
-			{#if showBreakpointDebugger}
-				<div class="absolute z-10 flex items-stretch justify-center gap-4" style="pointer-events: none; width: 75%; left: 12.5%;">
-					<CodeOverlay
-						lines={tr.codeVariants.base.lines}
-						highlightLine={bpDebuggerHighlightLine}
-						markers={[{ line: COST_LINE_IDX, type: 'breakpoint' }]}
-						instant={instantHighlight}
-						class="flex-1"
-						style="flex: 1 1 50%"
-					/>
-					<VariablesPane
-						variables={tr.breakpointSnapshots[bpDebuggerIteration]}
-						class="flex-1"
-						style="flex: 1 1 50%"
-					/>
-				</div>
-			{/if}
+			</div>
 		</div>
 
 		<!-- ════════════════════════════════════════════════════
-		     Build-up: "program state" axis label sequence
+		     Phase 1: Code presentation (no actions needed for initial display)
 		     ════════════════════════════════════════════════════ -->
 
-		<!-- A1: Fly "program state" from Y-axis to title position
-		     The label rests at: left≈3.2%, top=50%, rotate=-90deg.
-		     Title target: appears at top-left like a slide heading.
-		     We move it right by ~38% of slide width (≈500px at 1280px) and up by ~44% of slide height (≈316px at 720px),
-		     then un-rotate and scale up to ~3.5rem.
-		     These px values are for the slide's natural coordinate space (Reveal default ~960×700).
-		-->
+		<!-- A0: Transition from 'code' phase → 'chart' phase
+		     Shrink code to top-right corner, reveal axes -->
+		<Action
+			do={async () => {
+				showHeading = false
+				await sleep(300)
+				phase = 'chart'
+			}}
+			undo={async () => {
+				phase = 'code'
+				await sleep(300)
+				showHeading = true
+			}}
+		/>
+
+		<!-- ════════════════════════════════════════════════════
+		     Phase 2: Axis build-up (code small in corner)
+		     ════════════════════════════════════════════════════ -->
+
+		<!-- A1: Fly "program state" to title position -->
 		<Action
 			do={async () => {
 				titleLabel = 'state'
@@ -574,7 +657,7 @@
 			}}
 		/>
 
-		<!-- A2: Show code, highlight state variables -->
+		<!-- A2: Show code overlay on chart, highlight state variables -->
 		<Action
 			do={async () => {
 				showAxisCode = true
@@ -588,11 +671,10 @@
 			}}
 		/>
 
-		<!-- A2b: Distribute state variable names along the Y-axis -->
+		<!-- A2b: Distribute state variable names along Y-axis -->
 		<Action
 			do={async () => {
 				showStateVarLabels = true
-				// Fade the code overlay out while spreading the labels
 				await all(
 					axisFade.to({ codeOpacity: 0 }, { duration: 300 }),
 					...stateVarLabels.map((lbl, i) =>
@@ -642,11 +724,7 @@
 			}}
 		/>
 
-		<!-- ════════════════════════════════════════════════════
-		     Build-up: "time" axis label sequence
-		     ════════════════════════════════════════════════════ -->
-
-		<!-- A4: Fly "time" from X-axis bottom to title position -->
+		<!-- A4: Fly "time" to title position -->
 		<Action
 			do={async () => {
 				titleLabel = 'time'
@@ -668,7 +746,7 @@
 			}}
 		/>
 
-		<!-- A5: Show code (highlight cost) + cost-only terminal -->
+		<!-- A5: Show code overlay (highlight cost) + cost terminal -->
 		<Action
 			do={async () => {
 				axisCodeHighlight = null
@@ -685,11 +763,10 @@
 			}}
 		/>
 
-		<!-- A5b: Distribute cost values along the X-axis (rotated 90°) -->
+		<!-- A5b: Distribute cost values along X-axis -->
 		<Action
 			do={async () => {
 				showCostLabels = true
-				// Fade out code + terminal while spreading cost values
 				await all(
 					axisFade.to({ codeOpacity: 0, terminalOpacity: 0 }, { duration: 300 }),
 					...costLabels.map((lbl, i) =>
@@ -742,23 +819,29 @@
 		/>
 
 		<!-- ════════════════════════════════════════════════════
-		     Debugging techniques (original actions)
+		     Phase 3: Breakpoint debugging (3-panel layout)
 		     ════════════════════════════════════════════════════ -->
-		<Action do={() => { stateTimeStep = 1 }} undo={() => { stateTimeStep = 0; bpX.reset() }} />
-		<!-- Breakpoint debugger: show red dot + Variables pane, yellow on cost line -->
+
+		<!-- Enter breakpoint mode: switch to 3-panel, show bar + breakpoint marker + variables -->
 		<Action
-			do={() => {
-				showBreakpointDebugger = true
+			do={async () => {
+				phase = 'breakpoint'
+				stateTimeStep = 1
+				rightPanel = 'variables'
 				bpDebuggerHighlightLine = COST_LINE_IDX
 				bpDebuggerIteration = 0
 			}}
-			undo={() => {
-				showBreakpointDebugger = false
+			undo={async () => {
+				phase = 'chart'
+				stateTimeStep = 0
+				rightPanel = 'none'
 				bpDebuggerHighlightLine = -1
 				bpDebuggerIteration = 0
+				bpX.reset()
 			}}
 		/>
-		<!-- Breakpoint: one slow "Continue" — step from breakpoint through loop, back to breakpoint -->
+
+		<!-- Breakpoint: one slow "Continue" -->
 		<Action
 			do={async () => {
 				const barDuration = bpHighlightPath.length * SLOW_LINE_DELAY
@@ -779,7 +862,8 @@
 				bpDebuggerIteration = 0
 			}}
 		/>
-		<!-- Breakpoint: fast-forward remaining iterations (cap at 8 to keep animation short) -->
+
+		<!-- Breakpoint: fast-forward remaining iterations -->
 		<Action
 			do={async () => {
 				instantHighlight = true
@@ -806,40 +890,46 @@
 				bpDebuggerIteration = 1
 			}}
 		/>
-		<!-- Dismiss breakpoint debugger before print debugging -->
+
+		<!-- ════════════════════════════════════════════════════
+		     Phase 4: Print debugging (seamless transition from breakpoint)
+		     Keep the 3-panel layout, swap variables→terminal, remove breakpoint marker
+		     ════════════════════════════════════════════════════ -->
+
+		<!-- Transition: breakpoint → print. Maintain code editor, animate bar→dot -->
 		<Action
-			do={() => {
-				showBreakpointDebugger = false
+			do={async () => {
+				phase = 'print'
+				stateTimeStep = 2
+				rightPanel = 'terminal'
+				printTerminalLines = []
 				bpDebuggerHighlightLine = -1
+				printCodeVersion = 0
+				printDebuggerHighlightLine = -1
 			}}
-			undo={() => {
-				showBreakpointDebugger = true
+			undo={async () => {
+				phase = 'breakpoint'
+				stateTimeStep = 1
+				rightPanel = 'variables'
 				bpDebuggerHighlightLine = COST_LINE_IDX
 				bpDebuggerIteration = Math.min(tr.breakpointXPositions.length, 8) - 1
-			}}
-		/>
-		<Action do={() => { stateTimeStep = 2 }} undo={() => { stateTimeStep = 1 }} />
-		<!-- Print: show code -->
-		<Action
-			do={() => {
-				showPrintDebugger = true
 				printCodeVersion = 0
 				printDebuggerHighlightLine = -1
-				stateTimeStep = 3
-			}}
-			undo={() => {
-				showPrintDebugger = false
-				printCodeVersion = 0
-				printDebuggerHighlightLine = -1
-				stateTimeStep = 2
 			}}
 		/>
+
 		<!-- Print: add print to first condition -->
 		<Action
-			do={() => { printCodeVersion = 1; stateTimeStep = 4 }}
-			undo={() => { printCodeVersion = 0; stateTimeStep = 3 }}
+			do={async () => {
+				printCodeVersion = 1; stateTimeStep = 4
+				unifiedAccentLines = tr.codeVariants.printV1.printLines
+				await sleep(800)
+				unifiedAccentLines = []
+			}}
+			undo={() => { printCodeVersion = 0; stateTimeStep = 2; unifiedAccentLines = [] }}
 		/>
-		<!-- Print V1: one slow iteration -->
+
+		<!-- Print V1: one slow iteration with terminal output -->
 		<Action
 			do={async () => {
 				stateTimeStep = 5
@@ -848,6 +938,10 @@
 					printDebuggerHighlightLine = line
 					if (line === FIRST_PRINT_LINE) {
 						printDotsVisibleRow1 += 1
+						// Add terminal line
+						const outputs = tr.traces.printV1[0].printOutputs
+						const out = outputs[printDotsVisibleRow1 - 1]
+						if (out) printTerminalLines = [...printTerminalLines, out.text]
 					}
 					await sleep(SLOW_LINE_DELAY)
 				}
@@ -856,8 +950,10 @@
 				stateTimeStep = 4
 				printDotsVisibleRow1 = 0
 				printDebuggerHighlightLine = -1
+				printTerminalLines = []
 			}}
 		/>
+
 		<!-- Print V1: fast-forward remaining iterations -->
 		<Action
 			do={async () => {
@@ -867,6 +963,9 @@
 						printDebuggerHighlightLine = line
 						if (line === FIRST_PRINT_LINE) {
 							printDotsVisibleRow1 += 1
+							const outputs = tr.traces.printV1[iter].printOutputs
+							const out = outputs.find(o => o.line === FIRST_PRINT_LINE)
+							if (out) printTerminalLines = [...printTerminalLines, out.text]
 						}
 						await sleep(FAST_LINE_DELAY)
 					}
@@ -878,41 +977,78 @@
 				instantHighlight = false
 				printDotsVisibleRow1 = printExecPathV1[0].includes(FIRST_PRINT_LINE) ? 1 : 0
 				printDebuggerHighlightLine = -1
+				// Restore terminal to just first iteration output
+				const out = tr.traces.printV1[0].printOutputs[0]
+				printTerminalLines = out ? [out.text] : []
 			}}
 		/>
-		<!-- Print: add print to second condition -->
+
+		<!-- Print: add second print, clear dots/terminal -->
 		<Action
-			do={() => { printCodeVersion = 2; stateTimeStep = 6 }}
-			undo={() => { printCodeVersion = 1; stateTimeStep = 5 }}
+			do={async () => {
+				printCodeVersion = 2
+				stateTimeStep = 6; printTerminalLines = []; printDotsVisibleRow1 = 0; printDotsVisibleRow2 = 0
+				unifiedAccentLines = tr.codeVariants.printV2.printLines
+				await sleep(800)
+				unifiedAccentLines = []
+			}}
+			undo={() => {
+				printCodeVersion = 1; stateTimeStep = 5
+				printDotsVisibleRow1 = tr.printDots.row1.length
+				printDotsVisibleRow2 = 0
+				unifiedAccentLines = []
+				const lines: string[] = []
+				for (const t of tr.traces.printV1) {
+					for (const p of t.printOutputs) lines.push(p.text)
+				}
+				printTerminalLines = lines
+			}}
 		/>
-		<!-- Print V2: one slow iteration -->
+
+		<!-- Print V2: slow first iteration -->
 		<Action
 			do={async () => {
 				stateTimeStep = 7
-				printDotsVisibleRow2 = 0
 				for (const line of printExecPathV2[0]) {
 					printDebuggerHighlightLine = line
+					if (line === FIRST_PRINT_LINE) {
+						printDotsVisibleRow1 += 1
+						const out = tr.traces.printV2[0].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
+						if (out) printTerminalLines = [...printTerminalLines, out.text]
+					}
 					if (line === SECOND_PRINT_LINE) {
 						printDotsVisibleRow2 += 1
+						const out = tr.traces.printV2[0].printOutputs.find(o => o.line === SECOND_PRINT_LINE)
+						if (out) printTerminalLines = [...printTerminalLines, out.text]
 					}
 					await sleep(SLOW_LINE_DELAY)
 				}
 			}}
 			undo={() => {
 				stateTimeStep = 6
+				printDotsVisibleRow1 = 0
 				printDotsVisibleRow2 = 0
 				printDebuggerHighlightLine = -1
+				printTerminalLines = []
 			}}
 		/>
-		<!-- Print V2: fast-forward remaining iterations -->
+
+		<!-- Print V2: fast-forward remaining iterations (interleaved output) -->
 		<Action
 			do={async () => {
 				instantHighlight = true
 				for (let iter = 1; iter < printExecPathV2.length; iter++) {
 					for (const line of printExecPathV2[iter]) {
 						printDebuggerHighlightLine = line
+						if (line === FIRST_PRINT_LINE) {
+							printDotsVisibleRow1 += 1
+							const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === FIRST_PRINT_LINE)
+							if (out) printTerminalLines = [...printTerminalLines, out.text]
+						}
 						if (line === SECOND_PRINT_LINE) {
 							printDotsVisibleRow2 += 1
+							const out = tr.traces.printV2[iter].printOutputs.find(o => o.line === SECOND_PRINT_LINE)
+							if (out) printTerminalLines = [...printTerminalLines, out.text]
 						}
 						await sleep(FAST_LINE_DELAY)
 					}
@@ -922,51 +1058,34 @@
 			}}
 			undo={() => {
 				instantHighlight = false
+				printDotsVisibleRow1 = printExecPathV2[0].includes(FIRST_PRINT_LINE) ? 1 : 0
 				printDotsVisibleRow2 = printExecPathV2[0].includes(SECOND_PRINT_LINE) ? 1 : 0
 				printDebuggerHighlightLine = -1
+				// Restore to just first iteration's interleaved output
+				const lines: string[] = []
+				for (const p of tr.traces.printV2[0].printOutputs) lines.push(p.text)
+				printTerminalLines = lines
 			}}
 		/>
-		<!-- Dismiss print debugger before autopsy -->
+
+		<!-- Print V2: show zigzag interleaved line connecting dots in execution order -->
 		<Action
-			do={() => {
-				showPrintDebugger = false
-				printDebuggerHighlightLine = -1
-			}}
-			undo={() => {
-				showPrintDebugger = true
-				printCodeVersion = 2
-			}}
+			do={() => { stateTimeStep = 10 }}
+			undo={() => { stateTimeStep = 7 }}
 		/>
-		<!-- Autopsy: show first bar -->
-		<Action
-			do={() => { stateTimeStep = 8; autopsyVisibleCount = 1 }}
-			undo={() => { stateTimeStep = 7; autopsyVisibleCount = 0 }}
-		/>
-		<!-- Autopsy: animate remaining bars one-by-one with print dots -->
-		<Action
-			do={async () => {
-				stateTimeStep = 9
-				for (let i = 2; i <= autopsySlices.length; i++) {
-					autopsyVisibleCount = i
-					await sleep(100)
-				}
-			}}
-			undo={() => {
-				stateTimeStep = 8
-				autopsyVisibleCount = 1
-			}}
-		/>
+
+		<!-- (Autopsy phase moved to later comparison slide) -->
+
 		<Notes>
-			This is the core conceptual diagram of the talk. Return to it when discussing each tool.
-			Start by showing the empty state×time space. Then pull out "program state" to explain
-			what the Y axis means (all the variables in scope at a given moment). Then pull out "time"
-			to explain what the X axis means (each iteration of the loop is a moment in time).
-			Then walk through each debugging technique as a different sampling pattern.
+			This slide combines the code example with the state×time conceptual diagram.
+			Start by showing the code and asking "How do you debug this?" Then transition
+			to the state×time space, explain the axes, and walk through each debugging
+			technique as a different sampling pattern in the 3-panel layout.
 		</Notes>
 	</Slide>
 
 	<!-- Slide: Formative study — too much / too little information -->
-	<Slide class="h-full">
+	<Slide class="h-full" in={() => { showTooLittle = false }}>
 		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16 text-left">
 			<div class="flex flex-col gap-6">
 				<div class="flex items-center gap-4">
@@ -982,18 +1101,19 @@
 					<p class="text-5xl text-black">P10: "if it is something that's gonna get called a ton…putting a breakpoint inside that is gonna kind of drive me crazy"</p>
 				</div>
 			</div>
-			<div class="flex flex-col gap-6">
-				<div class="flex items-center gap-4">
-					<Info class="h-14 w-14 shrink-0 text-blue-600" />
-					<h2 class="text-8xl font-bold text-black">Too Little Information</h2>
-				</div>
-				<div class="flex items-center gap-4 pl-2">
-					<CircleUserRound class="h-14 w-14 shrink-0 text-blue-500" />
-					<p class="text-5xl text-black">P5: "oh, okay, this is happening. Okay, then what was the state before this? And you don't have a log for that…"</p>
-				</div>
-				<div class="flex items-center gap-4 pl-2">
-					<CircleUserRound class="h-14 w-14 shrink-0 text-blue-500" />
-					<p class="text-5xl text-black">P12: "I just print out everything. As much information as possible."</p>
+			<Action do={() => { showTooLittle = true }} undo={() => { showTooLittle = false }} />
+			<div class="flex flex-col gap-6 transition-opacity duration-400" style="opacity: {showTooLittle ? 1 : 0}">
+					<div class="flex items-center gap-4">
+						<Info class="h-14 w-14 shrink-0 text-blue-600" />
+						<h2 class="text-8xl font-bold text-black">Too Little Information</h2>
+					</div>
+					<div class="flex items-center gap-4 pl-2">
+						<CircleUserRound class="h-14 w-14 shrink-0 text-blue-500" />
+						<p class="text-5xl text-black">P5: "oh, okay, this is happening. Okay, then what was the state before this? And you don't have a log for that…"</p>
+					</div>
+					<div class="flex items-center gap-4 pl-2">
+						<CircleUserRound class="h-14 w-14 shrink-0 text-blue-500" />
+						<p class="text-5xl text-black">P12: "I just print out everything. As much information as possible."</p>
 				</div>
 			</div>
 		</div>
@@ -1019,37 +1139,162 @@
 		</div>
 	</Slide>
 
-	<!-- Slide: Design principles — intro (3) -->
+	<!-- Slide: Why are they in tension? -->
 	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Design principles</h2>
-			<p class="text-5xl text-black">This tension motivated a new design. Principles:</p>
-			<ol class="flex flex-col gap-3 pl-6 text-5xl text-black list-decimal">
-				<li><strong>Separate collection and analysis</strong></li>
-				<li><strong>Better affordances for analysis</strong></li>
-				<li><strong>Connection back to code</strong></li>
-			</ol>
+		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16 text-left">
+			<h2 class="text-8xl font-bold text-black">Why are they in tension?</h2>
+			<ul class="flex flex-col gap-6 pl-6 text-5xl text-black list-disc">
+				<li>Current debuggers <span class="text-[#0000FF]">couple</span> collecting execution data and analyzing it</li>
+				<li>Current debuggers lack affordances for <span class="text-[#0000FF]">transforming and comprehending</span> execution data</li>
+			</ul>
 		</div>
 		<Notes>
-			Original impetus: "Why do people still do print debugging if breakpoint debuggers exist?" and looking at rows of print output thinking "I wish I could do more with that now that I have it."
+			There's nothing you can do with print debugging output besides browsing it and performing text search on it.
+			Print debugging is "preregistering" your analysis.
+			On the other hand, interactive debugging with a breakpoint debugger is almost the opposite: it forces you to continually make decisions about what data to collect next.
+			You're constantly switching between deciding where to go next and analyzing what you can now see.
+
+			On the analysis side, neither has strong affordances for reasoning about whole-program execution, which I'll get into in a bit.
+			First, let's examine what better collection could look like.
 		</Notes>
 	</Slide>
 
-	<!-- Slide: Principle 3b — separate collection and analysis -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Principle: separate collection and analysis</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Collect lots of data without impeding analysis</li>
-				<li>Extra data available for use <em>at-will</em></li>
-			</ul>
+	<!-- Slide: State×time comparison — blank → breakpoint → print → autopsy -->
+	<Slide class="h-full" in={() => { compChartStep = 0 }}>
+		<div class="flex h-full flex-col items-center justify-center gap-4 px-12">
+			<svg viewBox="0 0 900 520" width="80%" preserveAspectRatio="xMidYMid meet">
+				<!-- Plot background -->
+				<rect x="100" y="40" width="720" height="420" fill="white" stroke="#e5e7eb" stroke-width="1" />
+
+				<!-- Y-axis label -->
+				<text x="50" y="250" text-anchor="middle" font-family="Lato, sans-serif" font-size="36"
+					fill="black" transform="rotate(-90 50 250)">program state</text>
+
+				<!-- X-axis label -->
+				<text x="460" y="500" text-anchor="middle" font-family="Lato, sans-serif" font-size="36"
+					fill="black">time</text>
+
+				<!-- Step 1: Breakpoint — single vertical bar -->
+				{#if compChartStep === 1}
+					<rect x={tr.breakpointXPositions[3] - 12} y="40" width="24" height="420" fill="#1E40AF"
+						style="opacity: 0; animation: appear 0.5s ease-out forwards" />
+					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+						fill="#1E40AF" font-weight="bold"
+						style="opacity: 0; animation: appear 0.5s ease-out 0.3s forwards">breakpoint debugger</text>
+				{/if}
+
+				<!-- Step 2: Print — zigzag interleaved (both rows) -->
+				{#if compChartStep === 2}
+					{#each printDotsInterleaved as [cx, cy], i}
+						{#if i > 0}
+							<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
+								style="opacity: 0; animation: appear 0.1s ease-out {i * 30}ms forwards" />
+						{/if}
+						<circle {cx} {cy} r="6" fill="#991B1B"
+							style="opacity: 0; animation: appear 0.1s ease-out {i * 30}ms forwards" />
+					{/each}
+					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+						fill="#991B1B" font-weight="bold"
+						style="opacity: 0; animation: appear 0.5s ease-out 0.3s forwards">print debugging</text>
+				{/if}
+
+				<!-- Steps 3–5: Autopsy build-up -->
+				{#if compChartStep >= 3}
+					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+						fill="#1E40AF" font-weight="bold"
+						style="font-family: var(--r-code-font); opacity: 0; animation: appear 0.5s ease-out forwards">autopsy</text>
+
+					<!-- Step 5: bars (rendered first so dots paint on top) -->
+					{#if compChartStep >= 5}
+						{#each autopsySlices as x, i}
+							<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.35"
+								style="opacity: 0; animation: appear 0.15s ease-out {i * 60}ms forwards" />
+						{/each}
+					{/if}
+
+					<!-- Step 3+: zigzag interleaved line + dots -->
+					{#each printDotsInterleaved as [cx, cy], i}
+						{#if i > 0}
+							<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
+								style={compChartStep === 3 ? `opacity: 0; animation: appear 0.1s ease-out ${i * 30}ms forwards` : ''} />
+						{/if}
+						<circle {cx} {cy} r="6" fill="#991B1B"
+							style={compChartStep === 3 ? `opacity: 0; animation: appear 0.1s ease-out ${i * 30}ms forwards` : ''} />
+					{/each}
+
+					<!-- Step 4+: horizontal per-row lines -->
+					{#if compChartStep >= 4}
+						{#each printDotsRow1 as [cx, cy], i}
+							{#if i > 0}
+								<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
+									stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
+									style={compChartStep === 4 ? `opacity: 0; animation: appear 0.15s ease-out ${i * 30}ms forwards` : ''} />
+							{/if}
+						{/each}
+						{#each printDotsRow2 as [cx, cy], i}
+							{#if i > 0}
+								<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
+									stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
+									style={compChartStep === 4 ? `opacity: 0; animation: appear 0.15s ease-out ${i * 30}ms forwards` : ''} />
+							{/if}
+						{/each}
+					{/if}
+				{/if}
+			</svg>
 		</div>
+
+		<!-- Actions: step through each visualization -->
+		<Action do={() => { compChartStep = 1 }} undo={() => { compChartStep = 0 }} />
+		<Action do={() => { compChartStep = 2 }} undo={() => { compChartStep = 1 }} />
+		<Action do={() => { compChartStep = 3 }} undo={() => { compChartStep = 2 }} />
+		<Action do={() => { compChartStep = 4 }} undo={() => { compChartStep = 3 }} />
+		<Action do={() => { compChartStep = 5 }} undo={() => { compChartStep = 4 }} />
+
+		<Notes>
+			Show the same state×time chart from before, but now just as a quick comparison.
+			Breakpoint: all state, one moment. Print: some state, many moments. Autopsy: all state, many moments.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: autopsy intro — import autopsy -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16 text-left">
+			<h2 class="text-8xl font-bold text-black">
+				<span
+					class="bg-[#0000FF] px-2 py-1 text-white"
+					style="font-family: var(--r-code-font)"
+				>autopsy</span>
+			</h2>
+			<div class="rounded-xl border border-gray-200 bg-gray-50 p-8 shadow-sm text-left">
+				<Code
+					lang="python"
+					theme="github-light"
+					code={`import autopsy
+
+...
+
+autopsy.log("checkpoint", order, total)`}
+					options={{ lineNumbers: false, containerStyle: false }}
+					class="text-5xl"
+				/>
+			</div>
+			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-6 py-4 mt-4">
+				<p class="text-3xl text-amber-800"><strong>TODO:</strong> Need to explain call stack capture — <code>autopsy.log()</code> captures passed arguments + full stack trace (all frames, all local variables at each frame)</p>
+			</div>
+		</div>
+		<Notes>
+			Introduce the autopsy tool: a Python tracing library. The key insight is that a single log call
+			captures far more than what you explicitly pass — it grabs the entire call stack with all local
+			variables at every frame. This is the "collect more" side of the design.
+		</Notes>
 	</Slide>
 
 	<!-- Slide: Principle 3c — better affordances for analysis -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Principle: better affordances for analysis</h2>
+			<h2 class="text-8xl font-bold text-black">Affordances for analysis</h2>
 			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
 				<li>Project new analysis from collected state</li>
 				<li>Group and aggregate across logs — distributions, boundaries, outliers</li>
@@ -1063,7 +1308,120 @@
 		</Notes>
 	</Slide>
 
+	<!-- Slide: Looping analysis animation (talk-over slide) -->
+	<Slide class="h-full" in={() => { stopLoop(); loopMode = 'none'; loopHighlightLine = -1; loopTerminalLines = []; loopPrintDotsR1 = 0; loopPrintDotsR2 = 0; loopBpX.reset() }}>
+		<div class="relative h-full w-full overflow-hidden">
+			<!-- Left: state×time chart -->
+			<div
+				class="absolute top-0 left-0 bottom-0 transition-all duration-500"
+				style="width: {loopMode === 'none' ? '100%' : '64%'}; opacity: {loopMode === 'none' ? 0.3 : 1}"
+			>
+				<div class="relative flex h-full items-center justify-center overflow-hidden">
+					<svg viewBox="0 0 900 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+						<rect x="100" y="40" width="720" height="420" fill="white" />
+
+						<!-- Axes -->
+						<line x1="140" y1="40" x2="140" y2="420" stroke="black" stroke-width="2" />
+						<line x1="140" y1="420" x2="780" y2="420" stroke="black" stroke-width="2" />
+						<text x="50" y="250" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+							fill="black" transform="rotate(-90 50 250)">program state</text>
+						<text x="460" y="480" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+							fill="black">time</text>
+
+						<!-- Breakpoint mode: animated vertical bar -->
+						{#if loopMode === 'breakpoint'}
+							<rect x={loopBpX.x - 12} y="40" width="24" height="420" fill="#1E40AF"
+								style="opacity: 0; animation: appear 0.3s ease-out forwards" />
+						{/if}
+
+						<!-- Print mode: dots -->
+						{#if loopMode === 'print'}
+							{#each printDotsInterleaved as [cx, cy], i}
+								{#if i > 0 && i < loopPrintDotsR1 + loopPrintDotsR2}
+									{@const prevIdx = i - 1}
+									<line x1={printDotsInterleaved[prevIdx][0]} y1={printDotsInterleaved[prevIdx][1]} x2={cx} y2={cy}
+										stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+								{/if}
+								{#if i < loopPrintDotsR1 + loopPrintDotsR2}
+									<circle {cx} {cy} r="6" fill="#991B1B" />
+								{/if}
+							{/each}
+						{/if}
+					</svg>
+
+					<!-- Technique label -->
+					{#if loopMode !== 'none'}
+						<div class="absolute left-[4%] top-[6%] rounded-md bg-white/85 px-4 py-2 text-left">
+							{#if loopMode === 'breakpoint'}
+								<p class="text-4xl font-bold text-[#1E40AF]">breakpoint debugger</p>
+								<p class="text-2xl text-gray-500">all state · one moment</p>
+							{:else}
+								<p class="text-4xl font-bold text-[#1E40AF]">print debugging</p>
+								<p class="text-2xl text-gray-500">some state · many moments</p>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Right panels -->
+			<div
+				class="absolute top-0 bottom-0 right-0 flex flex-col gap-3 p-3 transition-all duration-500"
+				style="width: {loopMode === 'none' ? '0%' : '36%'}; opacity: {loopMode === 'none' ? 0 : 1}"
+			>
+				<!-- Code editor -->
+				<div class="flex-1 min-h-0 overflow-hidden">
+					<CodeOverlay
+						lines={loopMode === 'print' ? tr.codeVariants.printV2.lines : tr.codeVariants.base.lines}
+						highlightLine={loopHighlightLine}
+						markers={loopMode === 'breakpoint' ? [{ line: COST_LINE_IDX, type: 'breakpoint' }] : []}
+					/>
+				</div>
+
+				<!-- Bottom panel: variables or terminal -->
+				<div class="flex-1 min-h-0 overflow-hidden">
+					{#if loopMode === 'breakpoint'}
+						<VariablesPane
+							variables={loopVars}
+							style="height: 100%"
+						/>
+					{:else if loopMode === 'print'}
+						<div class="rounded-xl border border-gray-800 bg-gray-900 p-4 font-mono text-xl leading-relaxed text-green-400 text-left overflow-y-auto h-full">
+							<p class="text-gray-400 text-lg mb-2">Terminal</p>
+							{#each loopTerminalLines as line}
+								<p>{line}</p>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Center text when no mode active -->
+			{#if loopMode === 'none'}
+				<div class="absolute inset-0 flex items-center justify-center">
+					<h2 class="text-7xl font-bold text-gray-400">Affordances for analysis</h2>
+				</div>
+			{/if}
+		</div>
+
+		<Action
+			do={() => { stopLoop(); loopMode = 'breakpoint'; loopVars = tr.breakpointSnapshots[0]; runBreakpointLoop() }}
+			undo={() => { stopLoop(); loopMode = 'none'; loopHighlightLine = -1 }}
+		/>
+		<Action
+			do={() => { stopLoop(); loopMode = 'print'; loopHighlightLine = -1; loopTerminalLines = []; loopPrintDotsR1 = 0; loopPrintDotsR2 = 0; runPrintLoop() }}
+			undo={() => { stopLoop(); loopMode = 'breakpoint'; loopVars = tr.breakpointSnapshots[0]; runBreakpointLoop() }}
+		/>
+
+		<Notes>
+			Talk over this slide about affordances for analysis.
+			The looping animations show how current tools force you to step through execution one item at a time,
+			with no way to see patterns across the full execution.
+		</Notes>
+	</Slide>
+
 	<!-- Slide: Principle 3d — connection back to code -->
+	 <!--
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
 			<h2 class="text-8xl font-bold text-black">Principle: connection back to code</h2>
@@ -1074,6 +1432,7 @@
 			</ul>
 		</div>
 	</Slide>
+	-->
 
 	<!-- Slide: Demo — pricing example -->
 	<Slide class="h-full">
@@ -1096,30 +1455,6 @@
 			Demo the autopsy interface with the pricing example: streams view, computed columns, sorting, filtering, cross-view navigation.
 		</Notes>
 	</Slide>
-
-	<!-- ─── Section 3: Data-oriented debugging as a framework ─── -->
-
-	<!-- Slide: The core proposal -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">
-				The core proposal: decouple collection from analysis
-			</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Treat execution data as a <strong>structured dataset</strong></li>
-				<li>Decouple <em>when/what</em> you collect from <em>how</em> you analyze it</li>
-				<li>Key shift: move programmer intentionality from collection to analysis</li>
-			</ul>
-		</div>
-		<Notes>
-			This is the thesis slide. Keep it crisp. The "intentionality" framing: with current tools,
-			the intentional act is deciding what to log or where to set a breakpoint. With
-			data-oriented debugging, the intentional act is deciding how to query, filter, sort, and
-			visualize the data you already have.
-		</Notes>
-	</Slide>
-
-	<!-- ─── Section 4: autopsy demo / walkthrough ─── -->
 
 	<!-- Slide 11: autopsy overview -->
 	<Slide class="h-full">

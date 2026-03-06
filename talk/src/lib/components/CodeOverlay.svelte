@@ -7,13 +7,15 @@
 	interface Props {
 		lines: string[]
 		highlightLine?: number
+		/** Lines to accent with a yellow token-level highlight (e.g. newly added print lines). */
+		accentLines?: number[]
 		markers?: Marker[]
 		instant?: boolean
 		class?: string
 		style?: string
 	}
 
-	let { lines, highlightLine = -1, markers = [], instant = false, class: className = '', style: styleStr = '' }: Props = $props()
+	let { lines, highlightLine = -1, accentLines = [], markers = [], instant = false, class: className = '', style: styleStr = '' }: Props = $props()
 
 	function markerAt(line: number): Marker | undefined {
 		return markers.find((m) => m.line === line)
@@ -43,7 +45,11 @@
 				<div
 					class="h-[1.6em] whitespace-pre rounded px-1 -mx-1 {instant ? '' : 'transition-colors duration-200'} {highlightLine === i ? 'bg-yellow-200' : ''}"
 				>
-					{line}
+					{#if accentLines.includes(i)}
+						<span class="rounded px-0.5 bg-yellow-200">{line}</span>
+					{:else}
+						{line}
+					{/if}
 				</div>
 			{/each}
 		</div>
