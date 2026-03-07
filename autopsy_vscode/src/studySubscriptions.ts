@@ -205,13 +205,29 @@ export function registerStudySubscriptions(
     })
   );
 
+  function describeBreakpoint(bp: vscode.Breakpoint): Record<string, unknown> {
+    if (bp instanceof vscode.SourceBreakpoint) {
+      return {
+        type: 'source',
+        fileName: shortName(bp.location.uri.fsPath),
+        line: bp.location.range.start.line + 1,
+        enabled: bp.enabled,
+        condition: bp.condition ?? null,
+      };
+    }
+    if (bp instanceof vscode.FunctionBreakpoint) {
+      return { type: 'function', functionName: bp.functionName, enabled: bp.enabled };
+    }
+    return { type: 'unknown', enabled: bp.enabled };
+  }
+
   context.subscriptions.push(
     vscode.debug.onDidChangeBreakpoints((e) => {
       if (e.added.length === 0 && e.removed.length === 0 && e.changed.length === 0) return;
       logger.logEvent('debug.breakpointChange', 'vscode', {
-        added: e.added.length,
-        removed: e.removed.length,
-        changed: e.changed.length,
+        added: e.added.map(describeBreakpoint),
+        removed: e.removed.map(describeBreakpoint),
+        changed: e.changed.map(describeBreakpoint),
       });
     })
   );
@@ -244,12 +260,20 @@ export function registerStudySubscriptions(
           },
           onDidSendMessage(message: any) {
             // Adapter→client: stopped events
-            if (message.type !== 'event') return;
-            if (message.event === DAP_STOPPED_EVENT) {
+            if (message.type === 'event' && message.event === DAP_STOPPED_EVENT) {
               logger.logEvent('debug.dapMessage', 'vscode', {
                 direction: 'event',
                 event: 'stopped',
                 reason: message.body?.reason ?? null,
+              });
+            }
+            // Adapter→client: stackTrace response — capture where the debugger stopped
+            if (message.type === 'response' && message.command === 'stackTrace' && message.body?.stackFrames?.length > 0) {
+              const top = message.body.stackFrames[0];
+              logger.logEvent('debug.stackFrame', 'vscode', {
+                fileName: top.source?.name ?? null,
+                line: top.line ?? null,
+                functionName: top.name ?? null,
               });
             }
           },

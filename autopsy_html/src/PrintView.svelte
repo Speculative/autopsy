@@ -42,11 +42,13 @@
       const key = `${logIndex}:${valueName}`;
       const oldPaths = treeExpansionState.get(key) || new Set<string>();
       const newPaths = new Set(oldPaths);
-      if (newPaths.has(jsonPath)) {
-        newPaths.delete(jsonPath);
-      } else {
+      const expanding = !newPaths.has(jsonPath);
+      if (expanding) {
         newPaths.add(jsonPath);
+      } else {
+        newPaths.delete(jsonPath);
       }
+      trackEvent('ui.printViewTreeToggle', { logIndex, expanding, jsonPath });
       const newMap = new Map(treeExpansionState);
       newMap.set(key, newPaths);
       treeExpansionState = newMap;
@@ -90,10 +92,14 @@
 
   function openSearch() {
     searchOpen = true;
+    trackEvent('ui.printViewSearchOpen');
     tick().then(() => searchInputEl?.focus());
   }
 
   function closeSearch() {
+    if (searchQuery) {
+      trackEvent('ui.printViewSearchClose', { query: searchQuery, matchCount: searchMatchCount });
+    }
     searchOpen = false;
     searchQuery = "";
   }
