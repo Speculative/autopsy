@@ -602,6 +602,11 @@
 				<img src="/penn-hci.svg" alt="Penn HCI Lab" class="w-40" />
 			</div>
 		</div>
+		<Notes>
+			Hello! I'm Jeff, a PhD student at Penn, and today I'm excited to tell you about
+			Data-oriented Debugging, which is a new approach for thinking about the debugging process and debugging tools,
+			and about autopsy, a new debugger that implements some of these ideas.
+		</Notes>
 	</Slide>
 
 	<!-- Slide: About me -->
@@ -623,8 +628,9 @@
 			First, a bit of background about me and why I care about debugging.
 			I'm currently a PhD student at Penn, researching tools for programmers.
 			But I used to be a senior software engineer in the industry, where I worked on auth, notifications, client/server sync.
-			All things that are highly stateful, highly complex, prone to bugs, and really annoying to debug.
+			All things that are procedural, highly stateful, highly complex, prone to bugs, and really annoying to debug.
 			And in all that time I was one of those programmers who always used print statements to debug.
+			But I found the debugging tools at my disposal unsatisfying.
 		</Notes>
 	</Slide>
 
@@ -907,10 +913,59 @@
 		{/each}
 
 		<Notes>
-			This slide combines the code example with the state×time conceptual diagram.
-			Start by showing the code and asking "How do you debug this?" Then transition
-			to the state×time space, explain the axes, and walk through each debugging
-			technique as a different sampling pattern in the 3-panel layout.
+			<p>
+				Let's start with an example to illustrate what I see are some issues with current debuggers.
+				You're working on an online retail payment processing pipeline.
+				It does some conventional things retailers do, such as giving a discount on bulk orders, and free shipping on orders above a certain cost.
+			</p>
+
+			<p>
+				You've maybe already spotted the bug: sometimes a customer will get a discount for a bulk order and that'll take away what was previously going to be their free shipping, which isn't a good experience.
+				Let's say that this in the real code base this is hard to spot: maybe the logic is distributed across multiple functions, or there's a bunch of stuff in between these lines.
+				This is a pretty common issue: the logic looks reasonable locally, but produces unreasonable results when composed.
+			</p>
+
+			<hr>
+
+			We're going to analyze how a programmer might use different debuggers to understand this problem.
+			But first I need to introduce this visualization I call the state-time chart, which we'll use to understand what different debuggers can do.
+			First, let me give you some intuition about how this chart works.
+
+			<hr>
+
+			On the vertical axis we have all state across all scopes of the program.
+
+			<hr>
+
+			In our toy example this is all of the fields of the item and the cart.
+
+			<hr>
+
+			Imagine these various pieces of the program state distributed at different locations along the vertical axis.
+
+			<hr>
+
+			Next, the horizontal axis represents time. Really it's discretized by the program counter.
+
+			<hr>
+
+			As each statement in the program executes, computation happens. Take item price here -- as we process each item we calculate a price for it.
+
+			<hr>
+
+			For a certain row across the chart, a particular variable is taking on different values, with increasing time as we move to the right.
+
+			<hr>
+
+			Okay that's the state-time chart. Let's use it to understand how a debugger works.
+
+			<hr>
+
+			Breakpoint debugging pauses execution at a particular point in time.
+			When paused, you have access to arbitrary state at every frame of the call stack, which is shown in the variables panel in the bottom right.
+
+			<hr>
+
 		</Notes>
 	</Slide>
 
