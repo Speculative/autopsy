@@ -45,6 +45,10 @@
       {
         "command": "autopsy.studyShowStatus",
         "title": "Study: Show Status"
+      },
+      {
+        "command": "autopsy.studyStartTask",
+        "title": "Start Study Task"
       }
     ]
   },

@@ -108,6 +108,20 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('autopsy.studyStartTask', () => {
+      const session = studyLogger.getCurrentSession();
+      if (!session) return;
+
+      studyLogger.logEvent('study.taskStarted', 'vscode', {
+        participant_id: session.participant_id,
+        task: session.task,
+        condition: session.condition,
+      });
+      updateStatusBar();
+    })
+  );
+
   // ── Autopsy viewer ──────────────────────────────────────────────────────
   // Initialize CodeLens provider
   const codeLensProvider = new AutopsyCodeLensProvider(outputChannel);
