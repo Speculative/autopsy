@@ -56,7 +56,7 @@ export class AutopsyPanel {
     // Strategy: Open beside the active editor to create a side-by-side view
     const targetColumn = this.getInitialColumn();
 
-    const panelTitle = printMode ? 'Logger Viewer' : 'Autopsy Viewer';
+    const panelTitle = printMode ? 'Logger Viewer' : 'Tracer Viewer';
 
     // Create new panel
     const panel = vscode.window.createWebviewPanel(
@@ -158,10 +158,10 @@ export class AutopsyPanel {
         <html>
           <head>
             <meta charset="UTF-8">
-            <title>Autopsy Viewer - Error</title>
+            <title>Tracer Viewer - Error</title>
           </head>
           <body>
-            <h1>Error Loading Autopsy Viewer</h1>
+            <h1>Error Loading Tracer Viewer</h1>
             <p>Could not find webview.html at: ${htmlPath.fsPath}</p>
             <p>Please run: <code>cd autopsy_html && npm run build</code></p>
           </body>
@@ -208,7 +208,7 @@ export class AutopsyPanel {
             };
           });
 
-          console.log('Autopsy Viewer webview initialized');
+          console.log('Tracer Viewer webview initialized');
         })();
       </script>
     `;

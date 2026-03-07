@@ -1014,6 +1014,9 @@
       columnWidths[resizingColumn.callSiteKey] = {};
     }
     columnWidths[resizingColumn.callSiteKey][resizingColumn.columnName] = newWidth;
+
+    // Refresh floating headers so sticky header widths stay in sync
+    requestAnimationFrame(refreshFloatingHeaders);
   }
 
   function handleResizeEnd() {
@@ -1581,6 +1584,73 @@
     }
   });
 
+  // Refresh floating headers by measuring current DOM positions and column widths
+  function refreshFloatingHeaders() {
+    const scrollContainer = document.querySelector('.main-panel');
+    if (!scrollContainer) return;
+
+    const scrollContainerRect = scrollContainer.getBoundingClientRect();
+    const scrollTop = scrollContainerRect.top;
+
+    const newFloatingHeaders: typeof floatingHeaders = {};
+
+    for (const callSiteKey in tableHeaders) {
+      const thead = tableHeaders[callSiteKey];
+      const container = tableContainers[callSiteKey];
+
+      if (!thead || !container) continue;
+
+      const containerRect = container.getBoundingClientRect();
+      const theadRect = thead.getBoundingClientRect();
+
+      const containerTopRelative = containerRect.top - scrollTop;
+      const tableHasScrolledPastTop = containerTopRelative < 0;
+      const tableBottomBelowViewport = containerRect.bottom > scrollTop;
+
+      if (tableHasScrolledPastTop && tableBottomBelowViewport) {
+        const spaceBelow = containerRect.bottom - scrollTop - theadRect.height;
+
+        let topPosition = scrollTop;
+        if (spaceBelow < 0) {
+          topPosition = scrollTop + spaceBelow;
+        }
+
+        // Measure actual column widths from the data cells to ensure alignment
+        const tbody = container.querySelector('tbody');
+        const firstRow = tbody?.querySelector('tr.table-row');
+        const columnWidths: number[] = [];
+
+        if (firstRow) {
+          const cells = firstRow.querySelectorAll('td');
+          cells.forEach((cell) => {
+            columnWidths.push(cell.getBoundingClientRect().width);
+          });
+          columnWidths.push(50);
+        }
+
+        newFloatingHeaders[callSiteKey] = {
+          visible: true,
+          top: topPosition,
+          left: containerRect.left,
+          width: theadRect.width,
+          scrollLeft: container.scrollLeft,
+          columnWidths,
+        };
+      } else {
+        newFloatingHeaders[callSiteKey] = {
+          visible: false,
+          top: 0,
+          left: 0,
+          width: 0,
+          scrollLeft: 0,
+          columnWidths: [],
+        };
+      }
+    }
+
+    floatingHeaders = newFloatingHeaders;
+  }
+
   // Handle sticky headers with JavaScript
   $effect(() => {
     // Capture current refs - access them once to establish reactivity
@@ -1595,90 +1665,11 @@
 
     let rafId: number | null = null;
 
-    const updateHeaders = () => {
-      // Get the scroll container's position for reference
-      const scrollContainerRect = scrollContainer.getBoundingClientRect();
-      const scrollTop = scrollContainerRect.top;
-
-      const newFloatingHeaders: typeof floatingHeaders = {};
-
-      for (const callSiteKey in currentHeaders) {
-        const thead = currentHeaders[callSiteKey];
-        const container = currentContainers[callSiteKey];
-
-        if (!thead || !container) continue;
-
-        const containerRect = container.getBoundingClientRect();
-        const theadRect = thead.getBoundingClientRect();
-
-        // Calculate position relative to the scroll container's top edge
-        const containerTopRelative = containerRect.top - scrollTop;
-
-        // Check if table has scrolled past the top of the scroll container
-        const tableHasScrolledPastTop = containerTopRelative < 0;
-        const tableBottomBelowViewport = containerRect.bottom > scrollTop;
-
-        if (tableHasScrolledPastTop && tableBottomBelowViewport) {
-          // Calculate how much space is left at the bottom
-          const spaceBelow = containerRect.bottom - scrollTop - theadRect.height;
-
-          // If there's not enough space below, stick the header to the table bottom
-          // by adjusting the top position
-          let topPosition = scrollTop;
-          if (spaceBelow < 0) {
-            // Move the header up by the amount of space that's missing
-            topPosition = scrollTop + spaceBelow;
-          }
-
-          // Instead of measuring header widths, use the actual column widths
-          // from the data cells to ensure alignment
-          const tbody = container.querySelector('tbody');
-          const firstRow = tbody?.querySelector('tr.table-row');
-          const columnWidths: number[] = [];
-
-          if (firstRow) {
-            const cells = firstRow.querySelectorAll('td');
-            cells.forEach((cell) => {
-              columnWidths.push(cell.getBoundingClientRect().width);
-            });
-            // Add width for the add-column-header button (at the end)
-            columnWidths.push(50);
-          }
-
-          // Update floating header state
-          newFloatingHeaders[callSiteKey] = {
-            visible: true,
-            top: topPosition,
-            left: containerRect.left,
-            width: theadRect.width,
-            scrollLeft: container.scrollLeft,
-            columnWidths,
-          };
-        } else {
-          // Header should not be floating
-          newFloatingHeaders[callSiteKey] = {
-            visible: false,
-            top: 0,
-            left: 0,
-            width: 0,
-            scrollLeft: 0,
-            columnWidths: [],
-          };
-        }
-      }
-
-      // Update state
-      floatingHeaders = newFloatingHeaders;
-    };
-
     const handleScroll = () => {
-      // Cancel any pending animation frame
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
-
-      // Schedule update on next animation frame for smooth rendering
-      rafId = requestAnimationFrame(updateHeaders);
+      rafId = requestAnimationFrame(refreshFloatingHeaders);
     };
 
     // Add scroll listener to the actual scrolling element
@@ -1695,14 +1686,13 @@
     }
 
     // Initial check
-    updateHeaders();
+    refreshFloatingHeaders();
 
     return () => {
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
       scrollContainer.removeEventListener('scroll', handleScroll);
-      // Clean up horizontal scroll listeners
       containerScrollListeners.forEach(cleanup => cleanup());
     };
   });

@@ -220,16 +220,16 @@ def pytest_sessionfinish(session, exitstatus):
 
     # Generate report: JSON by default, HTML if configured
     if report._config.mode == "html":
-        output_path = "autopsy_report.html"
+        output_path = "tracer_report.html"
         try:
             generate_html(report, output_path)
-            print(f"\n→ Autopsy report saved to {output_path}", file=sys.stderr)
+            print(f"\n→ Tracer report saved to {output_path}", file=sys.stderr)
         except Exception as e:
-            print(f"\nWarning: Failed to generate autopsy report: {e}", file=sys.stderr)
+            print(f"\nWarning: Failed to generate tracer report: {e}", file=sys.stderr)
     else:
-        output_path = "autopsy_report.json"
+        output_path = "tracer_report.json"
         try:
             generate_json(report, output_path)
-            print(f"\n→ Autopsy report saved to {output_path}", file=sys.stderr)
+            print(f"\n→ Tracer report saved to {output_path}", file=sys.stderr)
         except Exception as e:
-            print(f"\nWarning: Failed to generate autopsy report: {e}", file=sys.stderr)
+            print(f"\nWarning: Failed to generate tracer report: {e}", file=sys.stderr)

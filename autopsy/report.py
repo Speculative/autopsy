@@ -1458,23 +1458,23 @@ def _atexit_handler():
 
     # Auto-generate report: JSON by default, HTML if configured
     if _report_instance._config.mode == "html":
-        output_path = "autopsy_report.html"
+        output_path = "tracer_report.html"
         try:
             generate_html(_report_instance, output_path)
-            print(f"\n→ Autopsy report automatically saved to {output_path}", file=sys.stderr)
+            print(f"\n→ Tracer report automatically saved to {output_path}", file=sys.stderr)
         except Exception as e:
-            print(f"\nWarning: Failed to auto-generate autopsy report: {e}", file=sys.stderr)
+            print(f"\nWarning: Failed to auto-generate tracer report: {e}", file=sys.stderr)
     else:
-        output_path = "autopsy_report.json"
+        output_path = "tracer_report.json"
         try:
             generate_json(_report_instance, output_path)
-            print(f"\n→ Autopsy report automatically saved to {output_path}", file=sys.stderr)
+            print(f"\n→ Tracer report automatically saved to {output_path}", file=sys.stderr)
         except Exception as e:
-            print(f"\nWarning: Failed to auto-generate autopsy report: {e}", file=sys.stderr)
+            print(f"\nWarning: Failed to auto-generate tracer report: {e}", file=sys.stderr)
 
     # Always also emit a plain-text log file
     try:
-        text_path = "autopsy_report.log"
+        text_path = "tracer_report.log"
         generate_text(_report_instance, text_path)
     except Exception as e:
         print(f"\nWarning: Failed to auto-generate text log: {e}", file=sys.stderr)

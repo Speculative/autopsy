@@ -3,7 +3,7 @@ import { LogLocation, NavigationContext } from './types';
 
 /**
  * Provides CodeLens for log locations
- * Shows clickable "View logs in Autopsy" links above lines with logs
+ * Shows clickable "View logs in Tracer" links above lines with logs
  */
 export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
   private logLocations: Map<string, LogLocation[]> = new Map();
@@ -183,32 +183,32 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
         case 'count':
           const countTotal = location.countTotal || 0;
           title = `$(graph) View count (${countTotal} total)`;
-          tooltip = `View count dashboard in Autopsy viewer - ${countTotal} total occurrences`;
+          tooltip = `View count dashboard in Tracer viewer - ${countTotal} total occurrences`;
           break;
         case 'hist':
           const histCount = location.histogramValues?.length || location.logCount;
           title = `$(graph-line) View histogram (n=${histCount})`;
-          tooltip = `View histogram in Autopsy viewer - ${histCount} values`;
+          tooltip = `View histogram in Tracer viewer - ${histCount} values`;
           break;
         case 'timeline':
           const timelineCount = location.timelineEventCount || location.logCount;
           title = `$(timeline-view-icon) View timeline (${timelineCount} events)`;
-          tooltip = `View timeline in Autopsy viewer - ${timelineCount} events`;
+          tooltip = `View timeline in Tracer viewer - ${timelineCount} events`;
           break;
         case 'happened':
           const happenedCount = location.happenedCount || location.logCount;
           title = `$(check) View happened (${happenedCount}×)`;
-          tooltip = `View happened events in Autopsy viewer - occurred ${happenedCount} times`;
+          tooltip = `View happened events in Tracer viewer - occurred ${happenedCount} times`;
           break;
         default:
           title = `$(eye) View logs (${location.logCount})`;
-          tooltip = 'View logs in Autopsy viewer';
+          tooltip = 'View logs in Tracer viewer';
       }
     } else {
       // Regular log() call sites
       const plural = location.logCount === 1 ? 'log' : 'logs';
-      title = `$(eye) View ${location.logCount} ${plural} in Autopsy`;
-      tooltip = `View ${location.logCount} log entries in Autopsy viewer`;
+      title = `$(eye) View ${location.logCount} ${plural} in Tracer`;
+      tooltip = `View ${location.logCount} log entries in Tracer viewer`;
     }
 
     return new vscode.CodeLens(range, {

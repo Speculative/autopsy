@@ -7,13 +7,13 @@ import { StudyLogger } from './studyLogger';
 import { registerStudySubscriptions } from './studySubscriptions';
 
 // Create output channel for debugging
-export const outputChannel = vscode.window.createOutputChannel('Autopsy Viewer');
+export const outputChannel = vscode.window.createOutputChannel('Tracer Viewer');
 
 export const studyLogger = new StudyLogger();
 
 export function activate(context: vscode.ExtensionContext) {
-  outputChannel.appendLine('Autopsy Viewer extension activated');
-  console.log('Autopsy Viewer extension activated');
+  outputChannel.appendLine('Tracer Viewer extension activated');
+  console.log('Tracer Viewer extension activated');
 
   // ── Study logger initialization ─────────────────────────────────────────
   const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -23,7 +23,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (initError) {
       outputChannel.appendLine(`Study logger FAILED to initialize at: ${dbPath}`);
       outputChannel.appendLine(`Error: ${initError}`);
-      vscode.window.showWarningMessage(`Autopsy Study: DB init failed — ${initError}`);
+      vscode.window.showWarningMessage(`Study: DB init failed — ${initError}`);
     } else {
       outputChannel.appendLine(`Study logger initialized at: ${dbPath}`);
     }
@@ -45,10 +45,10 @@ export function activate(context: vscode.ExtensionContext) {
     if (session) {
       const count = studyLogger.getEventCount();
       statusBar.text = `$(record) ${session.participant_id} | ${session.task} | ${session.condition} | ${count} events`;
-      statusBar.tooltip = 'Autopsy Study: session active. Click to change session.';
+      statusBar.tooltip = 'Study: session active. Click to change session.';
     } else {
       statusBar.text = `$(circle-slash) Study: inactive`;
-      statusBar.tooltip = 'Autopsy Study: no session. Click to set session.';
+      statusBar.tooltip = 'Study: no session. Click to set session.';
     }
   }
 
@@ -103,7 +103,7 @@ export function activate(context: vscode.ExtensionContext) {
           `Study session: ${session.participant_id} | ${session.task} | ${session.condition} | ${count} events logged`
         );
       } else {
-        vscode.window.showInformationMessage('Study: no active session. Use "Autopsy Study: Set Session" to start.');
+        vscode.window.showInformationMessage('Study: no active session. Use "Study: Set Session" to start.');
       }
     })
   );
@@ -127,13 +127,13 @@ export function activate(context: vscode.ExtensionContext) {
   // Register command to open the Autopsy viewer
   const openViewerCmd = vscode.commands.registerCommand('autopsy.openViewer', () => {
     studyLogger.logEvent('command.openViewer', 'vscode', {});
-    outputChannel.appendLine('Opening Autopsy Viewer...');
+    outputChannel.appendLine('Opening Tracer Viewer...');
     try {
       AutopsyPanel.createOrShow(context.extensionUri, outputChannel, handleLogDataUpdate, codeLensProvider, studyLogger);
-      outputChannel.appendLine('Autopsy Viewer panel created successfully');
+      outputChannel.appendLine('Tracer Viewer panel created successfully');
     } catch (error) {
       outputChannel.appendLine(`Error creating panel: ${error}`);
-      vscode.window.showErrorMessage(`Failed to open Autopsy Viewer: ${error}`);
+      vscode.window.showErrorMessage(`Failed to open Tracer Viewer: ${error}`);
     }
   });
 
@@ -166,7 +166,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       vscode.window.showInformationMessage(
-        `Viewing logs from ${filename}:${line} in Autopsy viewer`
+        `Viewing logs from ${filename}:${line} in Tracer viewer`
       );
     }
   );
@@ -198,8 +198,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  // Watch for autopsy_report.json in the workspace
-  const jsonWatcher = vscode.workspace.createFileSystemWatcher('**/autopsy_report.json');
+  // Watch for tracer_report.json in the workspace
+  const jsonWatcher = vscode.workspace.createFileSystemWatcher('**/tracer_report.json');
 
   const loadJsonReport = (uri: vscode.Uri) => {
     if (!AutopsyPanel.currentPanel) {
@@ -208,11 +208,11 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       const content = fs.readFileSync(uri.fsPath, 'utf8');
       const data = JSON.parse(content);
-      outputChannel.appendLine(`Loaded autopsy_report.json (${content.length} bytes)`);
+      outputChannel.appendLine(`Loaded tracer_report.json (${content.length} bytes)`);
       studyLogger.logEvent('data.reportLoaded', 'vscode', { bytes: content.length });
       AutopsyPanel.currentPanel.loadJsonData(data);
     } catch (error) {
-      outputChannel.appendLine(`Error loading autopsy_report.json: ${error}`);
+      outputChannel.appendLine(`Error loading tracer_report.json: ${error}`);
     }
   };
 
@@ -232,7 +232,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  outputChannel.appendLine('Autopsy Viewer extension deactivated');
-  console.log('Autopsy Viewer extension deactivated');
+  outputChannel.appendLine('Tracer Viewer extension deactivated');
+  console.log('Tracer Viewer extension deactivated');
   studyLogger.dispose();
 }

@@ -1,7 +1,7 @@
 {
   "name": "autopsy-viewer",
-  "displayName": "Autopsy Viewer",
-  "description": "Live debugging visualization for Python autopsy logs",
+  "displayName": "Tracer Viewer",
+  "description": "Live debugging visualization for Python tracer logs",
   "version": "0.0.1",
   "publisher": "autopsy",
   "repository": {
@@ -24,27 +24,27 @@
     "commands": [
       {
         "command": "autopsy.openViewer",
-        "title": "Autopsy: Open Tracer Viewer"
+        "title": "Open Tracer Viewer"
       },
       {
         "command": "autopsy.openLoggerViewer",
-        "title": "Autopsy: Open Logger Viewer"
+        "title": "Open Logger Viewer"
       },
       {
         "command": "autopsy.showLogs",
-        "title": "Autopsy: Show Logs"
+        "title": "Show Logs"
       },
       {
         "command": "autopsy.studySetSession",
-        "title": "Autopsy Study: Set Session"
+        "title": "Study: Set Session"
       },
       {
         "command": "autopsy.studyClearSession",
-        "title": "Autopsy Study: Clear Session"
+        "title": "Study: Clear Session"
       },
       {
         "command": "autopsy.studyShowStatus",
-        "title": "Autopsy Study: Show Status"
+        "title": "Study: Show Status"
       }
     ]
   },
