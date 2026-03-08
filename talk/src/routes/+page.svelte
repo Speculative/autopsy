@@ -322,6 +322,8 @@
 			rightPanel: 'terminal', printCodeVersion: 2,
 			printDotsVisibleRow1: printDotsRow1.length, printDotsVisibleRow2: printDotsRow2.length,
 			printTerminalLines: terminalLinesV2All }),
+		// 21: autopsy — blue vertical bars
+		s({ phase: 'autopsy', showHeading: false, stateTimeStep: 11 }),
 	]
 
 	// ── Apply a snapshot to all mutable state + tweens ──
@@ -605,6 +607,67 @@
 
 	// ── Comparison chart (post-tension slide) ──
 	let compChartStep = $state(0)
+	let affordChartStep = $state(0)
+	let computedColStep = $state(0)
+
+	// ── Computed columns: total() row below price ──
+	// Price row Y and total() row Y (offset below price)
+	const priceRowY = printDotsRow1.length > 0 ? printDotsRow1[0][1] : 307
+	const totalRowY = Math.min(priceRowY + 80, 400) // 80px below price, clamped
+	const middlePriceDotIdx = Math.floor(printDotsRow1.length / 2)
+	// total() dots share x-positions with price dots
+	const totalDots: [number, number][] = printDotsRow1.map(([x]) => [x, totalRowY])
+
+	// ── Step debugging random walk ──
+	let stepDebugIdx = $state(0)
+	let stepDebugPlaying = $state(false)
+	let stepDebugTimer: ReturnType<typeof setTimeout> | null = null
+
+	// Pre-compute a random-walk sequence of indices into printDotsInterleaved
+	const stepDebugSequence: number[] = (() => {
+		const seq: number[] = [0]
+		let pos = 0
+		const maxIdx = printDotsInterleaved.length - 1
+		let forward = true
+		while (pos < maxIdx) {
+			if (forward) {
+				const steps = 3 + Math.floor(Math.random() * 5) // 2–4
+				for (let s = 0; s < steps && pos < maxIdx; s++) {
+					pos++
+					seq.push(pos)
+				}
+			} else {
+				const steps = 1 + Math.floor(Math.random() * 3) // 0–2
+				for (let s = 0; s < steps && pos > 0; s++) {
+					pos--
+					seq.push(pos)
+				}
+			}
+			forward = !forward
+		}
+		return seq
+	})()
+
+	function startStepDebug() {
+		if (stepDebugPlaying) return
+		stepDebugPlaying = true
+		stepDebugAdvance()
+	}
+
+	function stopStepDebug() {
+		stepDebugPlaying = false
+		if (stepDebugTimer) { clearTimeout(stepDebugTimer); stepDebugTimer = null }
+	}
+
+	function stepDebugAdvance() {
+		if (!stepDebugPlaying) return
+		if (stepDebugIdx < stepDebugSequence.length - 1) {
+			stepDebugIdx++
+			stepDebugTimer = setTimeout(stepDebugAdvance, 400)
+		} else {
+			stepDebugPlaying = false
+		}
+	}
 </script>
 
 <Presentation options={{ history: true, transition: 'slide', controls: false, progress: true, slideNumber: true }}>
@@ -748,7 +811,23 @@
 							{/each}
 						</g>
 
-						<!-- (autopsy bars removed — now on comparison slide) -->
+						<!-- Row labels for print dots -->
+						{#if printDotsRow1.length > 0}
+							<text x={printDotsRow1[0][0]} y={printDotsRow1[0][1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#991B1B"
+								visibility={stateTimeStep >= 5 ? 'visible' : 'hidden'}>price</text>
+						{/if}
+						{#if printDotsRow2.length > 0}
+							<text x={printDotsRow2[0][0]} y={printDotsRow2[0][1] - 14} font-family="var(--r-code-font)" font-size="20" fill="#991B1B"
+								visibility={stateTimeStep >= 7 ? 'visible' : 'hidden'}>free_shipping</text>
+						{/if}
+
+						<!-- Autopsy vertical bars -->
+						<g visibility={stateTimeStep >= 11 ? 'visible' : 'hidden'}>
+							{#each autopsySlices as x, i}
+								<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.20"
+									style="opacity: 0; animation: appear 0.15s ease-out {i * 60}ms forwards" />
+							{/each}
+						</g>
 
 						<!-- Axes (fade when a label is in title position) -->
 						<g opacity={axisFade.axisOpacity}>
@@ -1068,7 +1147,7 @@
 		<div class="flex h-full flex-col justify-center gap-8 px-20 py-16 text-left">
 			<h2 class="text-8xl font-bold text-black">Why are they in tension?</h2>
 			<ul class="flex flex-col gap-6 pl-6 text-5xl text-black list-disc">
-				<li>Current debuggers <span class="text-[#0000FF]">couple</span> collecting execution data and analyzing it</li>
+				<li>Current debuggers <span class="text-[#0000FF]">couple collecting</span> execution data <span class="text-[#0000FF]">and analyzing</span> it</li>
 				<li>Current debuggers lack affordances for <span class="text-[#0000FF]">transforming and comprehending</span> execution data</li>
 			</ul>
 		</div>
@@ -1083,9 +1162,10 @@
 		</Notes>
 	</Slide>
 
-	<!-- Slide: State×time comparison — blank → breakpoint → print → autopsy -->
+	<!-- Slide: State×time comparison — breakpoint → print → autopsy -->
 	<Slide class="h-full" in={() => { compChartStep = 0 }}>
 		<div class="flex h-full flex-col items-center justify-center gap-4 px-12">
+			<h2 class="w-[80%] text-left text-7xl font-bold text-black">Collection</h2>
 			<svg viewBox="0 0 900 520" width="80%" preserveAspectRatio="xMidYMid meet">
 				<!-- Plot background -->
 				<rect x="100" y="40" width="720" height="420" fill="white" stroke="#e5e7eb" stroke-width="1" />
@@ -1098,17 +1178,21 @@
 				<text x="460" y="500" text-anchor="middle" font-family="Lato, sans-serif" font-size="36"
 					fill="black">time</text>
 
-				<!-- Step 1: Breakpoint — single vertical bar -->
-				{#if compChartStep === 1}
-					<rect x={tr.breakpointXPositions[3] - 12} y="40" width="24" height="420" fill="#1E40AF"
-						style="opacity: 0; animation: appear 0.5s ease-out forwards" />
+				<!-- Step 0: Breakpoint — single vertical bar (visible on enter) -->
+				{#if compChartStep === 0}
+					<rect x={tr.breakpointXPositions[3] - 12} y="40" width="24" height="420" fill="#1E40AF" />
 					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
-						fill="#1E40AF" font-weight="bold"
-						style="opacity: 0; animation: appear 0.5s ease-out 0.3s forwards">breakpoint debugger</text>
+						fill="#1E40AF" font-weight="bold">breakpoint debugger</text>
 				{/if}
 
-				<!-- Step 2: Print — zigzag interleaved (both rows) -->
-				{#if compChartStep === 2}
+				<!-- Step 1: Breakpoint fades out, print fades in simultaneously -->
+				{#if compChartStep === 1}
+					<rect x={tr.breakpointXPositions[3] - 12} y="40" width="24" height="420" fill="#1E40AF"
+						style="animation: disappear 0.4s ease-out forwards" />
+					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+						fill="#1E40AF" font-weight="bold"
+						style="animation: disappear 0.4s ease-out forwards">breakpoint debugger</text>
+
 					{#each printDotsInterleaved as [cx, cy], i}
 						{#if i > 0}
 							<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
@@ -1118,57 +1202,53 @@
 						<circle {cx} {cy} r="6" fill="#991B1B"
 							style="opacity: 0; animation: appear 0.1s ease-out {i * 30}ms forwards" />
 					{/each}
+					{#if printDotsRow1.length > 0}
+						<text x={printDotsRow1[0][0]} y={printDotsRow1[0][1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#991B1B"
+							style="opacity: 0; animation: appear 0.3s ease-out forwards">price</text>
+					{/if}
+					{#if printDotsRow2.length > 0}
+						<text x={printDotsRow2[0][0]} y={printDotsRow2[0][1] - 14} font-family="var(--r-code-font)" font-size="20" fill="#991B1B"
+							style="opacity: 0; animation: appear 0.3s ease-out forwards">free_shipping</text>
+					{/if}
 					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
 						fill="#991B1B" font-weight="bold"
 						style="opacity: 0; animation: appear 0.5s ease-out 0.3s forwards">print debugging</text>
 				{/if}
 
-				<!-- Steps 3–5: Autopsy build-up -->
-				{#if compChartStep >= 3}
-					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
-						fill="#1E40AF" font-weight="bold"
-						style="font-family: var(--r-code-font); opacity: 0; animation: appear 0.5s ease-out forwards">autopsy</text>
+				<!-- Step 2: Autopsy — retain print dots (no animation), add blue bars -->
+				{#if compChartStep === 2}
+					<!-- Blue vertical bars (animated) -->
+					{#each autopsySlices as x, i}
+						<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.20"
+							style="opacity: 0; animation: appear 0.15s ease-out {i * 60}ms forwards" />
+					{/each}
 
-					<!-- Step 5: bars (rendered first so dots paint on top) -->
-					{#if compChartStep >= 5}
-						{#each autopsySlices as x, i}
-							<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.20"
-								style="opacity: 0; animation: appear 0.15s ease-out {i * 60}ms forwards" />
-						{/each}
-					{/if}
-
-					<!-- Step 3+: zigzag interleaved line + dots -->
+					<!-- Print dots retained (static) -->
 					{#each printDotsInterleaved as [cx, cy], i}
 						{#if i > 0}
 							<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
-								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
-								style={compChartStep === 3 ? `opacity: 0; animation: appear 0.1s ease-out ${i * 30}ms forwards` : ''} />
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
 						{/if}
-						<circle {cx} {cy} r="6" fill="#991B1B"
-							style={compChartStep === 3 ? `opacity: 0; animation: appear 0.1s ease-out ${i * 30}ms forwards` : ''} />
+						<circle {cx} {cy} r="6" fill="#991B1B" />
 					{/each}
 
-					<!-- Step 4+: horizontal per-row bars -->
-					{#if compChartStep >= 4}
-						{#if printDotsRow1.length > 0}
-							<rect x="100" y={printDotsRow1[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20"
-								style={compChartStep === 4 ? 'opacity: 0; animation: appear 0.15s ease-out forwards' : ''} />
-						{/if}
-						{#if printDotsRow2.length > 0}
-							<rect x="100" y={printDotsRow2[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20"
-								style={compChartStep === 4 ? 'opacity: 0; animation: appear 0.15s ease-out 60ms forwards' : ''} />
-						{/if}
+					<!-- Row labels (static) -->
+					{#if printDotsRow1.length > 0}
+						<text x={printDotsRow1[0][0]} y={printDotsRow1[0][1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">price</text>
 					{/if}
+					{#if printDotsRow2.length > 0}
+						<text x={printDotsRow2[0][0]} y={printDotsRow2[0][1] - 14} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">free_shipping</text>
+					{/if}
+
+					<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+						fill="#1E40AF" font-weight="bold"
+						style="font-family: var(--r-code-font); opacity: 0; animation: appear 0.5s ease-out forwards">autopsy</text>
 				{/if}
 			</svg>
 		</div>
 
-		<!-- Actions: step through each visualization -->
 		<Action do={() => { compChartStep = 1 }} undo={() => { compChartStep = 0 }} />
 		<Action do={() => { compChartStep = 2 }} undo={() => { compChartStep = 1 }} />
-		<Action do={() => { compChartStep = 3 }} undo={() => { compChartStep = 2 }} />
-		<Action do={() => { compChartStep = 4 }} undo={() => { compChartStep = 3 }} />
-		<Action do={() => { compChartStep = 5 }} undo={() => { compChartStep = 4 }} />
 
 		<Notes>
 			Show the same state×time chart from before, but now just as a quick comparison.
@@ -1206,6 +1286,306 @@ autopsy.log("checkpoint", order, total)`}
 			Introduce the autopsy tool: a Python tracing library. The key insight is that a single log call
 			captures far more than what you explicitly pass — it grabs the entire call stack with all local
 			variables at every frame. This is the "collect more" side of the design.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Call stack in History view (video placeholder) -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
+			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
+				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — call stack access in History view</p>
+			</div>
+		</div>
+		<Notes>
+			Show a video demonstrating how autopsy's History view gives access to full call stacks,
+			illustrating the "collect more" principle in action.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Affordances — Print → table revelation -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
+			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
+				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Print → table revelation</p>
+			</div>
+		</div>
+		<Notes>
+			Show how print debugging output naturally maps to a table/spreadsheet view.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Autopsy state×time chart — analysis affordances preview -->
+	<Slide class="h-full" in={() => { affordChartStep = 0 }}>
+		<div class="flex h-full flex-col items-center justify-center gap-4 px-12">
+			<h2 class="w-[80%] text-left text-7xl font-bold text-black">Affordances — Streams</h2>
+			<svg viewBox="0 0 900 520" width="80%" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
+				<!-- Plot background -->
+				<rect x="100" y="40" width="720" height="420" fill="white" />
+
+				<!-- Autopsy vertical bars (static) -->
+				{#each autopsySlices as x, i}
+					<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.20" />
+				{/each}
+
+				<!-- Red horizontal bars (animated in on step 1) -->
+				{#if affordChartStep >= 1}
+					{#if printDotsRow1.length > 0}
+						<rect x="100" y={printDotsRow1[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20"
+							style={affordChartStep === 1 ? 'opacity: 0; animation: appear 0.15s ease-out forwards' : ''} />
+					{/if}
+					{#if printDotsRow2.length > 0}
+						<rect x="100" y={printDotsRow2[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20"
+							style={affordChartStep === 1 ? 'opacity: 0; animation: appear 0.15s ease-out 60ms forwards' : ''} />
+					{/if}
+				{/if}
+
+				<!-- Print dots (both rows, interleaved with lines) -->
+				{#each printDotsInterleaved as [cx, cy], i}
+					{#if i > 0}
+						<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
+							stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+					{/if}
+					<circle {cx} {cy} r="6" fill="#991B1B" />
+				{/each}
+
+				<!-- Row labels -->
+				{#if printDotsRow1.length > 0}
+					<text x={printDotsRow1[0][0]} y={printDotsRow1[0][1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">price</text>
+				{/if}
+				{#if printDotsRow2.length > 0}
+					<text x={printDotsRow2[0][0]} y={printDotsRow2[0][1] - 14} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">free_shipping</text>
+				{/if}
+
+				<!-- Axes -->
+				<line x1="100" y1="40" x2="100" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="100,33 94,47 106,47" fill="black" />
+				<line x1="100" y1="460" x2="836" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="843,460 829,454 829,466" fill="black" />
+
+				<!-- Axis labels -->
+				<text x="50" y="250" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black" transform="rotate(-90 50 250)">program state</text>
+				<text x="460" y="500" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black">time</text>
+
+				<!-- Title -->
+				<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="#1E40AF" font-weight="bold"
+					style="font-family: var(--r-code-font)">autopsy</text>
+			</svg>
+		</div>
+		<Action do={() => { affordChartStep = 1 }} undo={() => { affordChartStep = 0 }} />
+		<Notes>
+			This is the autopsy view of the state×time chart. The blue vertical bars represent
+			autopsy log snapshots. On the next step, red horizontal bars animate in to show
+			how we can project analysis across rows — grouping by variable.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Video — Streams -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
+			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
+				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Streams</p>
+			</div>
+		</div>
+		<Notes>
+			Demo video showing the Streams view in autopsy.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Affordances — "Step" Debugging -->
+	<Slide class="h-full" in={() => { stopStepDebug(); stepDebugIdx = 0 }}>
+		<div class="flex h-full flex-col items-center justify-center gap-4 px-12">
+			<h2 class="w-[80%] text-left text-7xl font-bold text-black">Affordances — "Step" Debugging</h2>
+			<svg viewBox="0 0 900 520" width="80%" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
+				<!-- Plot background -->
+				<rect x="100" y="40" width="720" height="420" fill="white" />
+
+				<!-- Single blue bar behind current dot -->
+				<rect x={printDotsInterleaved[stepDebugSequence[stepDebugIdx]][0] - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.20"
+					style="transition: x 0.2s ease-out" />
+
+				<!-- Print dots with lines -->
+				{#each printDotsInterleaved as [cx, cy], i}
+					{#if i > 0}
+						<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
+							stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+					{/if}
+					<circle cx={cx} cy={cy} r="6" fill="#991B1B"
+						style="transform-origin: {cx}px {cy}px; transform: scale({i === stepDebugSequence[stepDebugIdx] ? 1.7 : 1}); transition: transform 0.2s ease-out" />
+				{/each}
+
+				<!-- Row labels -->
+				{#if printDotsRow1.length > 0}
+					<text x={printDotsRow1[0][0]} y={printDotsRow1[0][1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">price</text>
+				{/if}
+				{#if printDotsRow2.length > 0}
+					<text x={printDotsRow2[0][0]} y={printDotsRow2[0][1] - 14} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">free_shipping</text>
+				{/if}
+
+				<!-- Axes -->
+				<line x1="100" y1="40" x2="100" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="100,33 94,47 106,47" fill="black" />
+				<line x1="100" y1="460" x2="836" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="843,460 829,454 829,466" fill="black" />
+
+				<!-- Axis labels -->
+				<text x="50" y="250" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black" transform="rotate(-90 50 250)">program state</text>
+				<text x="460" y="500" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black">time</text>
+
+				<!-- Title -->
+				<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="#1E40AF" font-weight="bold"
+					style="font-family: var(--r-code-font)">autopsy</text>
+			</svg>
+		</div>
+		<Action do={() => { startStepDebug() }} undo={() => { stopStepDebug(); stepDebugIdx = 0 }} />
+		<Notes>
+			Show how autopsy can replay through logged states like a step debugger,
+			stepping forward and backward through execution order.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Video — Step Debugging -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
+			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
+				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Step Debugging</p>
+			</div>
+		</div>
+		<Notes>
+			Demo video showing step debugging in autopsy.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Affordances — Computed Columns -->
+	<Slide class="h-full" in={() => { computedColStep = 0 }}>
+		<div class="flex h-full flex-col items-center justify-center gap-4 px-12">
+			<h2 class="w-[80%] text-left text-7xl font-bold text-black">Affordances — Computed Columns</h2>
+			<svg viewBox="0 0 900 520" width="80%" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
+				<!-- Plot background -->
+				<rect x="100" y="40" width="720" height="420" fill="white" />
+
+				<!-- Autopsy vertical bars (static) -->
+				{#each autopsySlices as x, i}
+					<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.20" />
+				{/each}
+
+				<!-- Red horizontal bars for price and free_shipping (static, from Streams) -->
+				{#if printDotsRow1.length > 0}
+					<rect x="100" y={printDotsRow1[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20" />
+				{/if}
+				{#if printDotsRow2.length > 0}
+					<rect x="100" y={printDotsRow2[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20" />
+				{/if}
+
+				<!-- Step 2: total() horizontal bar (animated) -->
+				{#if computedColStep >= 2}
+					<rect x="100" y={totalRowY - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20"
+						style="opacity: 0; animation: appear 0.3s ease-out forwards" />
+				{/if}
+
+				<!-- Print dots (both rows, interleaved with lines) -->
+				{#each printDotsInterleaved as [cx, cy], i}
+					{#if i > 0}
+						<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
+							stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
+					{/if}
+					<circle {cx} {cy} r="6" fill="#991B1B" />
+				{/each}
+
+				<!-- Step 1: Highlight middle price dot + arrow to single total() dot -->
+				{#if computedColStep >= 1}
+					{@const midDot = printDotsRow1[middlePriceDotIdx]}
+					{@const midTotal = totalDots[middlePriceDotIdx]}
+					<!-- Highlight ring on middle price dot -->
+					<circle cx={midDot[0]} cy={midDot[1]} r="12" fill="none" stroke="#991B1B" stroke-width="2"
+						style="opacity: 0; animation: appear 0.3s ease-out forwards" />
+					<!-- Arrow down to total dot -->
+					<line x1={midDot[0]} y1={midDot[1] + 12} x2={midTotal[0]} y2={midTotal[1] - 8}
+						stroke="#1E40AF" stroke-width="2" stroke-dasharray="4 3"
+						marker-end="url(#arrowBlue)"
+						style="opacity: 0; animation: appear 0.3s ease-out 0.2s forwards" />
+					<!-- total() dot -->
+					<circle cx={midTotal[0]} cy={midTotal[1]} r="6" fill="#1E40AF"
+						style="opacity: 0; animation: appear 0.3s ease-out 0.3s forwards" />
+					<!-- total() label (step 1 only, next to middle dot) -->
+					{#if computedColStep === 1}
+						<text x={midTotal[0]} y={midTotal[1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#1E40AF"
+							style="opacity: 0; animation: appear 0.3s ease-out 0.4s forwards">total()</text>
+					{/if}
+				{/if}
+
+				<!-- Step 2: All arrows + total dots + label aligned with leftmost -->
+				{#if computedColStep >= 2}
+					{#each printDotsRow1 as [px, py], i}
+						{#if i !== middlePriceDotIdx}
+							<line x1={px} y1={py + 8} x2={totalDots[i][0]} y2={totalDots[i][1] - 8}
+								stroke="#1E40AF" stroke-width="2" stroke-dasharray="4 3"
+								marker-end="url(#arrowBlue)"
+								style="opacity: 0; animation: appear 0.2s ease-out {i * 40}ms forwards" />
+							<circle cx={totalDots[i][0]} cy={totalDots[i][1]} r="6" fill="#1E40AF"
+								style="opacity: 0; animation: appear 0.2s ease-out {i * 40 + 100}ms forwards" />
+						{/if}
+					{/each}
+					<text x={totalDots[0][0]} y={totalDots[0][1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#1E40AF"
+						style="opacity: 0; animation: appear 0.3s ease-out forwards">total()</text>
+				{/if}
+
+				<!-- Row labels -->
+				{#if printDotsRow1.length > 0}
+					<text x={printDotsRow1[0][0]} y={printDotsRow1[0][1] + 28} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">price</text>
+				{/if}
+				{#if printDotsRow2.length > 0}
+					<text x={printDotsRow2[0][0]} y={printDotsRow2[0][1] - 14} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">free_shipping</text>
+				{/if}
+
+				<!-- Axes -->
+				<line x1="100" y1="40" x2="100" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="100,33 94,47 106,47" fill="black" />
+				<line x1="100" y1="460" x2="836" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="843,460 829,454 829,466" fill="black" />
+
+				<!-- Axis labels -->
+				<text x="50" y="250" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black" transform="rotate(-90 50 250)">program state</text>
+				<text x="460" y="500" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black">time</text>
+
+				<!-- Title -->
+				<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="#1E40AF" font-weight="bold"
+					style="font-family: var(--r-code-font)">autopsy</text>
+
+				<!-- Arrow marker definition -->
+				<defs>
+					<marker id="arrowBlue" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+						<path d="M0,0 L8,4 L0,8 Z" fill="#1E40AF" />
+					</marker>
+				</defs>
+			</svg>
+		</div>
+		<Action do={() => { computedColStep = 1 }} undo={() => { computedColStep = 0 }} />
+		<Action do={() => { computedColStep = 2 }} undo={() => { computedColStep = 1 }} />
+		<Notes>
+			Show how computed columns let you project new analysis from collected state.
+			First, select a single price dot and compute total() for that item.
+			Then, expand to all price dots with a new total() row.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Video — Computed Columns -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
+			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
+				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Computed Columns</p>
+			</div>
+		</div>
+		<Notes>
+			Demo video showing computed columns in autopsy.
 		</Notes>
 	</Slide>
 
