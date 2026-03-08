@@ -1132,7 +1132,7 @@
 					<!-- Step 5: bars (rendered first so dots paint on top) -->
 					{#if compChartStep >= 5}
 						{#each autopsySlices as x, i}
-							<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.35"
+							<rect x={x - 12} y="40" width="24" height="420" fill="#1E40AF" rx="4" fill-opacity="0.20"
 								style="opacity: 0; animation: appear 0.15s ease-out {i * 60}ms forwards" />
 						{/each}
 					{/if}
@@ -1148,22 +1148,16 @@
 							style={compChartStep === 3 ? `opacity: 0; animation: appear 0.1s ease-out ${i * 30}ms forwards` : ''} />
 					{/each}
 
-					<!-- Step 4+: horizontal per-row lines -->
+					<!-- Step 4+: horizontal per-row bars -->
 					{#if compChartStep >= 4}
-						{#each printDotsRow1 as [cx, cy], i}
-							{#if i > 0}
-								<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
-									stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
-									style={compChartStep === 4 ? `opacity: 0; animation: appear 0.15s ease-out ${i * 30}ms forwards` : ''} />
-							{/if}
-						{/each}
-						{#each printDotsRow2 as [cx, cy], i}
-							{#if i > 0}
-								<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
-									stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
-									style={compChartStep === 4 ? `opacity: 0; animation: appear 0.15s ease-out ${i * 30}ms forwards` : ''} />
-							{/if}
-						{/each}
+						{#if printDotsRow1.length > 0}
+							<rect x="100" y={printDotsRow1[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20"
+								style={compChartStep === 4 ? 'opacity: 0; animation: appear 0.15s ease-out forwards' : ''} />
+						{/if}
+						{#if printDotsRow2.length > 0}
+							<rect x="100" y={printDotsRow2[0][1] - 12} width="720" height="24" fill="#991B1B" rx="4" fill-opacity="0.20"
+								style={compChartStep === 4 ? 'opacity: 0; animation: appear 0.15s ease-out 60ms forwards' : ''} />
+						{/if}
 					{/if}
 				{/if}
 			</svg>
