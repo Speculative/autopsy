@@ -1,19 +1,24 @@
 <script lang="ts">
 	import { Presentation, Slide, Notes, Action, Code } from '@animotion/core'
 	import { tween, all } from '@animotion/motion'
+	import { onMount } from 'svelte'
 	import { AlertTriangle, CircleUserRound, Info } from '@lucide/svelte'
 	import { trace } from '$lib/tracing'
 	import CodeOverlay from '$lib/components/CodeOverlay.svelte'
 	import VariablesPane from '$lib/components/VariablesPane.svelte'
 
 	// ── Configurable parameters ──
-	const SEED = 3
+	const SEED = 2
 	const ITEM_COUNT = 16
 	const SLOW_LINE_DELAY = 200      // ms per line for the first (slow) iteration (~1s total)
 	const FAST_LINE_DELAY = 50       // ms per line for remaining (fast) iterations
 
 	// ── Generate all traced data ──
 	const tr = trace(SEED, ITEM_COUNT)
+	console.log('[trace] SEED:', SEED, 'ITEM_COUNT:', ITEM_COUNT)
+	console.log('[trace] items:', tr.items)
+	console.log('[trace] terminalLines:', tr.terminalLines)
+	console.log('[trace] printDots row1:', tr.printDots.row1.length, 'row2:', tr.printDots.row2.length)
 
 	// ── Derived code strings (for Animotion <Code> component on slide 2) ──
 	const codeInitial = tr.codeVariants.base.lines.join('\n')
@@ -22,11 +27,11 @@
 	// Expanded variant: same as V2 but with qty added to the price print
 	const codeWithPrintExpanded = [
 		'for item in cart:',
-		'    if item.qty >= 9:',
+		'    if item.qty >= 10:',
 		'        item.price *= 0.9',
 		'        print("Price", item.price, item.qty)',
 		'    ...',
-		'    if item.price < 4.00:',
+		'    if item.total() > 35:',
 		'        item.free_shipping = True',
 		'        print("Free", item.free_shipping)',
 	].join('\n')
@@ -149,9 +154,9 @@
 
 	// ── Derived state ──
 	let unifiedCodeLines = $derived(
-		printCodeVersion === 0 ? tr.codeVariants.base.lines
+		[...(printCodeVersion === 0 ? tr.codeVariants.base.lines
 		: printCodeVersion === 1 ? tr.codeVariants.printV1.lines
-		: tr.codeVariants.printV2.lines
+		: tr.codeVariants.printV2.lines)]
 	)
 	let unifiedMarkers = $derived(
 		phase === 'breakpoint'
@@ -319,6 +324,7 @@
 		showStateVarLabels = snap.showStateVarLabels
 		showCostLabels = snap.showCostLabels
 		rightPanel = snap.rightPanel
+		console.log(`[applySnapshot] phase=${snap.phase} rightPanel=${snap.rightPanel} printCodeVersion=${snap.printCodeVersion}`)
 		stateTimeStep = snap.stateTimeStep
 		printCodeVersion = snap.printCodeVersion
 		bpDebuggerHighlightLine = snap.bpDebuggerHighlightLine
@@ -488,8 +494,10 @@
 
 	// ── Apply step: called directly from Actions and slide entry ──
 	let chartAbort: AbortController | null = null
+	let chartReady = $state(false)
 
 	function applyStep(step: number, skipAnim: boolean) {
+		console.log(`[applyStep] step=${step} skipAnim=${skipAnim} chartReady=${chartReady}`)
 		// Cancel any running progressive animation
 		chartAbort?.abort()
 		chartAbort = null
@@ -497,9 +505,11 @@
 		const snap = STEPS[step]
 		if (!snap) return
 
-		applySnapshot(snap, skipAnim)
+		// During initial restore (before slide is ready), always skip animations
+		const effectiveSkip = skipAnim || !chartReady
+		applySnapshot(snap, effectiveSkip)
 
-		if (!skipAnim && STEP_ANIMATIONS[step]) {
+		if (!effectiveSkip && STEP_ANIMATIONS[step]) {
 			const ac = new AbortController()
 			chartAbort = ac
 			STEP_ANIMATIONS[step]!(ac.signal).then(() => {
@@ -508,6 +518,15 @@
 			})
 		}
 	}
+
+	// Mark chart as ready after initial action replay completes
+	onMount(() => {
+		requestAnimationFrame(() => { chartReady = true })
+	})
+
+	$effect(() => {
+		console.log(`[reactive] phase=${phase} rightPanel=${rightPanel} printCodeVersion=${printCodeVersion} codeLines=${unifiedCodeLines.length}`)
+	})
 
 	// ── Formative study slide ──
 	let showTooLittle = $state(false)
@@ -647,8 +666,12 @@
 		- 'autopsy': Chart with bars filling in, right panels dismissed
 	-->
 	<Slide class="h-full" in={() => {
-		chartStep = 0
-		applyStep(0, true)
+		const cf = document.querySelector('.current-fragment')
+		console.log('[slide in] current-fragment:', cf?.getAttribute('data-fragment-index'), 'chartStep:', chartStep)
+		if (!cf) {
+			chartStep = 0
+			applyStep(0, true)
+		}
 	}}>
 		<!-- ═══════════════════════════════════════════════════
 		     LAYOUT: 3-panel grid that morphs between phases
@@ -658,24 +681,11 @@
 		     ═══════════════════════════════════════════════════ -->
 		<div class="relative h-full w-full overflow-hidden">
 
-			<!-- ── Heading overlay (visible only in 'code' phase) ── -->
-			<div
-				class="absolute z-20 transition-all duration-500 pointer-events-none"
-				style="
-					top: 18%;
-					left: 5rem;
-					opacity: {showHeading ? 1 : 0};
-					transform: translateY({showHeading ? 0 : -20}px);
-				"
-			>
-				<h2 class="text-left text-8xl font-bold text-black">How do you debug this?</h2>
-			</div>
-
-			<!-- ── State×Time Chart (left region) ── -->
+				<!-- ── State×Time Chart (left region) ── -->
 			<div
 				class="absolute top-0 left-0 bottom-0 transition-all duration-700"
 				style="
-					width: {phase === 'code' ? '0%' : phase === 'chart' || phase === 'autopsy' ? '100%' : '64%'};
+					width: {phase === 'code' ? '0%' : phase === 'chart' || phase === 'autopsy' ? '100%' : '58%'};
 					opacity: {phase === 'code' ? 0 : 1};
 				"
 			>
@@ -685,15 +695,13 @@
 						<rect x="100" y="40" width="720" height="420" fill="white" />
 
 						<!-- Step 1: Breakpoint — animated vertical slice -->
-						{#if stateTimeStep === 1}
+						<g visibility={stateTimeStep === 1 ? 'visible' : 'hidden'}>
 							<rect x={bpX.x - 12} y="40" width="24" height="420" fill="#1E40AF"
 								style="opacity: 0; animation: appear 0.3s ease-out 0ms forwards" />
-						{/if}
-
-						<!-- (no dots at print section start) -->
+						</g>
 
 						<!-- Step 5–7: Print — row 1 dots (with per-row lines) -->
-						{#if stateTimeStep >= 5 && stateTimeStep <= 7}
+						<g visibility={stateTimeStep >= 5 && stateTimeStep <= 7 ? 'visible' : 'hidden'}>
 							{#each printDotsRow1.slice(0, printDotsVisibleRow1) as [cx, cy], i}
 								{#if i > 0}
 									<line x1={printDotsRow1[i-1][0]} y1={printDotsRow1[i-1][1]} x2={cx} y2={cy}
@@ -702,10 +710,10 @@
 								<circle {cx} {cy} r="6" fill="#991B1B"
 									style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
 							{/each}
-						{/if}
+						</g>
 
 						<!-- Step 7: Print — row 2 dots (with per-row lines) -->
-						{#if stateTimeStep === 7}
+						<g visibility={stateTimeStep === 7 ? 'visible' : 'hidden'}>
 							{#each printDotsRow2.slice(0, printDotsVisibleRow2) as [cx, cy], i}
 								{#if i > 0}
 									<line x1={printDotsRow2[i-1][0]} y1={printDotsRow2[i-1][1]} x2={cx} y2={cy}
@@ -714,10 +722,10 @@
 								<circle {cx} {cy} r="6" fill="#991B1B"
 									style="opacity: 0; animation: appear 0.15s ease-out 0ms forwards" />
 							{/each}
-						{/if}
+						</g>
 
 						<!-- Step 10: Print — zigzag interleaved line connecting dots in execution order -->
-						{#if stateTimeStep === 10}
+						<g visibility={stateTimeStep === 10 ? 'visible' : 'hidden'}>
 							{#each printDotsInterleaved as [cx, cy], i}
 								{#if i > 0}
 									<line x1={printDotsInterleaved[i-1][0]} y1={printDotsInterleaved[i-1][1]} x2={cx} y2={cy}
@@ -727,7 +735,7 @@
 								<circle {cx} {cy} r="6" fill="#991B1B"
 									style="opacity: 0; animation: appear 0.1s ease-out {i * 30}ms forwards" />
 							{/each}
-						{/if}
+						</g>
 
 						<!-- (autopsy bars removed — now on comparison slide) -->
 
@@ -758,7 +766,7 @@
 						>time</text>
 
 						<!-- State variable labels along Y-axis -->
-						{#if showStateVarLabels}
+						<g visibility={showStateVarLabels ? 'visible' : 'hidden'}>
 							{#each stateVarLabels as lbl, i}
 								<text
 									text-anchor="start"
@@ -769,10 +777,10 @@
 									transform="translate({lbl.x},{lbl.y})"
 								>{stateVarNames[i]}</text>
 							{/each}
-						{/if}
+						</g>
 
 						<!-- Cost value labels along X-axis -->
-						{#if showCostLabels}
+						<g visibility={showCostLabels ? 'visible' : 'hidden'}>
 							{#each costLabels as lbl, i}
 								<text
 									text-anchor="middle"
@@ -783,87 +791,106 @@
 									transform="translate({lbl.x},{lbl.y}) rotate({lbl.rotate})"
 								>{costValues[i]}</text>
 							{/each}
-						{/if}
+						</g>
 					</svg>
 
 					<!-- Code overlay for axis build-up (state-vars / cost highlighting) -->
-					{#if showAxisCode}
-						<div class="absolute flex items-center justify-center gap-4" style="pointer-events: none; width: 75%; left: 12.5%;">
-							<div
-								class="rounded-xl border border-gray-200 bg-white/95 px-8 py-6 shadow-xl"
-								style="flex: 2 1 0; opacity: {axisFade.codeOpacity}"
-							>
-								<pre class="text-5xl leading-relaxed font-mono text-gray-800"><code
+					<div class="absolute flex items-stretch justify-center gap-4"
+						style="pointer-events: none; width: 75%; left: 12.5%; display: {showAxisCode ? 'flex' : 'none'};"
+					>
+						<div
+							class="rounded-xl border border-gray-200 bg-white/95 px-8 py-6 shadow-xl"
+							style="flex: 2 1 0; opacity: {axisFade.codeOpacity}"
+						>
+							<pre class="text-5xl leading-relaxed font-mono text-gray-800"><code
 ><span class="text-gray-500">for </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item</span><span class="text-gray-500"> in </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">cart</span><span class="text-gray-500">:</span>
-<span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.qty</span><span class="text-gray-500"> >= 9:</span>
+<span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.qty</span><span class="text-gray-500"> >= 10:</span>
 <span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.price</span><span class="text-gray-500"> *= 0.9</span>
 <span class="text-gray-500">    ...</span>
-<span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.price</span><span class="text-gray-500"> &lt; 4.00:</span>
+<span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.total()</span><span class="text-gray-500"> &gt; 35:</span>
 <span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.free_shipping</span><span class="text-gray-500"> = True</span></code></pre>
-							</div>
-							{#if showCostTerminal}
-								<div
-									class="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4 font-mono text-2xl leading-relaxed text-green-400 overflow-y-auto text-left"
-									style="flex: 1 1 0; height: 14rem; opacity: {axisFade.terminalOpacity}"
-								>
-									{#each terminalLines as [label, value]}
-										<p>{label} <span class="text-white">{value}</span></p>
-									{/each}
-								</div>
-							{/if}
 						</div>
-					{/if}
+						<div
+							class="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4 font-mono text-2xl leading-relaxed text-green-400 overflow-y-auto text-left"
+							style="flex: 1 1 0; opacity: {axisFade.terminalOpacity}; display: {showCostTerminal ? 'block' : 'none'}"
+						>
+							{#each terminalLines as [label, value]}
+								<p>{label} <span class="text-white">{value}</span></p>
+							{/each}
+						</div>
+					</div>
 
 					<!-- Technique label (top-right of chart area during 3-panel, or top-right of full area) -->
-					{#if stateTimeStep >= 1}
-						<div class="absolute left-[4%] top-[6%] rounded-md bg-white/85 px-4 py-2 text-left">
-							{#if stateTimeStep === 1}
-								<p class="text-5xl font-bold text-[#1E40AF]">breakpoint debugger</p>
-								<p class="text-3xl text-gray-500">all state · one moment</p>
-							{/if}
-							{#if stateTimeStep >= 2 && stateTimeStep <= 10}
-								<p class="text-5xl font-bold text-[#1E40AF]">print debugging</p>
-								<p class="text-3xl text-gray-500">some state · many moments</p>
-							{/if}
-						</div>
-					{/if}
+					<div class="absolute left-[4%] top-[6%] rounded-md bg-white/85 px-4 py-2 text-left"
+						style="display: {stateTimeStep >= 1 ? 'block' : 'none'}"
+					>
+						<p class="text-5xl font-bold text-[#1E40AF]"
+							style="display: {stateTimeStep === 1 ? 'block' : 'none'}"
+						>breakpoint debugger</p>
+						<p class="text-3xl text-gray-500"
+							style="display: {stateTimeStep === 1 ? 'block' : 'none'}"
+						>all state · one moment</p>
+						<p class="text-5xl font-bold text-[#1E40AF]"
+							style="display: {stateTimeStep >= 2 && stateTimeStep <= 10 ? 'block' : 'none'}"
+						>print debugging</p>
+						<p class="text-3xl text-gray-500"
+							style="display: {stateTimeStep >= 2 && stateTimeStep <= 10 ? 'block' : 'none'}"
+						>some state · many moments</p>
+					</div>
 				</div>
 			</div>
 
 			<!-- ── Right panels region (code + variables/terminal) ── -->
 			<div
-				class="absolute top-0 bottom-0 flex flex-col gap-3 p-3 transition-all duration-700"
+				class="absolute top-0 bottom-0 flex flex-col transition-all duration-700"
+				class:justify-center={phase === 'code'}
+				class:gap-8={phase === 'code'}
+				class:gap-3={phase !== 'code'}
 				style="
 					right: 0;
-					width: {phase === 'code' ? '100%' : phase === 'chart' ? '50%' : '36%'};
-					padding: {phase === 'code' ? '30% 5rem 3rem' : '0.75rem'};
+					width: {phase === 'code' ? '100%' : phase === 'chart' ? '50%' : '42%'};
+					padding: {phase === 'code' ? '4rem 5rem' : '0.75rem'};
 				"
 			>
+				<!-- ── Heading (moves with panel, then slides off top) ── -->
+				<div
+					class="transition-all duration-700"
+					style="
+						opacity: {showHeading ? 1 : 0};
+						transform: translateY({showHeading ? 0 : -200}px);
+						max-height: {showHeading ? '10rem' : '0'};
+					"
+				>
+					<h2 class="text-left text-8xl font-bold text-black whitespace-nowrap">How do you debug this?</h2>
+				</div>
+
 				<!-- ── Code editor panel ── -->
 				<div
-					class="transition-all duration-700 overflow-hidden"
+					class="overflow-hidden"
 					style="
-						flex: {phase === 'breakpoint' || phase === 'print' ? '1 1 50%' : 'none'};
+						flex: {phase === 'breakpoint' || phase === 'print' ? '1 1 0' : 'none'};
 						opacity: {phase === 'autopsy' ? 0 : codeTransform.opacity};
 						transform: scale({phase === 'code' ? 1 : phase === 'chart' ? 0.5 : 1});
 						transform-origin: top right;
 						min-height: 0;
+						transition: opacity 700ms, transform 700ms;
 					"
 				>
-					{#if phase === 'code'}
-						<!-- In code phase, show a full-size Code component with syntax highlighting -->
-						<div class="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow-sm overflow-hidden text-left">
-							<Code
-								bind:this={code}
-								lang="python"
-								theme="github-light"
-								code={codeInitial}
-								options={{ duration: 400, stagger: 0, lineNumbers: true, containerStyle: false, enhanceMatching: true, splitTokens: true }}
-								class="text-5xl"
-							/>
-						</div>
-					{:else}
-						<!-- In chart/breakpoint/print phases, show CodeOverlay -->
+					<!-- In code phase, show a full-size Code component with syntax highlighting -->
+					<div class="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow-sm overflow-hidden text-left"
+						style="display: {phase === 'code' ? 'block' : 'none'}"
+					>
+						<Code
+							bind:this={code}
+							lang="python"
+							theme="github-light"
+							code={codeInitial}
+							options={{ duration: 400, stagger: 0, lineNumbers: true, containerStyle: false, enhanceMatching: true, splitTokens: true }}
+							class="text-5xl"
+						/>
+					</div>
+					<!-- In chart/breakpoint/print phases, show CodeOverlay -->
+					<div style="display: {phase !== 'code' ? 'contents' : 'none'}">
 						<CodeOverlay
 							lines={unifiedCodeLines}
 							highlightLine={unifiedHighlightLine}
@@ -871,33 +898,34 @@
 							markers={unifiedMarkers}
 							instant={instantHighlight}
 						/>
-					{/if}
+					</div>
 				</div>
 
 				<!-- ── Bottom-right panel: Variables pane or Terminal ── -->
 				<div
-					class="transition-all duration-500 overflow-hidden"
+					class="overflow-hidden"
 					style="
-						flex: {rightPanel !== 'none' ? '1 1 50%' : '0 0 0px'};
+						flex: {rightPanel !== 'none' ? '1 1 0' : '0 0 0px'};
 						opacity: {rightPanel !== 'none' ? 1 : 0};
 						min-height: 0;
+						transition: opacity 500ms;
 					"
 				>
-					{#if rightPanel === 'variables'}
+					<div style="display: {rightPanel === 'variables' ? 'contents' : 'none'}">
 						<VariablesPane
 							variables={tr.breakpointSnapshots[bpDebuggerIteration]}
 							style="height: 100%"
 						/>
-					{:else if rightPanel === 'terminal'}
-						<div
-							class="rounded-xl border border-gray-800 bg-gray-900 p-4 font-mono text-xl leading-relaxed text-green-400 text-left overflow-y-auto h-full"
-						>
-							<p class="text-gray-400 text-lg mb-2">Terminal</p>
-							{#each printTerminalLines as line}
-								<p>{line}</p>
-							{/each}
-						</div>
-					{/if}
+					</div>
+					<div
+						class="rounded-xl border border-gray-800 bg-gray-900 p-4 font-mono text-xl leading-relaxed text-green-400 text-left overflow-y-auto h-full"
+						style="display: {rightPanel === 'terminal' ? 'block' : 'none'}"
+					>
+						<p class="text-gray-400 text-lg mb-2">Terminal</p>
+						{#each printTerminalLines as line}
+							<p>{line}</p>
+						{/each}
+					</div>
 				</div>
 			</div>
 		</div>
@@ -907,8 +935,8 @@
 		     ════════════════════════════════════════════════════ -->
 		{#each { length: TOTAL_STEPS - 1 } as _, i}
 			<Action
-				do={() => { chartStep = i + 1; applyStep(i + 1, false) }}
-				undo={() => { chartStep = i; applyStep(i, false) }}
+				do={() => { console.log(`[Action do] i=${i + 1}`); chartStep = i + 1; applyStep(i + 1, false) }}
+				undo={() => { console.log(`[Action undo] i=${i}`); chartStep = i; applyStep(i, false) }}
 			/>
 		{/each}
 
@@ -1199,7 +1227,7 @@ autopsy.log("checkpoint", order, total)`}
 			<!-- Left: state×time chart -->
 			<div
 				class="absolute top-0 left-0 bottom-0 transition-all duration-500"
-				style="width: {loopMode === 'none' ? '100%' : '64%'}; opacity: {loopMode === 'none' ? 0.3 : 1}"
+				style="width: {loopMode === 'none' ? '100%' : '42%'}; opacity: {loopMode === 'none' ? 0.3 : 1}"
 			>
 				<div class="relative flex h-full items-center justify-center overflow-hidden">
 					<svg viewBox="0 0 900 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
@@ -1252,7 +1280,7 @@ autopsy.log("checkpoint", order, total)`}
 			<!-- Right panels -->
 			<div
 				class="absolute top-0 bottom-0 right-0 flex flex-col gap-3 p-3 transition-all duration-500"
-				style="width: {loopMode === 'none' ? '0%' : '36%'}; opacity: {loopMode === 'none' ? 0 : 1}"
+				style="width: {loopMode === 'none' ? '0%' : '42%'}; opacity: {loopMode === 'none' ? 0 : 1}"
 			>
 				<!-- Code editor -->
 				<div class="flex-1 min-h-0 overflow-hidden">

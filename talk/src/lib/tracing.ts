@@ -59,10 +59,10 @@ function makeCodeVariants() {
 		id: 'base',
 		lines: [
 			'for item in cart:',
-			'    if item.qty >= 9:',
+			'    if item.qty >= 10:',
 			'        item.price *= 0.9',
 			'    ...',
-			'    if item.price < 4.00:',
+			'    if item.total() > 35:',
 			'        item.free_shipping = True',
 		],
 		printLines: [],
@@ -72,11 +72,11 @@ function makeCodeVariants() {
 		id: 'print-v1',
 		lines: [
 			'for item in cart:',
-			'    if item.qty >= 9:',
+			'    if item.qty >= 10:',
 			'        item.price *= 0.9',
 			'        print("Price", item.price)',
 			'    ...',
-			'    if item.price < 4.00:',
+			'    if item.total() > 35:',
 			'        item.free_shipping = True',
 		],
 		printLines: [3],
@@ -86,11 +86,11 @@ function makeCodeVariants() {
 		id: 'print-v2',
 		lines: [
 			'for item in cart:',
-			'    if item.qty >= 9:',
+			'    if item.qty >= 10:',
 			'        item.price *= 0.9',
 			'        print("Price", item.price)',
 			'    ...',
-			'    if item.price < 4.00:',
+			'    if item.total() > 35:',
 			'        item.free_shipping = True',
 			'        print("Free", item.free_shipping)',
 		],
@@ -121,6 +121,7 @@ function traceItem(
 			cart: '[...]',
 			'item.qty': String(it.qty),
 			'item.price': it.price.toFixed(2),
+			'item.total()': (it.qty * it.price).toFixed(2),
 			...(it.free_shipping ? { 'item.free_shipping': 'True' } : {}),
 		}
 	}
@@ -135,49 +136,49 @@ function traceItem(
 	if (variant.id === 'base') {
 		// line 0: for item in cart:
 		visit(0)
-		// line 1: if item.qty >= 9:
+		// line 1: if item.qty >= 10:
 		visit(1)
-		if (it.qty >= 9) {
+		if (it.qty >= 10) {
 			// line 2: item.price *= 0.9
 			it.price = parseFloat((it.price * 0.9).toFixed(2))
 			visit(2)
 		}
 		// line 3: ...
 		visit(3)
-		// line 4: if item.price < 4.00:
+		// line 4: if item.total() > 35:
 		visit(4)
-		if (it.price < 4.0) {
+		if (it.qty * it.price > 35) {
 			// line 5: item.free_shipping = True
 			it.free_shipping = true
 			visit(5)
 		}
 	} else if (variant.id === 'print-v1') {
 		visit(0) // for
-		visit(1) // if qty >= 9
-		if (it.qty >= 9) {
+		visit(1) // if qty >= 10
+		if (it.qty >= 10) {
 			it.price = parseFloat((it.price * 0.9).toFixed(2))
 			visit(2) // price *= 0.9
 			visit(3) // print("Price", item.price)
 			printOutputs.push({ line: 3, text: `Price ${it.price.toFixed(2)}` })
 		}
 		visit(4) // ...
-		visit(5) // if price < 4.00
-		if (it.price < 4.0) {
+		visit(5) // if total() > 35
+		if (it.qty * it.price > 35) {
 			it.free_shipping = true
 			visit(6) // free_shipping = True
 		}
 	} else if (variant.id === 'print-v2') {
 		visit(0) // for
-		visit(1) // if qty >= 9
-		if (it.qty >= 9) {
+		visit(1) // if qty >= 10
+		if (it.qty >= 10) {
 			it.price = parseFloat((it.price * 0.9).toFixed(2))
 			visit(2) // price *= 0.9
 			visit(3) // print("Price", item.price)
 			printOutputs.push({ line: 3, text: `Price ${it.price.toFixed(2)}` })
 		}
 		visit(4) // ...
-		visit(5) // if price < 4.00
-		if (it.price < 4.0) {
+		visit(5) // if total() > 35
+		if (it.qty * it.price > 35) {
 			it.free_shipping = true
 			visit(6) // free_shipping = True
 			visit(7) // print("Free", item.free_shipping)
@@ -268,7 +269,7 @@ export function trace(seed: number, itemCount: number): TraceResult {
 	const costValues = terminalLines.map(([, v]) => v)
 
 	// ── State variable names for Y-axis ──
-	const stateVarNames = ['item', 'cart', 'item.qty', 'item.price', 'item.free_shipping']
+	const stateVarNames = ['item', 'cart', 'item.qty', 'item.price', 'item.total()', 'item.free_shipping']
 
 	// ── Print dot positions ──
 	// X position is based on the iteration's index in the full input (not the filtered index),

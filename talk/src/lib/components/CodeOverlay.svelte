@@ -23,7 +23,7 @@
 </script>
 
 <div
-	class="rounded-xl border border-gray-200 bg-white/95 px-6 py-6 shadow-xl overflow-hidden transition-all duration-500 shrink-0 {className}"
+	class="rounded-xl border border-gray-200 bg-white/95 px-6 py-6 shadow-xl overflow-hidden transition-all duration-500 {className}"
 	style="text-align: left; {styleStr}"
 >
 	<div class="flex font-mono text-2xl leading-relaxed text-gray-800">
