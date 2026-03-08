@@ -151,6 +151,17 @@
 	let autopsyVisibleCount = $state(0)
 	let unifiedAccentLines = $state<number[]>([])
 	let printTerminalLines = $state<string[]>([])
+	let terminalEl = $state<HTMLDivElement>()
+
+	$effect(() => {
+		printTerminalLines;  // track dependency
+		if (terminalEl) {
+			// Use tick to wait for DOM update, then scroll
+			requestAnimationFrame(() => {
+				terminalEl!.scrollTop = terminalEl!.scrollHeight
+			})
+		}
+	})
 
 	// ── Derived state ──
 	let unifiedCodeLines = $derived(
@@ -802,13 +813,12 @@
 							class="rounded-xl border border-gray-200 bg-white/95 px-8 py-6 shadow-xl"
 							style="flex: 2 1 0; opacity: {axisFade.codeOpacity}"
 						>
-							<pre class="text-5xl leading-relaxed font-mono text-gray-800"><code
-><span class="text-gray-500">for </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item</span><span class="text-gray-500"> in </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">cart</span><span class="text-gray-500">:</span>
+							<pre class="text-5xl leading-relaxed font-mono text-gray-800"><span class="text-gray-500">for </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item</span><span class="text-gray-500"> in </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">cart</span><span class="text-gray-500">:</span>
 <span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.qty</span><span class="text-gray-500"> >= 10:</span>
 <span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.price</span><span class="text-gray-500"> *= 0.9</span>
 <span class="text-gray-500">    ...</span>
 <span class="text-gray-500">    if </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' || axisCodeHighlight === 'cost' ? 'bg-yellow-200' : 'bg-transparent'}">item.total()</span><span class="text-gray-500"> &gt; 35:</span>
-<span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.free_shipping</span><span class="text-gray-500"> = True</span></code></pre>
+<span class="text-gray-500">        </span><span class="rounded px-0.5 transition-colors duration-300 {axisCodeHighlight === 'state-vars' ? 'bg-yellow-200' : 'bg-transparent'}">item.free_shipping</span><span class="text-gray-500"> = True</span></pre>
 						</div>
 						<div
 							class="rounded-xl border border-gray-800 bg-gray-900 px-5 py-4 font-mono text-2xl leading-relaxed text-green-400 overflow-y-auto text-left"
@@ -918,6 +928,7 @@
 						/>
 					</div>
 					<div
+						bind:this={terminalEl}
 						class="rounded-xl border border-gray-800 bg-gray-900 p-4 font-mono text-xl leading-relaxed text-green-400 text-left overflow-y-auto h-full"
 						style="display: {rightPanel === 'terminal' ? 'block' : 'none'}"
 					>
