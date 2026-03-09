@@ -609,6 +609,22 @@
 	let compChartStep = $state(0)
 	let affordChartStep = $state(0)
 	let computedColStep = $state(0)
+	let groupFilterStep = $state(0)
+
+	// ── Grouping & filtering: free_shipping True/False dots ──
+	const freeShippingY = printDotsRow2.length > 0 ? printDotsRow2[0][1] : 307
+	const freeShipTrueIndices = new Set(printDotsRow2Indices)
+	const groupFilterDots: { x: number; isTrue: boolean; idx: number }[] = autopsySlices.map((x, i) => ({
+		x,
+		isTrue: freeShipTrueIndices.has(i),
+		idx: i,
+	}))
+	const trueDots = groupFilterDots.filter(d => d.isTrue)
+	const falseDots = groupFilterDots.filter(d => !d.isTrue)
+	// Redistributed positions for true dots (evenly spaced between first and last true dot positions)
+	const trueFirstX = trueDots.length > 0 ? trueDots[0].x : 110
+	const trueLastX = trueDots.length > 0 ? trueDots[trueDots.length - 1].x : 810
+	const trueRedistributed = trueDots.map((_, i) => trueFirstX + (i / Math.max(trueDots.length - 1, 1)) * (trueLastX - trueFirstX))
 
 	// ── Computed columns: total() row below price ──
 	// Price row Y and total() row Y (offset below price)
@@ -1278,9 +1294,7 @@ autopsy.log("checkpoint", order, total)`}
 					class="text-5xl"
 				/>
 			</div>
-			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-6 py-4 mt-4">
-				<p class="text-3xl text-amber-800"><strong>TODO:</strong> Need to explain call stack capture — <code>autopsy.log()</code> captures passed arguments + full stack trace (all frames, all local variables at each frame)</p>
-			</div>
+			<p><span class="font-mono">autopsy.log()</span> calls capture <span class="text-[#0000FF]">full stack traces</span></p>
 		</div>
 		<Notes>
 			Introduce the autopsy tool: a Python tracing library. The key insight is that a single log call
@@ -1589,6 +1603,116 @@ autopsy.log("checkpoint", order, total)`}
 		</Notes>
 	</Slide>
 
+	<!-- Slide: Affordances — Grouping & Filtering -->
+	<Slide class="h-full" in={() => { groupFilterStep = 0 }}>
+		<div class="flex h-full flex-col items-center justify-center gap-4 px-12">
+			<h2 class="w-[80%] text-left text-7xl font-bold text-black">Affordances — Grouping & Filtering</h2>
+			<svg viewBox="0 0 900 520" width="80%" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
+				<!-- Plot background -->
+				<rect x="100" y="40" width="720" height="420" fill="white" />
+
+				<!-- Connecting lines (rendered first so dots are on top) -->
+				{#if groupFilterStep < 2}
+					{#each groupFilterDots as dot, i}
+						{#if i > 0}
+							<line
+								x1={groupFilterDots[i - 1].x} y1={freeShippingY}
+								x2={dot.x} y2={freeShippingY}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
+							/>
+						{/if}
+					{/each}
+				{:else}
+					<!-- After filtering: lines between consecutive true dots -->
+					{#each trueDots as _, i}
+						{#if i > 0}
+							<line
+								x1={trueRedistributed[i - 1]} y1={freeShippingY}
+								x2={trueRedistributed[i]} y2={freeShippingY}
+								stroke="#991B1B" stroke-width="2.5" stroke-linecap="round"
+								style="opacity: 0; animation: appear 0.3s ease-out 0.4s forwards"
+							/>
+						{/if}
+					{/each}
+				{/if}
+
+				<!-- All dots: blue for True, orange for False -->
+				{#each groupFilterDots as dot, i}
+					{@const isSelected = groupFilterStep >= 1 && dot.isTrue}
+					{@const isDiscarded = groupFilterStep >= 2 && !dot.isTrue}
+					{@const redistIdx = dot.isTrue ? trueDots.indexOf(dot) : -1}
+					{@const targetX = groupFilterStep >= 2 && dot.isTrue ? trueRedistributed[redistIdx] : dot.x}
+					<circle
+						cx={targetX}
+						cy={freeShippingY}
+						r={isSelected ? 10 : 8}
+						fill={dot.isTrue ? '#1E40AF' : '#EA580C'}
+						stroke={isSelected ? '#1E40AF' : 'none'}
+						stroke-width={isSelected ? 3 : 0}
+						style="
+							transition: cx 0.6s ease-out, r 0.3s ease-out, opacity 0.4s ease-out, transform 0.4s ease-out;
+							opacity: {isDiscarded ? 0 : 1};
+							transform-origin: {dot.x}px {freeShippingY}px;
+							transform: {isDiscarded ? 'translateY(80px) scale(0.3)' : 'none'};
+						"
+					/>
+					<!-- Selection ring for step 1 -->
+					{#if isSelected && groupFilterStep < 2}
+						<circle cx={dot.x} cy={freeShippingY} r="16" fill="none" stroke="#1E40AF" stroke-width="2" stroke-dasharray="4 3"
+							style="opacity: 0; animation: appear 0.3s ease-out {i * 30}ms forwards" />
+					{/if}
+				{/each}
+
+				<!-- Row label -->
+				<text x={autopsySlices[0]} y={freeShippingY + 32} font-family="var(--r-code-font)" font-size="20" fill="#991B1B">free_shipping</text>
+
+				<!-- Legend -->
+				<circle cx="620" cy="70" r="8" fill="#1E40AF" />
+				<text x="636" y="76" font-family="var(--r-code-font)" font-size="18" fill="#1E40AF">True</text>
+				<circle cx="710" cy="70" r="8" fill="#EA580C" />
+				<text x="726" y="76" font-family="var(--r-code-font)" font-size="18" fill="#EA580C">False</text>
+
+				<!-- Axes -->
+				<line x1="100" y1="40" x2="100" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="100,33 94,47 106,47" fill="black" />
+				<line x1="100" y1="460" x2="836" y2="460" stroke="black" stroke-width="2.5" />
+				<polygon points="843,460 829,454 829,466" fill="black" />
+
+				<!-- Axis labels -->
+				<text x="50" y="250" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black" transform="rotate(-90 50 250)">program state</text>
+				<text x="460" y="500" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="black">time</text>
+
+				<!-- Title -->
+				<text x="460" y="25" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
+					fill="#1E40AF" font-weight="bold"
+					style="font-family: var(--r-code-font)">autopsy</text>
+			</svg>
+		</div>
+		<Action do={() => { groupFilterStep = 1 }} undo={() => { groupFilterStep = 0 }} />
+		<Action do={() => { groupFilterStep = 2 }} undo={() => { groupFilterStep = 1 }} />
+		<Notes>
+			Demonstrate grouping and filtering affordance.
+			Step 1: Select all blue (True) dots.
+			Step 2: Discard orange (False) dots and redistribute remaining True dots evenly.
+		</Notes>
+	</Slide>
+
+	<!-- Slide: Video — Grouping & Filtering -->
+	<Slide class="h-full">
+		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
+			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
+				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Grouping & Filtering</p>
+			</div>
+			<p class="text-4xl text-gray-700">Remember to move the log line outside the condition</p>
+		</div>
+		<Notes>
+			Demo video showing grouping and filtering in autopsy.
+			Reminder: move the log line outside the condition so all iterations are captured.
+		</Notes>
+	</Slide>
+
 	<!-- Slide: Principle 3c — better affordances for analysis -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
@@ -1605,279 +1729,6 @@ autopsy.log("checkpoint", order, total)`}
 			Industry already does this with structured logging in production (Splunk, Datadog, ELK).
 		</Notes>
 	</Slide>
-
-	<!-- Slide: Looping analysis animation (talk-over slide) -->
-	<Slide class="h-full" in={() => { stopLoop(); loopMode = 'none'; loopHighlightLine = -1; loopTerminalLines = []; loopPrintDotsR1 = 0; loopPrintDotsR2 = 0; loopBpX.reset() }}>
-		<div class="relative h-full w-full overflow-hidden">
-			<!-- Left: state×time chart -->
-			<div
-				class="absolute top-0 left-0 bottom-0 transition-all duration-500"
-				style="width: {loopMode === 'none' ? '100%' : '42%'}; opacity: {loopMode === 'none' ? 0.3 : 1}"
-			>
-				<div class="relative flex h-full items-center justify-center overflow-hidden">
-					<svg viewBox="0 0 900 520" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
-						<rect x="100" y="40" width="720" height="420" fill="white" />
-
-						<!-- Axes -->
-						<line x1="140" y1="40" x2="140" y2="420" stroke="black" stroke-width="2" />
-						<line x1="140" y1="420" x2="780" y2="420" stroke="black" stroke-width="2" />
-						<text x="50" y="250" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
-							fill="black" transform="rotate(-90 50 250)">program state</text>
-						<text x="460" y="480" text-anchor="middle" font-family="Lato, sans-serif" font-size="28"
-							fill="black">time</text>
-
-						<!-- Breakpoint mode: animated vertical bar -->
-						{#if loopMode === 'breakpoint'}
-							<rect x={loopBpX.x - 12} y="40" width="24" height="420" fill="#1E40AF"
-								style="opacity: 0; animation: appear 0.3s ease-out forwards" />
-						{/if}
-
-						<!-- Print mode: dots -->
-						{#if loopMode === 'print'}
-							{#each printDotsInterleaved as [cx, cy], i}
-								{#if i > 0 && i < loopPrintDotsR1 + loopPrintDotsR2}
-									{@const prevIdx = i - 1}
-									<line x1={printDotsInterleaved[prevIdx][0]} y1={printDotsInterleaved[prevIdx][1]} x2={cx} y2={cy}
-										stroke="#991B1B" stroke-width="2.5" stroke-linecap="round" />
-								{/if}
-								{#if i < loopPrintDotsR1 + loopPrintDotsR2}
-									<circle {cx} {cy} r="6" fill="#991B1B" />
-								{/if}
-							{/each}
-						{/if}
-					</svg>
-
-					<!-- Technique label -->
-					{#if loopMode !== 'none'}
-						<div class="absolute left-[4%] top-[6%] rounded-md bg-white/85 px-4 py-2 text-left">
-							{#if loopMode === 'breakpoint'}
-								<p class="text-4xl font-bold text-[#1E40AF]">breakpoint debugger</p>
-								<p class="text-2xl text-gray-500">all state · one moment</p>
-							{:else}
-								<p class="text-4xl font-bold text-[#1E40AF]">print debugging</p>
-								<p class="text-2xl text-gray-500">some state · many moments</p>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			</div>
-
-			<!-- Right panels -->
-			<div
-				class="absolute top-0 bottom-0 right-0 flex flex-col gap-3 p-3 transition-all duration-500"
-				style="width: {loopMode === 'none' ? '0%' : '42%'}; opacity: {loopMode === 'none' ? 0 : 1}"
-			>
-				<!-- Code editor -->
-				<div class="flex-1 min-h-0 overflow-hidden">
-					<CodeOverlay
-						lines={loopMode === 'print' ? tr.codeVariants.printV2.lines : tr.codeVariants.base.lines}
-						highlightLine={loopHighlightLine}
-						markers={loopMode === 'breakpoint' ? [{ line: COST_LINE_IDX, type: 'breakpoint' }] : []}
-					/>
-				</div>
-
-				<!-- Bottom panel: variables or terminal -->
-				<div class="flex-1 min-h-0 overflow-hidden">
-					{#if loopMode === 'breakpoint'}
-						<VariablesPane
-							variables={loopVars}
-							style="height: 100%"
-						/>
-					{:else if loopMode === 'print'}
-						<div class="rounded-xl border border-gray-800 bg-gray-900 p-4 font-mono text-xl leading-relaxed text-green-400 text-left overflow-y-auto h-full">
-							<p class="text-gray-400 text-lg mb-2">Terminal</p>
-							{#each loopTerminalLines as line}
-								<p>{line}</p>
-							{/each}
-						</div>
-					{/if}
-				</div>
-			</div>
-
-			<!-- Center text when no mode active -->
-			{#if loopMode === 'none'}
-				<div class="absolute inset-0 flex items-center justify-center">
-					<h2 class="text-7xl font-bold text-gray-400">Affordances for analysis</h2>
-				</div>
-			{/if}
-		</div>
-
-		<Action
-			do={() => { stopLoop(); loopMode = 'breakpoint'; loopVars = tr.breakpointSnapshots[0]; runBreakpointLoop() }}
-			undo={() => { stopLoop(); loopMode = 'none'; loopHighlightLine = -1 }}
-		/>
-		<Action
-			do={() => { stopLoop(); loopMode = 'print'; loopHighlightLine = -1; loopTerminalLines = []; loopPrintDotsR1 = 0; loopPrintDotsR2 = 0; runPrintLoop() }}
-			undo={() => { stopLoop(); loopMode = 'breakpoint'; loopVars = tr.breakpointSnapshots[0]; runBreakpointLoop() }}
-		/>
-
-		<Notes>
-			Talk over this slide about affordances for analysis.
-			The looping animations show how current tools force you to step through execution one item at a time,
-			with no way to see patterns across the full execution.
-		</Notes>
-	</Slide>
-
-	<!-- Slide: Principle 3d — connection back to code -->
-	 <!--
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Principle: connection back to code</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Execution data is generated by a precise, computational process</li>
-				<li>We know the exact <em>provenance</em> of all data</li>
-				<li>This is leveraged in the analysis process</li>
-			</ul>
-		</div>
-	</Slide>
-	-->
-
-	<!-- Slide: Demo — pricing example -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col gap-2 px-4 pt-4 pb-2">
-			<h2 class="text-6xl font-bold text-black text-left">
-				<span
-					class="bg-[#1E40AF] px-2 py-0.5 text-white"
-					style="font-family: var(--r-code-font)"
-				>autopsy</span> — Demo: pricing example
-			</h2>
-			<!-- <iframe
-				src="{iframBase}/price_calculator_report.html"
-				title="Autopsy Report — Price Calculator"
-				class="flex-1 w-full rounded-lg border border-gray-200 shadow-sm"
-				style="min-height: 0"
-			></iframe> -->
-			<p class="text-3xl text-gray-500 italic flex-1 flex items-center justify-center">[Live demo: price calculator with autopsy]</p>
-		</div>
-		<Notes>
-			Demo the autopsy interface with the pricing example: streams view, computed columns, sorting, filtering, cross-view navigation.
-		</Notes>
-	</Slide>
-
-	<!-- Slide 11: autopsy overview -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">
-				<span
-					class="bg-[#1E40AF] px-2 py-1 text-white"
-					style="font-family: var(--r-code-font)"
-				>autopsy</span> overview
-			</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Three components: Python tracing library, web viewer, VS Code extension</li>
-				<li>
-					<code>import autopsy</code> / <code>autopsy.log("label", var1, var2)</code>
-				</li>
-				<li>Captures passed arguments + full stack trace (all frames, all variables)</li>
-			</ul>
-		</div>
-		<Notes>
-			Emphasize: the log call is intentional (you choose where to probe), but what gets captured
-			goes far beyond what you explicitly asked for. This is the first step of decoupling —
-			collection gives you more than you requested.
-		</Notes>
-	</Slide>
-
-	<!-- Slide: Live autopsy interface (order_pipeline example) -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col gap-2 px-4 pt-4 pb-2">
-			<h2 class="text-6xl font-bold text-black text-left">
-				<span
-					class="bg-[#1E40AF] px-2 py-0.5 text-white"
-					style="font-family: var(--r-code-font)"
-				>autopsy</span> — Live Demo
-			</h2>
-			<!-- <iframe
-				src="{iframBase}/order_pipeline_report.html"
-				title="Autopsy Report — Order Pipeline"
-				class="flex-1 w-full rounded-lg border border-gray-200 shadow-sm"
-				style="min-height: 0"
-			></iframe> -->
-		</div>
-		<Notes>
-			This is a live, interactive autopsy report for the order_pipeline example.
-			You can click into the iframe and interact with the full autopsy interface —
-			streams view, history view, sorting, filtering, computed columns, etc.
-			Use this to demo the workflow live during the talk.
-		</Notes>
-	</Slide>
-
-	<!-- Slide 13: Demo — streams view + computed columns -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Demo: streams view + computed columns</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Logs from one call site as a <strong>structured table</strong></li>
-				<li>Add a computed column from a stack variable that wasn't explicitly logged</li>
-				<li>Key point: "retroactive print debugging" — no rerun needed</li>
-			</ul>
-			<p class="text-5xl text-black italic">[Demo: streams view, drag-and-drop computed columns]</p>
-		</div>
-		<Notes>
-			This is the single most important feature to demonstrate. It directly shows decoupling: you
-			collected data at one point, and now you're expanding what you can see from that data
-			without going back to collection. Emphasize: in print debugging, realizing you need another
-			variable means editing code and rerunning. Here, it's a drag-and-drop.
-		</Notes>
-	</Slide>
-
-	<!-- Slide 14: Demo — sorting, filtering, cross-time comparison -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">
-				Demo: sorting, filtering, cross-time comparison
-			</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Sort by a column to group related entries</li>
-				<li>Filter to a subset of interest</li>
-				<li>Patterns across many executions become visible in the table</li>
-			</ul>
-			<p class="text-5xl text-black italic">[Demo: sorting and filtering]</p>
-		</div>
-		<Notes>
-			This is the "data tools" part. Sorting and filtering are simple but they enable seeing
-			patterns that are invisible in sequential log output. Point out that time is always a
-			secondary sort dimension, so within groups you still see temporal ordering.
-		</Notes>
-	</Slide>
-
-	<!-- Slide 15: Demo — navigation between views -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Demo: navigation between views</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Click a row in streams → jump to its location in history (sequential context)</li>
-				<li>Click a row in history → jump to its stream (cross-time context)</li>
-				<li>Inspect the full call stack from any row</li>
-			</ul>
-			<p class="text-5xl text-black italic">[Demo: cross-view navigation]</p>
-		</div>
-		<Notes>
-			This demonstrates "connect back to code" and the ability to shift between analytical lenses
-			on the same data. The navigation between streams and history is how autopsy supports both
-			"what happened at this code location across time?" and "what happened around this moment in
-			execution?"
-		</Notes>
-	</Slide>
-
-	<!-- Slide 16: Demo — identifying the bug -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Demo: identifying the bug</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Walk through how data tools led to identifying the root cause</li>
-				<li>Comparing stack traces across rows reveals the state mutation</li>
-			</ul>
-			<p class="text-5xl text-black italic">[Demo: bug identification moment]</p>
-		</div>
-		<Notes>
-			Land the demo by connecting back to the model-checking framing. The programmer had a mental
-			model, the data tools made it easy to find where reality diverged, and the full stack
-			traces let them trace back to the code.
-		</Notes>
-	</Slide>
-
-	<!-- ─── Section 5: Future vision and closing ─── -->
 
 	<!-- Slide 17: Where this goes -->
 	<Slide class="h-full">
