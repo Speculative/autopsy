@@ -10,6 +10,7 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.1",
+		"@sveltejs/adapter-static": "^3.0.10",
 		"@sveltejs/kit": "^2.51.0",
 		"@sveltejs/vite-plugin-svelte": "^6.2.4",
 		"@types/reveal.js": "^5.2.2",

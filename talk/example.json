@@ -1,0 +1,29 @@
+{
+  "seed": 2,
+  "items": [
+    { "name": "Widget", "qty": 12, "price": 6.22, "free_shipping": false },
+    { "name": "Gadget", "qty": 5, "price": 8.99, "free_shipping": false },
+    { "name": "Sprocket", "qty": 14, "price": 10.20, "free_shipping": false },
+    { "name": "Bolt", "qty": 8, "price": 6.64, "free_shipping": false },
+    { "name": "Washer", "qty": 12, "price": 3.48, "free_shipping": false },
+    { "name": "Bracket", "qty": 12, "price": 4.62, "free_shipping": false },
+    { "name": "Clip", "qty": 7, "price": 12.85, "free_shipping": false },
+    { "name": "Pin", "qty": 9, "price": 3.83, "free_shipping": false },
+    { "name": "Screw", "qty": 11, "price": 6.77, "free_shipping": false },
+    { "name": "Nut", "qty": 15, "price": 2.51, "free_shipping": false },
+    { "name": "Rivet", "qty": 14, "price": 2.81, "free_shipping": false },
+    { "name": "Dowel", "qty": 2, "price": 4.50, "free_shipping": false },
+    { "name": "Cap", "qty": 1, "price": 14.22, "free_shipping": false },
+    { "name": "Plug", "qty": 7, "price": 10.25, "free_shipping": false },
+    { "name": "Seal", "qty": 15, "price": 5.03, "free_shipping": false },
+    { "name": "Ring", "qty": 8, "price": 6.53, "free_shipping": false }
+  ],
+  "code": [
+    "for item in cart:",
+    "    if item.qty >= 10:",
+    "        item.price *= 0.9",
+    "    ...",
+    "    if item.total() > 35:",
+    "        item.free_shipping = True"
+  ]
+}

@@ -142,6 +142,7 @@ function traceItem(
 			// line 2: item.price *= 0.9
 			it.price = parseFloat((it.price * 0.9).toFixed(2))
 			visit(2)
+			console.log('Price', it.name, it.price.toFixed(2), `qty=${it.qty}`)
 		}
 		// line 3: ...
 		visit(3)
@@ -151,6 +152,7 @@ function traceItem(
 			// line 5: item.free_shipping = True
 			it.free_shipping = true
 			visit(5)
+			console.log('Free', it.name, it.free_shipping, `total=${(it.qty * it.price).toFixed(2)}`)
 		}
 	} else if (variant.id === 'print-v1') {
 		visit(0) // for

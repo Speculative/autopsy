@@ -15,10 +15,6 @@
 
 	// ── Generate all traced data ──
 	const tr = trace(SEED, ITEM_COUNT)
-	console.log('[trace] SEED:', SEED, 'ITEM_COUNT:', ITEM_COUNT)
-	console.log('[trace] items:', tr.items)
-	console.log('[trace] terminalLines:', tr.terminalLines)
-	console.log('[trace] printDots row1:', tr.printDots.row1.length, 'row2:', tr.printDots.row2.length)
 
 	// ── Derived code strings (for Animotion <Code> component on slide 2) ──
 	const codeInitial = tr.codeVariants.base.lines.join('\n')
@@ -337,7 +333,6 @@
 		showStateVarLabels = snap.showStateVarLabels
 		showCostLabels = snap.showCostLabels
 		rightPanel = snap.rightPanel
-		console.log(`[applySnapshot] phase=${snap.phase} rightPanel=${snap.rightPanel} printCodeVersion=${snap.printCodeVersion}`)
 		stateTimeStep = snap.stateTimeStep
 		printCodeVersion = snap.printCodeVersion
 		bpDebuggerHighlightLine = snap.bpDebuggerHighlightLine
@@ -510,7 +505,6 @@
 	let chartReady = $state(false)
 
 	function applyStep(step: number, skipAnim: boolean) {
-		console.log(`[applyStep] step=${step} skipAnim=${skipAnim} chartReady=${chartReady}`)
 		// Cancel any running progressive animation
 		chartAbort?.abort()
 		chartAbort = null
@@ -535,10 +529,6 @@
 	// Mark chart as ready after initial action replay completes
 	onMount(() => {
 		requestAnimationFrame(() => { chartReady = true })
-	})
-
-	$effect(() => {
-		console.log(`[reactive] phase=${phase} rightPanel=${rightPanel} printCodeVersion=${printCodeVersion} codeLines=${unifiedCodeLines.length}`)
 	})
 
 	// ── Formative study slide ──
@@ -633,6 +623,20 @@
 	const middlePriceDotIdx = Math.floor(printDotsRow1.length / 2)
 	// total() dots share x-positions with price dots
 	const totalDots: [number, number][] = printDotsRow1.map(([x]) => [x, totalRowY])
+
+	// ── Video elements ──
+	let vidStackTrace: HTMLVideoElement
+	let vidStreams: HTMLVideoElement
+	let vidStepping: HTMLVideoElement
+	let vidComputed: HTMLVideoElement
+	let vidAggFilter: HTMLVideoElement
+
+	function restartVideo(el: HTMLVideoElement) {
+		if (!el) return
+		el.currentTime = 0
+		el.playbackRate = 1.5
+		el.play()
+	}
 
 	// ── Step debugging random walk ──
 	let stepDebugIdx = $state(0)
@@ -734,9 +738,8 @@
 			</div>
 		</div>
 		<Notes>
-			First, a bit of background about me and why I care about debugging.
-			I'm currently a PhD student at Penn, researching tools for programmers.
-			But I used to be a senior software engineer in the industry, where I worked on auth, notifications, client/server sync.
+			Just to introduce where I'm coming from with debugging.
+			I used to be a senior software engineer in the industry, where I worked on auth, notifications, client/server sync.
 			All things that are procedural, highly stateful, highly complex, prone to bugs, and really annoying to debug.
 			And in all that time I was one of those programmers who always used print statements to debug.
 			But I found the debugging tools at my disposal unsatisfying.
@@ -757,7 +760,6 @@
 	-->
 	<Slide class="h-full" in={() => {
 		const cf = document.querySelector('.current-fragment')
-		console.log('[slide in] current-fragment:', cf?.getAttribute('data-fragment-index'), 'chartStep:', chartStep)
 		if (!cf) {
 			chartStep = 0
 			applyStep(0, true)
@@ -1041,8 +1043,8 @@
 		     ════════════════════════════════════════════════════ -->
 		{#each { length: TOTAL_STEPS - 1 } as _, i}
 			<Action
-				do={() => { console.log(`[Action do] i=${i + 1}`); chartStep = i + 1; applyStep(i + 1, false) }}
-				undo={() => { console.log(`[Action undo] i=${i}`); chartStep = i; applyStep(i, false) }}
+				do={() => { chartStep = i + 1; applyStep(i + 1, false) }}
+				undo={() => { chartStep = i; applyStep(i, false) }}
 			/>
 		{/each}
 
@@ -1055,8 +1057,7 @@
 
 			<p>
 				You've maybe already spotted the bug: sometimes a customer will get a discount for a bulk order and that'll take away what was previously going to be their free shipping, which isn't a good experience.
-				Let's say that this in the real code base this is hard to spot: maybe the logic is distributed across multiple functions, or there's a bunch of stuff in between these lines.
-				This is a pretty common issue: the logic looks reasonable locally, but produces unreasonable results when composed.
+				This is a toy example, but it represents a pretty common issue: the logic looks reasonable locally, but produces unreasonable results when composed.
 			</p>
 
 			<hr>
@@ -1100,6 +1101,56 @@
 
 			<hr>
 
+			When I press continue, the program runs until it hits the breakpoint again, and I can see all of the state everywhere at this new moment.
+
+			This can be great! It leaves you flexible and doesn't require you to predict in advance what state will be relevant to your debugging.
+
+			<hr>
+
+			And as I continue to use my breakpoint debugger, I'm proceeding through a sequence of stack traces, each of which is a complete vertical slice of state, but at a different point in time.
+
+			So I like that I can see all of the state and know that it's all related because it's all from the same moment in time, but I have to keep track of the history of how I got to this point in my head, and I have to decide when to pause and inspect state.
+
+			<hr>
+			
+			Next, let's examine print debugging. 
+
+			<hr>
+
+			When I add a print statement to the code,
+
+			<hr>
+
+			when execution runs over the print statement, I get a log entry in my terminal, shown in the bottom right, that shows me the values of some variables that I choose at that moment in time.
+
+			<hr>
+
+			As the entire program executes, I get a bunch of logs in my terminal, each corresponding to a particular value taken on by a specific part of the program state.
+			Each of these dots represents a particular log entry, which you can think of as storing that particular state-time value.
+			They're arranged horizontally because they all represent state pulled from the same place in the code.
+
+			<hr>
+
+			Now, if I add a second print line
+
+			<hr>
+
+			as the program executes, I get logs whenever one of these print statements executes.
+
+			<hr>
+
+			And when the whole program executes, I get logs from both print statements, extracting different states from different times.
+			Programmers often insert multiple print statement probes in their code, precisely because, in contrast to breakpoints, it helps them understand sequences of events.
+
+			But recall the blue bars of the breakpoint debugger. You no longer have access to complete information about each moment in time.
+
+			<br>
+
+			And also, where I put my print statements and how the program actually executes determines how the information I get is displayed to me.
+			I don't have two neat, separated rows of logs. I have this zigzag interleaving of them.
+			This helps me in situations where I want to understand the history of execution, but it makes it hard to understand the execution in any other way besides chronologically.
+
+
 		</Notes>
 	</Slide>
 
@@ -1137,7 +1188,22 @@
 			</div>
 		</div>
 		<Notes>
-			We conducted interviews with 12 experienced industry software engineers to understand their debugging practices and why they preferred certain tools and techniques.
+			<p>
+				We conducted interviews with 12 experienced industry software engineers to understand their debugging practices and why they preferred certain tools and techniques.
+				One major theme that emerged was that their debugging strategies often involved this active negotiation with collecting and viewing information about execution.
+			</p>
+
+			<p>
+				Sometimes they worried about collecting too much. One participant told us that unnecessary information could cause them to lose out on the meaningful thing that would help them understand the bug.
+			</p>
+
+			<p>
+				Another participant said that a poorly placed breakpoint could disrupt their workflow if it was hit a lot.
+			</p>
+
+			<hr>
+
+			<p>On the other hand, they also worried about not having enough information to understand their bugs. They felt this more acutely the longer it took to get new debugging data.</p>
 		</Notes>
 	</Slide>
 
@@ -1156,6 +1222,18 @@
 				</div>
 			</div>
 		</div>
+		<Notes>
+			<p>
+				This negotiation process puts these two instincts in tension. On the one hand, I'm inclined to collect more information because it'll help me make sense of the problem.
+				But on the other hand, I worry that if I collect too much, I won't even be able understand what I'm looking at.
+			</p>
+
+			<p>Needing to navigate this tension seems to me like incidental complexity of current debuggers, rather than an inherent part of debugging.</p>
+
+			<p>
+				I'm a databases person. When I hear this tension, my instinct is that I should be able to collect everything and that I should have good analysis tools that let me manage all of that data.
+			</p>
+		</Notes>
 	</Slide>
 
 	<!-- Slide: Why are they in tension? -->
@@ -1168,12 +1246,18 @@
 			</ul>
 		</div>
 		<Notes>
-			There's nothing you can do with print debugging output besides browsing it and performing text search on it.
-			Print debugging is "preregistering" your analysis.
-			On the other hand, interactive debugging with a breakpoint debugger is almost the opposite: it forces you to continually make decisions about what data to collect next.
-			You're constantly switching between deciding where to go next and analyzing what you can now see.
+			<p>But where is this tension coming from in current debuggers? Well, the design of both debugging tools couples collection and analysis.</p>
 
-			On the analysis side, neither has strong affordances for reasoning about whole-program execution, which I'll get into in a bit.
+			<p>
+				There's nothing you can do with print debugging output besides browsing it and performing text search on it.
+				And your print statements fix output, forcing you to see only what you've logged, but also forcing you to see everything you've logged.
+			</p>
+			<p>
+				On the other hand, interactive debugging with a breakpoint debugger is almost the opposite: it forces you to continually make decisions about what data to collect next.
+				You're constantly switching between deciding where to go next and analyzing what you can now see.
+			</p>
+
+			On the analysis side, neither has affordances to aid your reasoning beyond just showing you the data. I'll get back to that in a minute.
 			First, let's examine what better collection could look like.
 		</Notes>
 	</Slide>
@@ -1267,8 +1351,15 @@
 		<Action do={() => { compChartStep = 2 }} undo={() => { compChartStep = 1 }} />
 
 		<Notes>
-			Show the same state×time chart from before, but now just as a quick comparison.
-			Breakpoint: all state, one moment. Print: some state, many moments. Autopsy: all state, many moments.
+			So we saw that breakpoints let you see all of the state at one particular moment in time.
+
+			<hr>
+
+			And print statements let you see particular pieces of state across many moments in time, and in order.
+
+			<hr>
+
+			Well, from a pure data collection perspective, it sure would be nice to get all state at all moments in time.
 		</Notes>
 	</Slide>
 
@@ -1297,34 +1388,60 @@ autopsy.log("checkpoint", order, total)`}
 			<p><span class="font-mono">autopsy.log()</span> calls capture <span class="text-[#0000FF]">full stack traces</span></p>
 		</div>
 		<Notes>
-			Introduce the autopsy tool: a Python tracing library. The key insight is that a single log call
-			captures far more than what you explicitly pass — it grabs the entire call stack with all local
-			variables at every frame. This is the "collect more" side of the design.
+			<p>
+			This is exactly what we designed autopsy to do. The first part of autopsy is a python debugging library.
+			The way you use it to instrument code looks a lot like print debugging: you just import log from autopsy and sprinkle calls to log throughout your code base.
+			</p>
+
+			<p>
+			The interesting extra bit is that it captures full stack traces, not just the expressions you pass it.
+			Here, a full stack trace means every stack frame, and every variable in every stack frame. This is all of the information you get when paused on a breakpoint.
+			</p>
 		</Notes>
 	</Slide>
 
-	<!-- Slide: Call stack in History view (video placeholder) -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
-			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
-				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — call stack access in History view</p>
-			</div>
+	<!-- Slide: Call stack in History view -->
+	<Slide class="h-full" in={() => restartVideo(vidStackTrace)}>
+		<div class="flex h-full flex-col items-center justify-center">
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video bind:this={vidStackTrace} src="/stack_trace.mp4" loop muted playsinline style="width: 90%; border-radius: 0.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"></video>
 		</div>
 		<Notes>
-			Show a video demonstrating how autopsy's History view gives access to full call stacks,
-			illustrating the "collect more" principle in action.
+			And so, one view of the autopsy interface is like your chronological print statement output,
+			except that you can click on any log entry and see the full stack trace for that moment in time, just like you would see if you were paused at a breakpoint.
+
+			It gives you all of the data you asked for, and more on demand.
 		</Notes>
 	</Slide>
 
 	<!-- Slide: Affordances — Print → table revelation -->
 	<Slide class="h-full">
-		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
-			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
-				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Print → table revelation</p>
+		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-12">
+			<div class="flex items-center justify-center gap-6">
+				<div class="flex flex-col items-center gap-2">
+					<img src="js_console.png" alt="JavaScript console output" class="rounded-lg shadow-lg" style="max-height: 55vh;" />
+					<p class="text-2xl text-gray-500">Print Output</p>
+				</div>
+				<svg width="80" height="60" viewBox="0 0 80 60" class="shrink-0">
+					<defs>
+						<marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+							<polygon points="0 0, 10 3.5, 0 7" fill="#374151" />
+						</marker>
+					</defs>
+					<line x1="5" y1="30" x2="65" y2="30" stroke="#374151" stroke-width="3" marker-end="url(#arrowhead)" />
+				</svg>
+				<div class="flex flex-col items-center gap-2">
+					<img src="pandas.png" alt="Pandas DataFrame output" class="rounded-lg shadow-lg" style="max-height: 55vh;" />
+					<p class="text-2xl text-gray-500">DataFrame?</p>
+				</div>
 			</div>
 		</div>
 		<Notes>
-			Show how print debugging output naturally maps to a table/spreadsheet view.
+			Next, on to analysis affordances.
+
+			This project was partially born from me looking at the JavaScript console, looking at how different logs were separated by lines,
+			and thinking to myself, "Isn't this a table? Shouldn't I be able to do more things with this?" which is when I began to see my debugging logs as a dataset in themselves,
+			where I had previously been thinking of them as the end of where tooling could help me.
 		</Notes>
 	</Slide>
 
@@ -1390,21 +1507,21 @@ autopsy.log("checkpoint", order, total)`}
 		</div>
 		<Action do={() => { affordChartStep = 1 }} undo={() => { affordChartStep = 0 }} />
 		<Notes>
-			This is the autopsy view of the state×time chart. The blue vertical bars represent
-			autopsy log snapshots. On the next step, red horizontal bars animate in to show
-			how we can project analysis across rows — grouping by variable.
+			To start, we briefly hit upon this ordering problem of only being able to see logs chronologically.
+			One obvious affordance is letting you isolate the logs from different places in your code.
 		</Notes>
 	</Slide>
 
 	<!-- Slide: Video — Streams -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
-			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
-				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Streams</p>
-			</div>
+	<Slide class="h-full" in={() => restartVideo(vidStreams)}>
+		<div class="flex h-full flex-col items-center justify-center">
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video bind:this={vidStreams} src="/streams.mp4" loop muted playsinline style="width: 90%; border-radius: 0.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"></video>
 		</div>
 		<Notes>
-			Demo video showing the Streams view in autopsy.
+			By default, autopsy shows you this chronological view.
+			But if you switch to this Streams view, they're separated by statement, letting you see all of the logs produced at a particular point in your code.
+			And since all of those logs have the same set of arguments, they're presented in a table view, which has some nice properties we're about to see.
 		</Notes>
 	</Slide>
 
@@ -1458,20 +1575,33 @@ autopsy.log("checkpoint", order, total)`}
 		</div>
 		<Action do={() => { startStepDebug() }} undo={() => { stopStepDebug(); stepDebugIdx = 0 }} />
 		<Notes>
-			Show how autopsy can replay through logged states like a step debugger,
-			stepping forward and backward through execution order.
+			<p>
+				So autopsy can replace print debugging, and goes beyond it. But what about breakpoint debugging?
+				We tried to give it a similar treatment for stepping. You should be able to follow along with the order that things were captured in.
+			</p>
+
+			<p>
+				At each point, we can show you the same information the breakpoint debugger would have shown you, because we're capturing the full stack trace.
+				And since this is all post-hoc analysis of captured logs, we can do the omniscient debugging thing of letting you step forwards and backwards and jump to arbitrary points.
+			</p>
 		</Notes>
 	</Slide>
 
 	<!-- Slide: Video — Step Debugging -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
-			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
-				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Step Debugging</p>
-			</div>
+	<Slide class="h-full" in={() => restartVideo(vidStepping)}>
+		<div class="flex h-full flex-col items-center justify-center">
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video bind:this={vidStepping} src="/stepping.mp4" loop muted playsinline style="width: 90%; border-radius: 0.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"></video>
 		</div>
 		<Notes>
-			Demo video showing step debugging in autopsy.
+			<p>
+				So here, next to any log in autopsy, I can click on this "Show in code" button, which gives me a code lens above the corresponding log statement.
+				Then, I can click these buttons to step forwards and backwards through the logs.
+				If I have multiple log statements, the view will jump around to them.
+				And like I said, since I have the full stack trace, I can click on the log to see all of the information that a breakpoint debugger would have shown me.
+			</p>
+
+			<p>The one glaring difference is that this doesn't give me the same stepping experience as breakpoints since it only works when I have log statements. We'll get back to that at the end.</p>
 		</Notes>
 	</Slide>
 
@@ -1585,21 +1715,39 @@ autopsy.log("checkpoint", order, total)`}
 		<Action do={() => { computedColStep = 1 }} undo={() => { computedColStep = 0 }} />
 		<Action do={() => { computedColStep = 2 }} undo={() => { computedColStep = 1 }} />
 		<Notes>
-			Show how computed columns let you project new analysis from collected state.
-			First, select a single price dot and compute total() for that item.
-			Then, expand to all price dots with a new total() row.
+			
+			Well now that I've captured all of this extra context at each log line, it seems like I could do more with it.
+			To help with the problem of not having logged the right things, you can now decide that you want to see this other state alongside what you're already seeing.
+
+			<hr>
+
+			To do so, you reach into that stack trace that you've captured for this log and pull out the relevant bit of state
+
+			<hr>
+
+			And then your tool projects that for every log you have.
+			
 		</Notes>
 	</Slide>
 
 	<!-- Slide: Video — Computed Columns -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
-			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
-				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Computed Columns</p>
-			</div>
+	<Slide class="h-full" in={() => restartVideo(vidComputed)}>
+		<div class="flex h-full flex-col items-center justify-center">
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video bind:this={vidComputed} src="/computed.mp4" loop muted playsinline style="width: 90%; border-radius: 0.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"></video>
 		</div>
 		<Notes>
-			Demo video showing computed columns in autopsy.
+			<p>
+				So here's me doing that in autopsy. When I'm looking at this table, I can open the call stack and pull out other relevant state to create a new column.
+			</p>
+
+			<p>
+				I can also compute arbitrary python expressions over the captured call stack and project it into a new column, like the total being the quantity times the price.
+			</p>
+
+			<p>
+				And just like that, I can enrich my logs with new information on demand.
+			</p>
 		</Notes>
 	</Slide>
 
@@ -1693,87 +1841,82 @@ autopsy.log("checkpoint", order, total)`}
 		<Action do={() => { groupFilterStep = 1 }} undo={() => { groupFilterStep = 0 }} />
 		<Action do={() => { groupFilterStep = 2 }} undo={() => { groupFilterStep = 1 }} />
 		<Notes>
-			Demonstrate grouping and filtering affordance.
-			Step 1: Select all blue (True) dots.
-			Step 2: Discard orange (False) dots and redistribute remaining True dots evenly.
+			Last affordance I'll talk about today: ways of getting overviews of the logs and customizing your view.
+
+			<hr>
+
+			To make certain comparisons easier, or to narrow my focus to an interesting subset of the data, I should be able to say that I only care about logs with a particular characteristic.
+			So I should be able to select only the stuff I care about...
+
+			<hr>
+
+			...and then change my view of the logs to just those logs.
 		</Notes>
 	</Slide>
 
 	<!-- Slide: Video — Grouping & Filtering -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col items-center justify-center gap-8 px-20 py-16">
-			<div class="rounded-lg border-2 border-dashed border-amber-400 bg-amber-50 px-12 py-16">
-				<p class="text-5xl text-amber-800"><strong>TODO:</strong> Video — Grouping & Filtering</p>
-			</div>
-			<p class="text-4xl text-gray-700">Remember to move the log line outside the condition</p>
+	<Slide class="h-full" in={() => restartVideo(vidAggFilter)}>
+		<div class="flex h-full flex-col items-center justify-center">
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video bind:this={vidAggFilter} src="/agg_filter.mp4" loop muted playsinline style="width: 90%; border-radius: 0.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.15);"></video>
 		</div>
 		<Notes>
-			Demo video showing grouping and filtering in autopsy.
-			Reminder: move the log line outside the condition so all iterations are captured.
+			<p>So in autopsy, next to each column header is a filter icon.</p>
+
+			<p>
+				I can see distributions of values, letting me easily understand properties of the captured data in aggregate.
+				Is this the right distribution of values for this variable? Are there values in here that I don't expect?
+			</p>
+
+			<p>And then I can go and say "oh I only care to see when free_shipping was True". This also cross-filters my chronological view.</p>
 		</Notes>
 	</Slide>
 
 	<!-- Slide: Principle 3c — better affordances for analysis -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Affordances for analysis</h2>
+			<h2 class="text-8xl font-bold text-black">Future Work</h2>
 			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Project new analysis from collected state</li>
-				<li>Group and aggregate across logs — distributions, boundaries, outliers</li>
-				<li>Associate logs with each other; focus to a region of interest</li>
-				<li>Make comparisons across points in the log</li>
-				<li class="mt-4 text-3xl text-gray-600">Omniscient debuggers don't get you all the way there: they replay deterministically and let you jump in time, but don't present across-log analysis tools</li>
+				<li>Starting tomorrow: controlled lab study vs. print/breakpoints</li>
+				<li>Capture all statements, no <span class="font-mono">autopsy.log()</span> calls</li>
+				<li>More complex queries ("Pairs of logs where X happened, then Y")</li>
+				<li>Comparisons across multiple executions ("How did my change affect the execution?")</li>
+				<li>Letting LLMs query the dataset, both for agentic loops and explanations</li>
 			</ul>
 		</div>
 		<Notes>
-			Industry already does this with structured logging in production (Splunk, Datadog, ELK).
-		</Notes>
-	</Slide>
-
-	<!-- Slide 17: Where this goes -->
-	<Slide class="h-full">
-		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Where this goes</h2>
-			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Current limitation: programmer manually places log statements</li>
-				<li>
-					Future: full execution capture → all state at all time → intentionality moves entirely
-					to analysis
-				</li>
-				<li>
-					Agentic coding: LLM assistants currently debug via print statements — what if the agent
-					could query a full execution dataset instead?
-				</li>
-				<li>
-					Ongoing: controlled lab study comparing static logs vs. autopsy's interactive data
-					manipulation
-				</li>
-			</ul>
-		</div>
-		<Notes>
-			Don't oversell the agentic angle — it's speculative. But it's a good hook for this
-			audience and it shows the framework has implications beyond the current tool. The lab study
-			is in progress; mention it to signal that empirical validation is coming but isn't the
-			focus of this talk.
+			<p>Up next for this project, well as soon as I get back from PLATEAU I'm running a user study on this.</p>
+			<p>We'd also like to work on efficient capture and capture all statements automatically.</p>
+			<p>I've only covered most most basic queries, I think you could do much more with this data.</p>
+			<p>Being able to make a code change and diff the traces could be really powerful as well.</p>
+			<p>And lastly, I think letting coding agents query the dataset might be interesting, both for the agent coding loop and for creating explanations for humans.</p>
 		</Notes>
 	</Slide>
 
 	<!-- Slide 18: Closing -->
 	<Slide class="h-full">
 		<div class="flex h-full flex-col justify-center gap-6 px-20 py-16 text-left">
-			<h2 class="text-8xl font-bold text-black">Data-oriented debugging</h2>
+			<h2 class="text-8xl font-bold text-black">Data-oriented debugging <br>
+				with <span
+					class="mt-2 inline-block bg-[#0000FF] px-3 py-1 text-white"
+					style="font-family: var(--r-code-font)"
+				>autopsy</span>
+			</h2>
 			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
-				<li>Debugging = checking mental models against execution data</li>
-				<li>Current tools couple collection and analysis</li>
-				<li>Data-oriented debugging decouples them</li>
-				<li>
-					<span
-						class="bg-[#1E40AF] px-2 py-1 text-white"
-						style="font-family: var(--r-code-font)"
-					>autopsy</span> demonstrates this
-				</li>
+				<li>Separate collection and analysis</li>
+				<li>New analysis affordances over captured data</li>
 			</ul>
-			<p class="text-3xl text-black italic mt-4">[Link to tool / paper / contact info]</p>
+			<h2 class="text-8xl font-bold text-black">Discussion</h2>
+			<ul class="flex flex-col gap-3 pl-6 text-5xl text-black list-disc">
+				<li>Any questions you would want to ask participants of my study?</li>
+				<li>Is this the right way to think about debugging tools?</li>
+				<li>Other things you can imagine doing with full traces?</li>
+			</ul>
 		</div>
+		<Notes>
+			So that's data-oriented debugging and autopsy.
+			For discussion, I'd like to emphasize this first question especially:
+			I'm running a study starting tomorrow, so if there are any questions you think I should be asking participants, please let me know!
+		</Notes>
 	</Slide>
 </Presentation>
