@@ -14,7 +14,9 @@
     "Debuggers",
     "Visualization"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "workspaceContains:**/.autopsy-study.db"
+  ],
   "main": "./out/extension.js",
   "extensionKind": [
     "ui",

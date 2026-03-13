@@ -56,6 +56,21 @@ export function activate(context: vscode.ExtensionContext) {
   const statusBarInterval = setInterval(updateStatusBar, 2000);
   context.subscriptions.push({ dispose: () => clearInterval(statusBarInterval) });
 
+  // Check for an ongoing study session on startup and notify
+  const existingSession = studyLogger.getCurrentSession();
+  if (existingSession) {
+    const count = studyLogger.getEventCount();
+    studyLogger.logEvent('study.sessionResumed', 'vscode', {
+      participant_id: existingSession.participant_id,
+      task: existingSession.task,
+      condition: existingSession.condition,
+      events_so_far: count,
+    });
+    vscode.window.showInformationMessage(
+      `Study session resumed: ${existingSession.participant_id} | ${existingSession.task} | ${existingSession.condition} (${count} events)`
+    );
+  }
+
   // ── Study session management commands ──────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('autopsy.studySetSession', async () => {
