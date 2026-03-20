@@ -31,7 +31,6 @@ function debounce<T>(fn: (arg: T) => void, delayMs: number): (arg: T) => void {
 
 /** DAP commands/events we care about. */
 const DAP_STEP_COMMANDS = new Set(['next', 'stepIn', 'stepOut', 'continue', 'stepBack', 'reverseContinue']);
-const DAP_INSPECT_COMMANDS = new Set(['variables', 'evaluate']);
 const DAP_STOPPED_EVENT = 'stopped';
 
 export function registerStudySubscriptions(
@@ -231,6 +230,64 @@ export function registerStudySubscriptions(
       });
     })
   );
+
+  // ── Run (without debugging) ───────────────────────────────────────────────
+  // VS Code 1.93+ exposes onDidStartTaskProcess / onDidEndTaskProcess.
+  // Tasks cover "Run Without Debugging" (F5 in non-debug mode), launch tasks,
+  // and any other task runner invocations.
+  context.subscriptions.push(
+    vscode.tasks.onDidStartTask((e) => {
+      logger.logEvent('run.taskStart', 'vscode', {
+        name: e.execution.task.name,
+        type: e.execution.task.definition.type,
+        source: e.execution.task.source,
+      });
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.tasks.onDidEndTask((e) => {
+      logger.logEvent('run.taskEnd', 'vscode', {
+        name: e.execution.task.name,
+        type: e.execution.task.definition.type,
+        source: e.execution.task.source,
+      });
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.tasks.onDidStartTaskProcess((e) => {
+      logger.logEvent('run.taskProcessStart', 'vscode', {
+        name: e.execution.task.name,
+        pid: e.processId ?? null,
+      });
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.tasks.onDidEndTaskProcess((e) => {
+      logger.logEvent('run.taskProcessEnd', 'vscode', {
+        name: e.execution.task.name,
+        exitCode: e.exitCode ?? null,
+      });
+    })
+  );
+
+  // ── Testing panel ─────────────────────────────────────────────────────────
+  // vscode.tests.onDidChangeTestResults was added in VS Code 1.96; guard for older hosts.
+  if ('onDidChangeTestResults' in vscode.tests) {
+    context.subscriptions.push(
+      (vscode.tests as any).onDidChangeTestResults((runs: any[]) => {
+        const results = Array.isArray(runs) ? runs : [runs];
+        for (const run of results) {
+          logger.logEvent('test.runChange', 'vscode', {
+            id: run.id,
+            isPersisted: run.isPersisted,
+          });
+        }
+      })
+    );
+  }
 
   // DAP tracker — intercept key messages passively
   context.subscriptions.push(
