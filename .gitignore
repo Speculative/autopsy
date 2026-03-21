@@ -16,3 +16,5 @@ autopsy_report.json
 !autopsy/template.html
 !autopsy_html/index.html
 test-results/
+tracer_report.json
+*.log

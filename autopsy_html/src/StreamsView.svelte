@@ -722,6 +722,19 @@
     newHidden.add(columnName);
     hiddenColumns[callSiteKey] = newHidden;
 
+    // Remove any filter for this column
+    if (columnFilters[callSiteKey]?.[columnName]) {
+      const { [columnName]: _, ...rest } = columnFilters[callSiteKey];
+      columnFilters[callSiteKey] = rest;
+      columnFilters = { ...columnFilters };
+    }
+
+    // Remove any sort for this column
+    if (columnSorts[callSiteKey]?.some(s => s.columnName === columnName)) {
+      columnSorts[callSiteKey] = columnSorts[callSiteKey].filter(s => s.columnName !== columnName);
+      columnSorts = { ...columnSorts };
+    }
+
     // Trigger reactivity
     hiddenColumns = { ...hiddenColumns };
 
