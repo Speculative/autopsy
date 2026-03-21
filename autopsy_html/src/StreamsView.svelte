@@ -99,7 +99,7 @@
   let dropTarget = $state<{ callSiteKey: string; index: number } | null>(null);
 
   // Dropdown menu state - track which column's dropdown is open
-  let openDropdown = $state<{ callSiteKey: string; columnName: string; top: number; left: number } | null>(null);
+  let openDropdown = $state<{ callSiteKey: string; columnName: string; verticalStyle: string; left: number; maxHeight: number } | null>(null);
 
   // Column resize state
   let resizingColumn = $state<{ callSiteKey: string; columnName: string; startX: number; startWidth: number } | null>(null);
@@ -600,11 +600,27 @@
       // Ensure dropdown doesn't overflow on the left either
       leftPos = Math.max(8, leftPos);
 
+      // Determine whether to open above or below based on available space
+      const viewportHeight = window.innerHeight;
+      const spaceBelow = viewportHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+
+      let verticalStyle: string;
+      let maxHeight: number;
+      if (spaceBelow >= spaceAbove) {
+        maxHeight = Math.max(spaceBelow - 4, 150);
+        verticalStyle = `top: ${rect.bottom + 4}px;`;
+      } else {
+        maxHeight = Math.max(spaceAbove - 4, 150);
+        verticalStyle = `bottom: ${viewportHeight - rect.top + 4}px;`;
+      }
+
       openDropdown = {
         callSiteKey,
         columnName,
-        top: rect.bottom + 4,
-        left: leftPos
+        verticalStyle,
+        left: leftPos,
+        maxHeight
       };
       trackEvent('ui.columnDropdownOpen', { callSiteKey, columnName: getColumnDisplayName(callSite, columnName) });
     }
@@ -2575,7 +2591,7 @@
     {@const currentFilter = columnFilters[callSiteKey]?.[columnName] || null}
     <div
       class="column-dropdown-menu"
-      style="top: {dropdownState.top}px; left: {dropdownState.left}px;"
+      style="{dropdownState.verticalStyle} left: {dropdownState.left}px; max-height: {dropdownState.maxHeight}px;"
       role="menu"
       tabindex="-1"
       onmousedown={(e) => e.stopPropagation()}
@@ -2982,7 +2998,6 @@
     z-index: 10000;
     min-width: 320px;
     max-width: 400px;
-    max-height: 600px;
     overflow-y: auto;
   }
 
