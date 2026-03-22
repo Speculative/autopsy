@@ -94,6 +94,12 @@ export class AutopsyCodeLensProvider implements vscode.CodeLensProvider {
         continue;
       }
 
+      // Skip if the line no longer contains a report log call (e.g. the line was deleted/changed)
+      const lineText = document.lineAt(line).text;
+      if (!/report\.(log|count|hist|timeline|happened)\s*\(/.test(lineText)) {
+        continue;
+      }
+
       const range = new vscode.Range(line, 0, line, 0);
 
       // Create appropriate CodeLens based on log type
