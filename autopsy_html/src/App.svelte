@@ -10,7 +10,7 @@
   import ComputedColumnModal from "./ComputedColumnModal.svelte";
   import ViewFilterMenu from "./ViewFilterMenu.svelte";
   import * as pako from "pako";
-  import { isVSCodeWebview, openFileInVSCode, sendLogDataUpdate, addMessageHandler, removeMessageHandler, navigateToLogInVSCode } from "./vscodeApi";
+  import { isVSCodeWebview, getVSCodeApi, openFileInVSCode, sendLogDataUpdate, addMessageHandler, removeMessageHandler, navigateToLogInVSCode } from "./vscodeApi";
   import { trackEvent } from "./studyEvents";
   import { Table, Logs } from "lucide-svelte";
   import {
@@ -379,6 +379,12 @@
     if (isVSCodeWebview() && data.call_sites.length > 0) {
       sendLogDataUpdate(data);
     }
+  });
+
+  // Notify extension that the webview is ready to receive data
+  $effect(() => {
+    if (!isVSCodeWebview()) return;
+    getVSCodeApi()?.postMessage({ type: 'webviewReady' });
   });
 
   // Handle incoming messages from VS Code extension

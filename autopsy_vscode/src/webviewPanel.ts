@@ -16,6 +16,7 @@ export class AutopsyPanel {
   private static _codeLensProvider?: AutopsyCodeLensProvider;
   private static _studyLogger?: StudyLogger;
   private static _printMode: boolean = false;
+  public static _onReadyCallback?: () => void;
   private _navigationContext: NavigationContext = {
     currentLogIndex: null,
     logEntries: [],
@@ -273,6 +274,10 @@ export class AutopsyPanel {
         const level = message.level || 'log';
         const msg = message.message || '';
         this._outputChannel.appendLine(`[Webview ${level.toUpperCase()}] ${msg}`);
+        break;
+      case 'webviewReady':
+        this._outputChannel.appendLine('Webview is ready');
+        AutopsyPanel._onReadyCallback?.();
         break;
       case 'logDataUpdate':
         // Receive autopsy data from webview and emit event

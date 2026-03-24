@@ -245,6 +245,16 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
 
+  const loadExistingJsonReport = () => {
+    vscode.workspace.findFiles('**/tracer_report.json', undefined, 1).then((uris) => {
+      if (uris.length > 0) {
+        loadJsonReport(uris[0]);
+      }
+    });
+  };
+
+  AutopsyPanel._onReadyCallback = loadExistingJsonReport;
+
   jsonWatcher.onDidCreate(loadJsonReport);
   jsonWatcher.onDidChange(loadJsonReport);
 
